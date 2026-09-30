@@ -1,0 +1,373 @@
+openapi: 3.1.0
+info:
+  title: CAPSTONE API v0 (1주차 - 주제·노트)
+  version: 0.1.0
+  description: |
+    앱(FE)과 백엔드(BE) 사이의 1주차 계약. 분석·후보·그래프 API는 해당 기능을 구현하는 주에 추가한다.
+
+    공통 규칙
+    - 모든 id는 서버가 만드는 UUID.
+    - 날짜는 RFC 3339 UTC (예: 2026-09-29T05:12:00Z). 화면 표시는 앱이 현지 시각으로 바꾼다.
+    - 서버는 제목·본문을 유니코드 NFC로 정규화하고 제목 앞뒤 공백을 지운 뒤 저장·비교한다.
+    - 주제 이름과 노트 제목에는 '/'를 쓸 수 없다. 이후 링크 표기 [[주제/제목]]에서 구분자로 쓰기 때문이다.
+    - 노트 제목은 같은 주제 안에서만 유일하다. 미분류(topicId = null) 노트끼리도 중복될 수 없다.
+    - 오류는 항상 Error 모양으로 돌려준다. 앱은 HTTP 상태가 아니라 error.code로 분기한다.
+    - 목록은 1주차에 페이지 나누기를 하지 않는다.
+servers:
+  - url: http://localhost:8080/api
+    description: 로컬 개발
+tags:
+  - name: 주제
+  - name: 노트
+
+paths:
+  /topics:
+    get:
+      tags: [주제]
+      summary: 주제 목록
+      description: sortOrder 오름차순, 같으면 이름순. 미분류 노트 수를 함께 준다.
+      operationId: listTopics
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopicList' }
+    post:
+      tags: [주제]
+      summary: 주제 생성
+      operationId: createTopic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TopicCreate' }
+      responses:
+        '201':
+          description: 생성됨. sortOrder는 기존 최댓값 + 1
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Topic' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409': { $ref: '#/components/responses/TopicNameTaken' }
+
+  /topics/{topicId}:
+    parameters:
+      - $ref: '#/components/parameters/TopicId'
+    patch:
+      tags: [주제]
+      summary: 주제 이름·표시 순서 변경
+      description: 보낸 필드만 바꾼다.
+      operationId: updateTopic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TopicUpdate' }
+      responses:
+        '200':
+          description: 변경됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Topic' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/TopicNameTaken' }
+    delete:
+      tags: [주제]
+      summary: 주제 삭제
+      description: |
+        소속 노트는 지우지 않고 미분류로 옮긴다.
+        미분류에 같은 제목의 노트가 이미 있으면 삭제하지 않고 409 NOTE_TITLE_TAKEN을 돌려준다.
+        error.details.titles에 겹치는 제목 목록이 들어 있다. 사용자가 제목을 바꾼 뒤 다시 시도한다.
+      operationId: deleteTopic
+      responses:
+        '204': { description: 삭제됨 }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/NoteTitleTaken' }
+
+  /notes:
+    get:
+      tags: [노트]
+      summary: 노트 목록·검색
+      description: 본문은 주지 않는다. 사이드바와 검색 결과용.
+      operationId: listNotes
+      parameters:
+        - name: topicId
+          in: query
+          required: false
+          description: 주제 id. 'none'이면 미분류만. 없으면 전체.
+          schema: { type: string, examples: ['none', '5b20c1d4-8f2a-4e61-9b3a-2d7f0c9e1a44'] }
+        - name: q
+          in: query
+          required: false
+          description: 제목 또는 본문에 들어간 문자열 (대소문자 무시, 부분 일치)
+          schema: { type: string, maxLength: 100 }
+        - name: sort
+          in: query
+          required: false
+          schema: { type: string, enum: [title, updated], default: title }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notes]
+                properties:
+                  notes:
+                    type: array
+                    items: { $ref: '#/components/schemas/NoteSummary' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      tags: [노트]
+      summary: 노트 생성
+      operationId: createNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteCreate' }
+            example:
+              title: 재시도 정책
+              topicId: 5b20c1d4-8f2a-4e61-9b3a-2d7f0c9e1a44
+              body: "# 재시도 정책\n- 응답 타임아웃이 발생하면 클라이언트는 같은 요청을 다시 보낸다."
+      responses:
+        '201':
+          description: 생성됨. version은 0
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Note' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/NoteTitleTaken' }
+
+  /notes/{noteId}:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+    get:
+      tags: [노트]
+      summary: 노트 한 건 (본문 포함)
+      operationId: getNote
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Note' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [노트]
+      summary: 노트 제목·본문 수정
+      description: |
+        요청의 version이 서버 값과 다르면 그 사이에 다른 곳에서 고친 것이므로 409 NOTE_CONFLICT를 돌려준다.
+        error.details.current에 서버의 현재 노트가 들어 있다. 성공하면 version이 1 늘어난다.
+        충돌 창에서 "내 내용으로 덮어쓰기"를 고르면 앱은 같은 제목·본문을 details.current.version으로 다시 보낸다.
+        "다른 곳의 내용 불러오기"를 고르면 details.current를 편집기에 채운다.
+      operationId: updateNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteUpdate' }
+      responses:
+        '200':
+          description: 수정됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Note' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: NOTE_CONFLICT (version 불일치) 또는 NOTE_TITLE_TAKEN (같은 주제에 같은 제목)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                conflict:
+                  value:
+                    error:
+                      code: NOTE_CONFLICT
+                      message: 다른 곳에서 이 노트가 먼저 수정되었습니다.
+                      details:
+                        current:
+                          id: 8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70
+                          topicId: 5b20c1d4-8f2a-4e61-9b3a-2d7f0c9e1a44
+                          title: 재시도 정책
+                          body: "# 재시도 정책\n- (다른 곳에서 고친 본문)"
+                          version: 4
+                          createdAt: '2026-09-22T12:04:00Z'
+                          updatedAt: '2026-09-29T05:10:00Z'
+    delete:
+      tags: [노트]
+      summary: 노트 삭제
+      operationId: deleteNote
+      responses:
+        '204': { description: 삭제됨 }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /notes/{noteId}/topic:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+    put:
+      tags: [노트]
+      summary: 노트를 다른 주제로 이동
+      description: |
+        topicId가 null이면 미분류로 옮긴다. 제목·본문과 version은 바뀌지 않는다.
+        옮길 주제에 같은 제목이 있으면 409 NOTE_TITLE_TAKEN.
+      operationId: moveNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [topicId]
+              properties:
+                topicId: { type: ['string', 'null'], format: uuid }
+      responses:
+        '200':
+          description: 이동됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Note' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/NoteTitleTaken' }
+
+components:
+  parameters:
+    TopicId:
+      name: topicId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    Topic:
+      type: object
+      required: [id, name, sortOrder, noteCount, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 50 }
+        sortOrder: { type: integer }
+        noteCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+    TopicList:
+      type: object
+      required: [topics, unassignedNoteCount]
+      properties:
+        topics:
+          type: array
+          items: { $ref: '#/components/schemas/Topic' }
+        unassignedNoteCount: { type: integer, minimum: 0 }
+    TopicCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 50, pattern: '^[^/]+$' }
+    TopicUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 50, pattern: '^[^/]+$' }
+        sortOrder: { type: integer }
+
+    Note:
+      type: object
+      required: [id, topicId, title, body, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        topicId:
+          type: ['string', 'null']
+          format: uuid
+          description: null이면 미분류
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, description: 마크다운 원문 (NFC) }
+        version: { type: integer, minimum: 0, description: 제목·본문을 수정할 때마다 1 증가 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    NoteSummary:
+      type: object
+      required: [id, topicId, title, snippet, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        topicId: { type: ['string', 'null'], format: uuid }
+        title: { type: string }
+        snippet:
+          type: string
+          description: 검색어가 있으면 본문에서 검색어 주변 80자, 없으면 본문 앞 80자
+        updatedAt: { type: string, format: date-time }
+    NoteCreate:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200, pattern: '^[^/]+$' }
+        topicId: { type: ['string', 'null'], format: uuid, default: null }
+        body: { type: string, default: '', maxLength: 1000000 }
+    NoteUpdate:
+      type: object
+      required: [title, body, version]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200, pattern: '^[^/]+$' }
+        body: { type: string, maxLength: 1000000 }
+        version: { type: integer, minimum: 0, description: 편집을 시작할 때 받은 version }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_FAILED, NOT_FOUND, TOPIC_NAME_TAKEN, NOTE_TITLE_TAKEN, NOTE_CONFLICT, INTERNAL]
+            message: { type: string, description: 사용자에게 보여줄 수 있는 한국어 문장 }
+            details:
+              type: object
+              description: |
+                VALIDATION_FAILED - fields: [{field, reason}]
+                NOTE_TITLE_TAKEN  - titles: [겹치는 제목]
+                NOTE_CONFLICT     - current: Note
+              additionalProperties: true
+
+  responses:
+    ValidationFailed:
+      description: 필수 필드 누락, 길이 초과, '/' 포함 등
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: 제목에는 '/'를 쓸 수 없습니다.
+              details:
+                fields: [{ field: title, reason: contains_slash }]
+    NotFound:
+      description: 없는 id
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TopicNameTaken:
+      description: 같은 이름의 주제가 이미 있음
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoteTitleTaken:
+      description: 같은 주제(또는 미분류)에 같은 제목이 이미 있음
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              code: NOTE_TITLE_TAKEN
+              message: 미분류에 같은 제목의 노트가 있어 주제를 삭제할 수 없습니다.
+              details:
+                titles: [인덱스]
