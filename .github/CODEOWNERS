@@ -1,7 +1,0 @@
-# 폴더별 리뷰 담당. 아래 줄이 위 줄보다 우선한다 (마지막으로 일치한 규칙이 적용됨).
-/docs/              @Son2kwon
-/fe/           @Son2kwon
-/be/           @Sockbee
-/ai/           @klee9
-# API 계약은 FE·BE 둘 다 승인
-/spec/openapi.yaml  @Son2kwon @Sockbee

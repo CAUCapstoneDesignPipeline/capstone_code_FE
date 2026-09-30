@@ -1,4 +1,4 @@
-# capstone_fe
+# capstone_code_FE
 
 CAPSTONE 노트 앱의 앱 쪽 코드. 1주차는 웹 앱(Vite + React + TypeScript)으로 브라우저에서 개발하고, 데스크톱 포장(Electron·Tauri)은 이후에 정한다.
 담당: 손의권 · 할 일과 API 계약은 [capstone_docs](https://github.com/CAUCapstoneDesignPipeline/capstone_docs)에 있다.
