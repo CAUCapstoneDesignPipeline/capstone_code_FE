@@ -14,6 +14,7 @@ import {
   isApiError,
   listNotes,
   listTopics,
+  moveNote,
   updateTopic,
   type Note,
   type NoteSummary,
@@ -182,6 +183,30 @@ export function useDeleteTopic() {
         note?.topicId === topicId ? { ...note, topicId: null } : note,
       )
       qc.removeQueries({ queryKey: keys.notesIn(topicId) })
+      void qc.invalidateQueries({ queryKey: keys.noteLists })
+      void qc.invalidateQueries({ queryKey: keys.topics })
+    },
+  })
+}
+
+export interface MoveNoteInput {
+  noteId: string
+  /** null이면 미분류로 */
+  topicId: string | null
+}
+
+/**
+ * 노트를 다른 주제로 옮긴다. 옮길 주제에 같은 제목이 있으면 NOTE_TITLE_TAKEN.
+ * 제목·본문·version은 바뀌지 않으므로 캐시의 노트는 topicId만 바꾼다 (편집 중인 내용을 덮지 않는다).
+ */
+export function useMoveNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ noteId, topicId }: MoveNoteInput) => moveNote(noteId, topicId),
+    onSuccess: (moved) => {
+      qc.setQueryData<Note>(keys.note(moved.id), (note) =>
+        note ? { ...note, topicId: moved.topicId } : note,
+      )
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },

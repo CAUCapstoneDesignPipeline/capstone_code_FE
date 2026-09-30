@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Topic } from '../../api'
 import { useNotesIn, useRenameTopic } from '../../data/queries'
 import styles from './Sidebar.module.css'
+import { hasNoteDrag, readNoteDrag, setNoteDrag, type NoteDrag } from './noteDrag'
 import { TopicMenu } from './TopicMenu'
 import { TopicNameForm } from './TopicNameForm'
 
@@ -18,6 +19,8 @@ interface Props {
   onMoveUp?: () => void
   onMoveDown?: () => void
   onDelete?: () => void
+  /** 노트를 이 주제에 놓았을 때 */
+  onDropNote: (drag: NoteDrag) => void
   selectedNoteId: string | null
   onSelectNote: (noteId: string) => void
 }
@@ -25,13 +28,37 @@ interface Props {
 export function TopicNode(props: Props) {
   const { topic, label, count, expanded, onToggle, onCreateNote, creatingNote } = props
   const [renaming, setRenaming] = useState(false)
+  const [dropActive, setDropActive] = useState(false)
   const rename = useRenameTopic()
-  const className = [expanded && styles.expanded, topic === null && styles.unassigned]
+  const className = [
+    expanded && styles.expanded,
+    topic === null && styles.unassigned,
+    dropActive && styles.dropTarget,
+  ]
     .filter(Boolean)
     .join(' ')
 
   return (
-    <li className={className}>
+    <li
+      className={className}
+      onDragOver={(e) => {
+        if (!hasNoteDrag(e.dataTransfer)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (!dropActive) setDropActive(true)
+      }}
+      onDragLeave={(e) => {
+        // 안쪽 요소로 옮겨 갈 때도 dragleave가 오므로 바깥으로 나갔을 때만 끈다.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropActive(false)
+      }}
+      onDrop={(e) => {
+        setDropActive(false)
+        const drag = readNoteDrag(e.dataTransfer)
+        if (!drag) return
+        e.preventDefault()
+        props.onDropNote(drag)
+      }}
+    >
       {renaming && topic ? (
         <TopicNameForm
           className={styles.renameForm}
@@ -115,6 +142,11 @@ function NoteList({ topicId, selectedNoteId, onSelectNote }: NoteListProps) {
             aria-current={n.id === selectedNoteId}
             onClick={() => onSelectNote(n.id)}
             title={n.title}
+            draggable
+            onDragStart={(e) => {
+              setNoteDrag(e.dataTransfer, { noteId: n.id, fromTopicId: topicId })
+              e.dataTransfer.effectAllowed = 'move'
+            }}
           >
             {n.title}
           </button>

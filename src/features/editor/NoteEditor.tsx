@@ -5,6 +5,7 @@ import { getNote, updateNote, type Note } from '../../api'
 import { useApplySavedNote } from '../../data/queries'
 import styles from './NoteEditor.module.css'
 import { NoteSaver, type SaveStatus } from './noteSaver'
+import { TopicSelect } from './TopicSelect'
 
 const STATUS_LABEL: Record<SaveStatus, string> = {
   saved: '저장됨',
@@ -102,6 +103,7 @@ export function NoteEditor({ note, registerLeaveGuard }: Props) {
             미리보기
           </button>
         </div>
+        <TopicSelect noteId={note.id} />
         <span className={styles.status} data-status={state.status} role="status">
           {STATUS_LABEL[state.status]}
         </span>

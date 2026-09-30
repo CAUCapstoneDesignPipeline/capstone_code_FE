@@ -3,12 +3,15 @@ import type { Topic } from '../../api'
 import {
   useCreateTopic,
   useCreateUntitledNote,
+  useMoveNote,
   useSwapTopicOrder,
   useTopics,
 } from '../../data/queries'
+import { moveNoteErrorMessage } from '../../lib/errorMessages'
 import { normalizeName } from '../../lib/names'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { DeleteTopicDialog } from './DeleteTopicDialog'
+import type { NoteDrag } from './noteDrag'
 import { SearchResults } from './SearchResults'
 import styles from './Sidebar.module.css'
 import { TopicNameForm } from './TopicNameForm'
@@ -30,6 +33,7 @@ export function Sidebar({ selectedNoteId, onSelectNote }: Props) {
   const createTopic = useCreateTopic()
   const createNote = useCreateUntitledNote()
   const swapOrder = useSwapTopicOrder()
+  const moveNote = useMoveNote()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [addingTopic, setAddingTopic] = useState(false)
   const [deletingTopic, setDeletingTopic] = useState<Topic | null>(null)
@@ -62,6 +66,14 @@ export function Sidebar({ selectedNoteId, onSelectNote }: Props) {
     })
   }
 
+  function handleDropNote(topicId: string | null, drag: NoteDrag) {
+    if (drag.fromTopicId === topicId) return
+    moveNote.mutate(
+      { noteId: drag.noteId, topicId },
+      { onSuccess: () => setExpanded((prev) => new Set(prev).add(nodeKey(topicId))) },
+    )
+  }
+
   function renderNode(topic: Topic | null, index: number, list: Topic[]) {
     const topicId = topic?.id ?? null
     // 앞선 순서 바꾸기가 끝나기 전에는 막는다 (PATCH 두 번이 겹치지 않게).
@@ -83,6 +95,7 @@ export function Sidebar({ selectedNoteId, onSelectNote }: Props) {
         onMoveUp={canMove && index > 0 ? () => move('up') : undefined}
         onMoveDown={canMove && index < list.length - 1 ? () => move('down') : undefined}
         onDelete={topic ? () => setDeletingTopic(topic) : undefined}
+        onDropNote={(drag) => handleDropNote(topicId, drag)}
         selectedNoteId={selectedNoteId}
         onSelectNote={onSelectNote}
       />
@@ -110,6 +123,14 @@ export function Sidebar({ selectedNoteId, onSelectNote }: Props) {
         <p className={styles.alert} role="alert">
           노트를 만들지 못했습니다. {createNote.error.message}
         </p>
+      )}
+      {moveNote.isError && (
+        <div className={styles.alert} role="alert">
+          <p>{moveNoteErrorMessage(moveNote.error)}</p>
+          <button type="button" className={styles.alertClose} onClick={() => moveNote.reset()}>
+            닫기
+          </button>
+        </div>
       )}
       {swapOrder.isError && (
         <p className={styles.alert} role="alert">
