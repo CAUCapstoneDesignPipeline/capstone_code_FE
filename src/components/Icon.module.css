@@ -1,0 +1,8 @@
+.icon {
+  display: inline-block;
+  flex: none;
+  width: var(--layout-icon);
+  height: var(--layout-icon);
+  background-color: currentColor;
+  mask: var(--icon) center / var(--layout-icon) var(--layout-icon) no-repeat;
+}

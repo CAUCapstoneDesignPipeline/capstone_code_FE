@@ -1,0 +1,8 @@
+.badge {
+  flex: none;
+  padding: var(--space-2) var(--space-8);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
