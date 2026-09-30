@@ -79,5 +79,9 @@ export async function request<T>(
   }
   // 계약의 Error 모양이 아닌 응답. BE와 공유할 수 있게 콘솔에 남긴다.
   console.warn('[api] 계약과 다른 오류 응답', method, path, res.status, data)
-  throw new ApiError('INTERNAL', '서버 응답을 처리하지 못했습니다.', res.status)
+  throw new ApiError(
+    'INTERNAL',
+    '일시적인 오류가 발생했습니다. 잠시 후 다시 시도하세요.',
+    res.status,
+  )
 }

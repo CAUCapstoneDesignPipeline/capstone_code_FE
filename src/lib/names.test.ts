@@ -23,12 +23,12 @@ describe('checkName', () => {
 describe('nextUntitledTitle', () => {
   it('겹치지 않는 가장 앞 번호를 고른다', () => {
     expect(nextUntitledTitle([])).toBe('제목 없음')
-    expect(nextUntitledTitle(['제목 없음'])).toBe('제목 없음 2')
-    expect(nextUntitledTitle(['제목 없음', '제목 없음 3'])).toBe('제목 없음 2')
-    expect(nextUntitledTitle(['제목 없음', '제목 없음 2'])).toBe('제목 없음 3')
+    expect(nextUntitledTitle(['제목 없음'])).toBe('제목 없음 1')
+    expect(nextUntitledTitle(['제목 없음', '제목 없음 2'])).toBe('제목 없음 1')
+    expect(nextUntitledTitle(['제목 없음', '제목 없음 1'])).toBe('제목 없음 2')
   })
 
   it('NFD로 들어온 제목도 같은 제목으로 본다', () => {
-    expect(nextUntitledTitle(['제목 없음'.normalize('NFD')])).toBe('제목 없음 2')
+    expect(nextUntitledTitle(['제목 없음'.normalize('NFD')])).toBe('제목 없음 1')
   })
 })

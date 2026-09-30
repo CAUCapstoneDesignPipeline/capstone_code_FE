@@ -71,6 +71,8 @@ export class NoteSaver {
   private unconfirmed: Draft | null = null
   private state: SaverState = { status: 'saved', message: null, conflictNote: null }
   private readonly listeners = new Set<() => void>()
+  /** 노트를 지우기로 했다. 이후 어떤 저장도 보내지 않는다. */
+  private discarded = false
 
   constructor(note: Note, options: NoteSaverOptions) {
     this.noteId = note.id
@@ -125,6 +127,12 @@ export class NoteSaver {
     return this.draft
   }
 
+  /** 노트를 지우기 전에 부른다. 기다리던 저장을 버리고 이후 저장을 보내지 않는다. */
+  discard() {
+    this.discarded = true
+    this.clearTimer()
+  }
+
   /** 서버에 아직 보내지 않은 내용이 있는지 (창을 닫기 전 경고용) */
   hasUnsavedChanges(): boolean {
     return this.inFlight || !sameDraft(this.draft, this.saved)
@@ -139,7 +147,7 @@ export class NoteSaver {
   // --- 내부 ---
 
   private isStopped() {
-    return this.state.status === 'conflict' || this.state.status === 'deleted'
+    return this.discarded || this.state.status === 'conflict' || this.state.status === 'deleted'
   }
 
   private clearTimer() {

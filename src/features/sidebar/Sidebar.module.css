@@ -1,347 +1,258 @@
+/* Figma W1-05 Sidebar: 폭 260, 좌우 8, 아래 12, 항목 사이 4 */
 .sidebar {
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
   height: 100%;
+  padding: 0 var(--space-8) var(--space-12);
 }
 
 .header {
   display: flex;
+  flex: none;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 12px 8px 16px;
+  height: var(--layout-topbar-height);
+  padding: 0 var(--space-8);
+  font: var(--text-ui-body-sm-strong);
 }
 
-.heading {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.tree {
+.scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.sectionLabel {
   margin: 0;
-  padding: 0 8px 16px;
-  list-style: none;
+  padding: var(--space-12) var(--space-8) var(--space-4);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label-strong);
 }
 
-.status {
-  padding: 8px 16px;
-  color: var(--text-muted);
+.hint {
+  margin: 0;
+  padding: var(--space-4) var(--space-8);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
 }
 
-.error {
-  padding: 8px 16px;
-  color: var(--danger);
-}
-
-.alert {
+.loadError {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  margin: 0 8px 8px;
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  background: #ffebe9;
-  color: var(--danger);
+  gap: var(--space-8);
 }
 
-.textButton {
-  padding: 2px 8px;
-  border: none;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--accent);
-}
-
-.textButton:hover {
-  background: var(--bg-hover);
-}
-
-/* 주제 한 줄 */
-.row {
-  display: flex;
-  align-items: center;
-  border-radius: var(--radius);
-}
-
-.row:hover {
-  background: var(--bg-hover);
-}
-
-.toggle {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  padding: 4px 8px;
-  border: none;
-  background: none;
-  text-align: left;
-}
-
-.chevron {
-  flex: none;
-  width: 12px;
-  color: var(--text-muted);
-  font-size: 10px;
-  transition: transform 0.1s;
-}
-
-.expanded .chevron {
-  transform: rotate(90deg);
-}
-
-.name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.unassigned .name {
-  color: var(--text-muted);
-}
-
-.count {
-  margin-left: auto;
-  padding-left: 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.rowButton {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  margin-right: 4px;
-  border: none;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--text-muted);
-  opacity: 0.45;
-}
-
-.row:hover .rowButton,
-.rowButton:focus-visible {
-  opacity: 1;
-}
-
-.rowButton[aria-expanded='true'] {
-  opacity: 1;
-}
-
-.rowButton:hover {
-  background: var(--border);
-  color: var(--text);
-}
-
-/* 주제 안의 노트 */
-.notes {
-  margin: 0;
-  padding: 0 0 4px 20px;
-  list-style: none;
-}
-
-.note {
-  display: block;
-  width: 100%;
-  overflow: hidden;
-  padding: 3px 8px;
-  border: none;
-  border-radius: var(--radius);
-  background: none;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.note:hover {
-  background: var(--bg-hover);
-}
-
-.note[aria-current='true'] {
-  background: var(--bg-selected);
-}
-
-.notesStatus {
-  padding: 3px 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-/* 새 주제 입력, 이름 바꾸기 */
-.newTopic {
-  padding: 0 8px 8px;
-}
-
-.renameForm {
-  padding: 2px 0;
-}
-
-.input {
-  width: 100%;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
-}
-
-.input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-
-.input[aria-invalid='true'] {
-  border-color: var(--danger);
-  outline-color: var(--danger);
-}
-
-.fieldError {
-  margin: 4px 0 0;
-  color: var(--danger);
-  font-size: 13px;
-}
-
-/* 주제 메뉴 */
-.menuRoot {
-  position: relative;
-}
-
-.menu {
-  position: absolute;
-  top: calc(100% + 2px);
-  right: 0;
-  z-index: 10;
-  min-width: 128px;
-  margin: 0;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
-  box-shadow: 0 6px 16px rgb(0 0 0 / 0.12);
-  list-style: none;
-}
-
-.menuItem {
-  display: block;
-  width: 100%;
-  padding: 4px 10px;
-  border: none;
-  border-radius: calc(var(--radius) - 2px);
-  background: none;
-  text-align: left;
-}
-
-.menuItem:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.menuItem:disabled {
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-
-.menuDanger {
-  color: var(--danger);
-}
-
-/* 검색 */
-.search {
-  padding: 12px 8px 4px;
-}
-
-.results {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 8px 16px;
-}
-
-.resultCount {
-  margin: 4px 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.resultList {
+.list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.result {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 2px 8px;
+.actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-8);
+  padding: 0 var(--space-4);
+}
+
+.muted {
+  color: var(--color-ink-muted);
+}
+
+/* TreeItem: 높이 28, radius/card. selected는 surface-selected, drop-target은 여기에 ink 1px 테두리 */
+.item,
+.note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
   width: 100%;
-  padding: 6px 8px;
-  border: none;
-  border-radius: var(--radius);
+  height: var(--layout-row-height);
+  padding: 0 var(--space-8) 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-card);
   background: none;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.note {
+  padding-left: var(--space-24);
+}
+
+.note[draggable='true'] {
+  cursor: grab;
+}
+
+.item:hover,
+.note:hover {
+  background: var(--color-surface-emphasis);
+}
+
+.item.selected,
+.note[aria-current='true'] {
+  background: var(--color-surface-selected);
+}
+
+.dropTarget > .item {
+  border-color: var(--color-ink);
+  background: var(--color-surface-selected);
+}
+
+.item:focus-visible,
+.note:focus-visible,
+.result:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -2px;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-ui-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notesStatus {
+  margin: 0;
+  padding: var(--space-4) var(--space-8) var(--space-4) var(--space-24);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+}
+
+/* TextInput compact: 사이드바 검색·트리 안 이름 입력 */
+.field {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: calc(var(--layout-row-height) + 2px);
+  padding: var(--space-4) var(--space-8);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.field:focus-within {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -1px;
+}
+
+.field[data-invalid='true'] {
+  border-color: var(--color-ink);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: var(--text-ui-body-sm);
+}
+
+.input:focus {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--color-ink-muted);
+}
+
+.input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.inputHint {
+  margin: 0;
+  padding: var(--space-2) var(--space-8);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.renameForm {
+  padding: var(--space-2) 0;
+}
+
+/* 검색 결과 없음 (W1-15) */
+.searchEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-16) var(--space-8);
+}
+
+.searchEmptyTitle {
+  margin: 0;
+  font: var(--text-ui-body-sm);
+}
+
+.searchEmptyHint {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+}
+
+/* SearchResultItem */
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink);
   text-align: left;
 }
 
 .result:hover {
-  background: var(--bg-hover);
+  background: var(--color-surface-emphasis);
 }
 
 .result[aria-current='true'] {
-  background: var(--bg-selected);
+  background: var(--color-surface-selected);
+}
+
+.resultTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
 }
 
 .resultTitle {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  font-weight: 600;
+  font: var(--text-ui-body-sm-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultSnippet {
+  width: 100%;
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .resultTopic {
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
 }
 
-.resultSnippet {
-  grid-column: 1 / -1;
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 13px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.results mark {
+/* 검색어: 굵게 + ink + surface-selected 배경 (Figma SearchResultItem 설명의 구현 권장) */
+.result mark {
   border-radius: 2px;
-  background: #fff3a3;
-  color: inherit;
-}
-
-.alert p {
-  flex: 1;
-  margin: 0;
-}
-
-.alertClose {
-  flex: none;
-  padding: 0 4px;
-  border: none;
-  background: none;
-  color: inherit;
-  font-size: 12px;
-  text-decoration: underline;
-}
-
-/* 끌어 놓기 */
-.note[draggable='true'] {
-  cursor: grab;
-}
-
-.dropTarget > .row {
-  background: var(--bg-selected);
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
+  background: var(--color-surface-selected);
+  color: var(--color-ink);
+  font-weight: 700;
 }

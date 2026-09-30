@@ -9,6 +9,7 @@ import { useCallback } from 'react'
 import {
   createNote,
   createTopic,
+  deleteNote,
   deleteTopic,
   getNote,
   isApiError,
@@ -56,6 +57,18 @@ export function useSearchNotes(q: string) {
     enabled: q !== '',
     placeholderData: keepPreviousData,
   })
+}
+
+/** 고른 노트의 주제 (사이드바에서 그 주제를 펼칠 때). 노트가 없으면 undefined */
+export function useNoteTopicId(noteId: string | null): string | null | undefined {
+  const note = useQuery({
+    queryKey: keys.note(noteId ?? ''),
+    queryFn: ({ signal }) => getNote(noteId!, signal),
+    enabled: noteId !== null,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
+  return noteId === null ? undefined : note.data?.topicId
 }
 
 /** 편집기가 쓰는 노트 한 건. 편집을 시작한 뒤에는 편집기가 내용을 들고 있으므로 스스로 다시 불러오지 않는다. */
@@ -207,6 +220,18 @@ export function useMoveNote() {
       qc.setQueryData<Note>(keys.note(moved.id), (note) =>
         note ? { ...note, topicId: moved.topicId } : note,
       )
+      void qc.invalidateQueries({ queryKey: keys.noteLists })
+      void qc.invalidateQueries({ queryKey: keys.topics })
+    },
+  })
+}
+
+export function useDeleteNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (noteId: string) => deleteNote(noteId),
+    onSuccess: (_, noteId) => {
+      qc.removeQueries({ queryKey: keys.note(noteId) })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },

@@ -1,10 +1,16 @@
 import { useId, useState, type FormEvent } from 'react'
+import { FieldError } from '../../components/FieldError'
+import { Icon, type IconName } from '../../components/Icon'
 import { checkName, normalizeName, TOPIC_NAME_MAX } from '../../lib/names'
 import styles from './Sidebar.module.css'
 
 interface Props {
   initialName?: string
   placeholder: string
+  /** 입력칸 왼쪽 아이콘 (Figma W1-02: 주제 아이콘) */
+  icon?: IconName
+  /** 오류가 없을 때 입력칸 아래 안내 (Figma W1-02: "Enter로 만들기 · Esc로 취소") */
+  hint?: string
   /** 서버에 보낸다. 실패하면 오류 문장을 입력칸 아래에 보여준다. */
   onSubmit: (name: string) => Promise<unknown>
   /** 성공하거나 취소하면 부른다 */
@@ -12,14 +18,9 @@ interface Props {
   className?: string
 }
 
-/** 새 주제 만들기와 주제 이름 바꾸기에 함께 쓰는 입력칸. Enter로 보내고 Esc로 취소한다. */
-export function TopicNameForm({
-  initialName = '',
-  placeholder,
-  onSubmit,
-  onDone,
-  className,
-}: Props) {
+/** 새 주제 만들기와 주제 이름 바꾸기에 함께 쓰는 입력칸 (Figma TextInput compact). Enter로 보내고 Esc로 취소한다. */
+export function TopicNameForm(props: Props) {
+  const { initialName = '', placeholder, icon, hint, onSubmit, onDone, className } = props
   const [name, setName] = useState(initialName)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -50,33 +51,37 @@ export function TopicNameForm({
 
   return (
     <form className={className} onSubmit={submit}>
-      <input
-        className={styles.input}
-        value={name}
-        onChange={(e) => {
-          setName(e.target.value)
-          setError(null)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onDone()
-        }}
-        onBlur={() => {
-          // 비워 두거나 그대로 두고 벗어나면 취소한다. 오류가 떠 있으면 고칠 수 있게 남겨 둔다.
-          if (!pending && !error && (!name.trim() || normalizeName(name) === initialName)) onDone()
-        }}
-        onFocus={(e) => e.target.select()}
-        placeholder={placeholder}
-        aria-label={placeholder}
-        aria-invalid={error !== null}
-        aria-describedby={error ? errorId : undefined}
-        disabled={pending}
-        maxLength={TOPIC_NAME_MAX * 2}
-        autoFocus
-      />
-      {error && (
-        <p id={errorId} className={styles.fieldError} role="alert">
-          {error}
-        </p>
+      <div className={styles.field} data-invalid={error !== null}>
+        {icon && <Icon name={icon} />}
+        <input
+          className={styles.input}
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            setError(null)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onDone()
+          }}
+          onBlur={() => {
+            // 비워 두거나 그대로 두고 벗어나면 취소한다. 오류가 떠 있으면 고칠 수 있게 남겨 둔다.
+            if (!pending && !error && (!name.trim() || normalizeName(name) === initialName))
+              onDone()
+          }}
+          onFocus={(e) => e.target.select()}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          aria-invalid={error !== null}
+          aria-describedby={error ? errorId : undefined}
+          disabled={pending}
+          maxLength={TOPIC_NAME_MAX * 2}
+          autoFocus
+        />
+      </div>
+      {error ? (
+        <FieldError id={errorId} message={error} />
+      ) : (
+        hint && <p className={styles.inputHint}>{hint}</p>
       )}
     </form>
   )

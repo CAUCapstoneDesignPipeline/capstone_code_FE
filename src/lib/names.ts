@@ -18,11 +18,11 @@ export function checkName(value: string, label: string, max: number): string | n
   return null
 }
 
-/** 새 노트의 기본 제목. 같은 주제의 제목과 겹치지 않게 "제목 없음", "제목 없음 2", … 순서로 고른다. */
+/** 새 노트의 기본 제목. 같은 주제의 제목과 겹치지 않게 "제목 없음", "제목 없음 1", "제목 없음 2", … 순서로 고른다 (Figma W1-08). */
 export function nextUntitledTitle(existing: Iterable<string>): string {
   const taken = new Set([...existing].map(normalizeName))
   if (!taken.has(UNTITLED)) return UNTITLED
-  for (let n = 2; ; n++) {
+  for (let n = 1; ; n++) {
     const title = `${UNTITLED} ${n}`
     if (!taken.has(title)) return title
   }

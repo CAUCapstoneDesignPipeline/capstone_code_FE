@@ -291,3 +291,14 @@ describe('떠날 때 확인', () => {
     expect(saver.hasStuckChanges()).toBe(true)
   })
 })
+
+describe('노트 삭제', () => {
+  it('discard() 뒤에는 기다리던 저장도, flush()도 보내지 않는다', async () => {
+    const { saver, save } = setup()
+    saver.edit({ body: 'a' })
+    saver.discard()
+    saver.flush()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(save).not.toHaveBeenCalled()
+  })
+})

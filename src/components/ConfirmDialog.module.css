@@ -1,73 +1,35 @@
 .dialog {
-  width: min(420px, calc(100vw - 32px));
-  padding: 20px 24px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
-  color: var(--text);
+  flex-direction: column;
+  gap: var(--space-16);
+  width: min(400px, calc(100vw - var(--space-32)));
+  padding: var(--space-24);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.dialog[open] {
+  display: flex;
 }
 
 .dialog::backdrop {
-  background: rgb(0 0 0 / 0.3);
+  background: var(--color-scrim);
 }
 
 .title {
-  margin: 0 0 8px;
-  font-size: 16px;
+  margin: 0;
+  font: var(--text-ui-title-sm);
 }
 
-.content {
-  color: var(--text-muted);
-}
-
-.content p {
-  margin: 0 0 8px;
-}
-
-.content ul {
-  margin: 0 0 8px;
-  padding-left: 20px;
-  color: var(--text);
+.description {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-body-sm);
 }
 
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.button {
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
-}
-
-.button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.primary:hover:not(:disabled) {
-  background: #2560c8;
-}
-
-.danger {
-  border-color: var(--danger);
-  background: var(--danger);
-  color: #fff;
-}
-
-.danger:hover:not(:disabled) {
-  background: #b01d27;
-}
-
-.button:disabled {
-  opacity: 0.6;
+  gap: var(--space-8);
 }

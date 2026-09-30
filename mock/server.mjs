@@ -114,7 +114,7 @@ export function createStore() {
   /** 같은 주제(또는 미분류)에 같은 제목이 있으면 409 @param {string | null} topicId @param {string} title @param {string} [exceptId] */
   function assertTitleFree(topicId, title, exceptId) {
     if (notesIn(topicId).some((n) => n.title === title && n.id !== exceptId)) {
-      const where = topicId === null ? '미분류' : '이 주제'
+      const where = topicId === null ? '미분류' : '같은 주제'
       throw new HttpError(409, 'NOTE_TITLE_TAKEN', `${where}에 같은 제목의 노트가 있습니다.`, {
         titles: [title],
       })
