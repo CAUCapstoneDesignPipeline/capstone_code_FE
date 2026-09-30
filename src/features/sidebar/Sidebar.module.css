@@ -1,0 +1,258 @@
+/* Figma W1-05 Sidebar: 폭 260, 좌우 8, 아래 12, 항목 사이 4 */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  padding: 0 var(--space-8) var(--space-12);
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--layout-topbar-height);
+  padding: 0 var(--space-8);
+  font: var(--text-ui-body-sm-strong);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sectionLabel {
+  margin: 0;
+  padding: var(--space-12) var(--space-8) var(--space-4);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label-strong);
+}
+
+.hint {
+  margin: 0;
+  padding: var(--space-4) var(--space-8);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+}
+
+.loadError {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-8);
+  padding: 0 var(--space-4);
+}
+
+.muted {
+  color: var(--color-ink-muted);
+}
+
+/* TreeItem: 높이 28, radius/card. selected는 surface-selected, drop-target은 여기에 ink 1px 테두리 */
+.item,
+.note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  height: var(--layout-row-height);
+  padding: 0 var(--space-8) 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.note {
+  padding-left: var(--space-24);
+}
+
+.note[draggable='true'] {
+  cursor: grab;
+}
+
+.item:hover,
+.note:hover {
+  background: var(--color-surface-emphasis);
+}
+
+.item.selected,
+.note[aria-current='true'] {
+  background: var(--color-surface-selected);
+}
+
+.dropTarget > .item {
+  border-color: var(--color-ink);
+  background: var(--color-surface-selected);
+}
+
+.item:focus-visible,
+.note:focus-visible,
+.result:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -2px;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-ui-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notesStatus {
+  margin: 0;
+  padding: var(--space-4) var(--space-8) var(--space-4) var(--space-24);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+}
+
+/* TextInput compact: 사이드바 검색·트리 안 이름 입력 */
+.field {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: calc(var(--layout-row-height) + 2px);
+  padding: var(--space-4) var(--space-8);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.field:focus-within {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -1px;
+}
+
+.field[data-invalid='true'] {
+  border-color: var(--color-ink);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: var(--text-ui-body-sm);
+}
+
+.input:focus {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--color-ink-muted);
+}
+
+.input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.inputHint {
+  margin: 0;
+  padding: var(--space-2) var(--space-8);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.renameForm {
+  padding: var(--space-2) 0;
+}
+
+/* 검색 결과 없음 (W1-15) */
+.searchEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-16) var(--space-8);
+}
+
+.searchEmptyTitle {
+  margin: 0;
+  font: var(--text-ui-body-sm);
+}
+
+.searchEmptyHint {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+}
+
+/* SearchResultItem */
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.result:hover {
+  background: var(--color-surface-emphasis);
+}
+
+.result[aria-current='true'] {
+  background: var(--color-surface-selected);
+}
+
+.resultTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+}
+
+.resultTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-ui-body-sm-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultSnippet {
+  width: 100%;
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultTopic {
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+/* 검색어: 굵게 + ink + surface-selected 배경 (Figma SearchResultItem 설명의 구현 권장) */
+.result mark {
+  border-radius: 2px;
+  background: var(--color-surface-selected);
+  color: var(--color-ink);
+  font-weight: 700;
+}

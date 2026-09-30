@@ -1,0 +1,138 @@
+/*
+ * CodeMirror는 자기 클래스(.cm-*)를 쓰므로 :global로 잡는다.
+ * 글자 모양은 Figma content 텍스트 스타일 (W1-05, W1-06).
+ */
+.editor {
+  flex: 1;
+  padding-top: var(--space-16);
+}
+
+.editor :global(.cm-editor) {
+  height: 100%;
+  min-height: 50vh;
+  background: none;
+  color: var(--color-ink);
+}
+
+.editor :global(.cm-editor.cm-focused) {
+  outline: none;
+}
+
+.editor :global(.cm-scroller) {
+  overflow: visible;
+  font: var(--text-content-body);
+}
+
+.editor :global(.cm-content) {
+  padding: 0 0 var(--space-64);
+  caret-color: var(--color-ink);
+}
+
+.editor :global(.cm-line) {
+  padding: 0;
+}
+
+.editor :global(.cm-placeholder) {
+  color: var(--color-ink-muted);
+}
+
+.editor :global(.cm-selectionBackground),
+.editor :global(.cm-focused .cm-selectionBackground),
+.editor :global(.cm-content ::selection) {
+  background: var(--color-surface-selected);
+}
+
+/* 제목: content/h1~h3 */
+.editor :global(.cm-lp-h1) {
+  padding-top: var(--space-12);
+  font: var(--text-content-h1);
+}
+
+.editor :global(.cm-lp-h2) {
+  padding-top: var(--space-12);
+  font: var(--text-content-h2);
+}
+
+.editor :global(.cm-lp-h3) {
+  padding-top: var(--space-8);
+  font: var(--text-content-h3);
+}
+
+.editor :global(.cm-lp-h4) {
+  font: var(--text-content-body-strong);
+}
+
+/* 인라인 서식 */
+.editor :global(.cm-lp-strong) {
+  font-weight: 700;
+}
+
+.editor :global(.cm-lp-em) {
+  font-style: italic;
+}
+
+.editor :global(.cm-lp-strike) {
+  text-decoration: line-through;
+}
+
+.editor :global(.cm-lp-code) {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  font: var(--text-code-inline);
+}
+
+.editor :global(.cm-lp-link) {
+  color: var(--color-accent-link);
+  text-decoration: underline;
+}
+
+.editor :global(.cm-lp-bullet) {
+  display: inline-block;
+  width: 0.5em;
+}
+
+/* 인용 */
+.editor :global(.cm-lp-quote) {
+  padding-left: var(--space-12);
+  border-left: 2px solid var(--color-border-ghost);
+  color: var(--color-ink-muted);
+}
+
+/* 코드 블록: surface-card 배경, 위아래 12·좌우 16 */
+.editor :global(.cm-lp-codeblock) {
+  padding: 0 var(--space-16);
+  background: var(--color-surface-card);
+  font: var(--text-code-block);
+}
+
+.editor :global(.cm-lp-code-top) {
+  border-top-left-radius: var(--radius-card);
+  border-top-right-radius: var(--radius-card);
+}
+
+.editor :global(.cm-lp-code-bottom) {
+  border-bottom-left-radius: var(--radius-card);
+  border-bottom-right-radius: var(--radius-card);
+}
+
+/* 커서가 블록 안이라 ``` 줄이 보일 때는 배경 끝에 붙지 않게 */
+.editor :global(.cm-lp-code-top:not(.cm-lp-fence-hidden)) {
+  padding-top: var(--space-4);
+}
+
+.editor :global(.cm-lp-code-bottom:not(.cm-lp-fence-hidden)) {
+  padding-bottom: var(--space-4);
+}
+
+/* 블록 사이 빈 줄: 절반 높이 */
+.editor :global(.cm-lp-blank) {
+  line-height: var(--space-12);
+}
+
+/* 커서가 블록 밖일 때 ``` 줄은 글자 없이 위아래 여백(12)으로만 남는다 */
+.editor :global(.cm-lp-fence-hidden) {
+  height: var(--space-12);
+  font-size: 0;
+  line-height: var(--space-12);
+}

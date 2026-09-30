@@ -1,0 +1,214 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Figma W1-05 Editor/TopBar: 높이 44, 왼쪽 12, 오른쪽 16 */
+.topBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  height: var(--layout-topbar-height);
+  padding: 0 var(--space-16) 0 var(--space-12);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.breadcrumbSeparator {
+  color: var(--color-ink-muted);
+  font: var(--text-ui-body-sm);
+}
+
+.breadcrumbTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font: var(--text-ui-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+/* Editor/Scroll: 좌우 32, 위아래 64. Editor/Content: 폭 700 */
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-64) var(--space-32);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: 100%;
+  max-width: var(--layout-editor-width);
+  min-height: 100%;
+  margin: 0 auto;
+}
+
+.content > [role='alert'] {
+  margin-bottom: var(--space-16);
+}
+
+/* DropdownTrigger + Dropdown */
+.dropdownRoot {
+  position: relative;
+  flex: none;
+}
+
+.dropdownTrigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-body-sm);
+}
+
+.dropdownTrigger:hover:not(:disabled),
+.dropdownTrigger[aria-expanded='true'] {
+  background: var(--color-surface-selected);
+}
+
+.dropdownTrigger:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: 10;
+  width: 220px;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-card);
+}
+
+.dropdownHeader {
+  margin: 0;
+  padding: var(--space-4) var(--space-8);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.optionList {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  height: var(--layout-row-height);
+  padding: 0 var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink);
+  font: var(--text-ui-body-sm);
+  text-align: left;
+}
+
+.option:hover,
+.option[aria-selected='true'] {
+  background: var(--color-surface-selected);
+}
+
+.optionLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdownDivider {
+  padding: var(--space-4) 0;
+}
+
+.dropdownDivider::before {
+  content: '';
+  display: block;
+  height: 1px;
+  background: var(--color-border-subtle);
+}
+
+/* SaveStatus */
+.saveStatus {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-8);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+  white-space: nowrap;
+}
+
+.saveStatusStuck {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+/* 제목·본문 */
+.titleField {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: var(--text-content-note-title);
+}
+
+.title:focus {
+  outline: none;
+}
