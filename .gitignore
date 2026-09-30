@@ -1,0 +1,20 @@
+# 공통
+.DS_Store
+.idea/
+.vscode/
+*.log
+.env
+
+# app (Node)
+fe/node_modules/
+fe/dist/
+
+# server (Gradle)
+be/.gradle/
+be/build/
+
+# ai (Python)
+ai/.venv/
+ai/__pycache__/
+ai/**/__pycache__/
+ai/data/private/
