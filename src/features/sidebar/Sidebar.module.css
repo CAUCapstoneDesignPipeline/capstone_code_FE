@@ -1,0 +1,318 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 8px 16px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 8px 16px;
+  list-style: none;
+}
+
+.status {
+  padding: 8px 16px;
+  color: var(--text-muted);
+}
+
+.error {
+  padding: 8px 16px;
+  color: var(--danger);
+}
+
+.alert {
+  margin: 0 8px 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: #ffebe9;
+  color: var(--danger);
+}
+
+.textButton {
+  padding: 2px 8px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--accent);
+}
+
+.textButton:hover {
+  background: var(--bg-hover);
+}
+
+/* 주제 한 줄 */
+.row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius);
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.chevron {
+  flex: none;
+  width: 12px;
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.1s;
+}
+
+.expanded .chevron {
+  transform: rotate(90deg);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unassigned .name {
+  color: var(--text-muted);
+}
+
+.count {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.rowButton {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.row:hover .rowButton,
+.rowButton:focus-visible {
+  opacity: 1;
+}
+
+.rowButton[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.rowButton:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* 주제 안의 노트 */
+.notes {
+  margin: 0;
+  padding: 0 0 4px 20px;
+  list-style: none;
+}
+
+.note {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 3px 8px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note:hover {
+  background: var(--bg-hover);
+}
+
+.note[aria-current='true'] {
+  background: var(--bg-selected);
+}
+
+.notesStatus {
+  padding: 3px 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* 새 주제 입력, 이름 바꾸기 */
+.newTopic {
+  padding: 0 8px 8px;
+}
+
+.renameForm {
+  padding: 2px 0;
+}
+
+.input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+  outline-color: var(--danger);
+}
+
+.fieldError {
+  margin: 4px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* 주제 메뉴 */
+.menuRoot {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 10;
+  min-width: 128px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.12);
+  list-style: none;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  padding: 4px 10px;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  background: none;
+  text-align: left;
+}
+
+.menuItem:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.menuItem:disabled {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.menuDanger {
+  color: var(--danger);
+}
+
+/* 검색 */
+.search {
+  padding: 12px 8px 4px;
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 16px;
+}
+
+.resultCount {
+  margin: 4px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.resultList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+}
+
+.result:hover {
+  background: var(--bg-hover);
+}
+
+.result[aria-current='true'] {
+  background: var(--bg-selected);
+}
+
+.resultTitle {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultTopic {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.resultSnippet {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 13px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.results mark {
+  border-radius: 2px;
+  background: #fff3a3;
+  color: inherit;
+}
