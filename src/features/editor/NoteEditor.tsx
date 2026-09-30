@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { getNote, updateNote, type Note } from '../../api'
 import { Banner } from '../../components/Banner'
 import { Button, IconButton } from '../../components/Button'
@@ -9,6 +7,7 @@ import { ContextMenu } from '../../components/ContextMenu'
 import { FieldError } from '../../components/FieldError'
 import { useToast } from '../../components/toastContext'
 import { useApplySavedNote, useDeleteNote, useNote } from '../../data/queries'
+import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
 import styles from './NoteEditor.module.css'
 import { NoteSaver, type SaveStatus } from './noteSaver'
 import { SaveStatusIndicator } from './SaveStatusIndicator'
@@ -40,8 +39,9 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
   // 빵부스러기는 마지막으로 저장된 제목을 보여준다 (W1-09).
   const savedTitle = useNote(note.id).data?.title ?? note.title
   const [title, setTitle] = useState(note.title)
-  const [body, setBody] = useState(note.body)
-  const [mode, setMode] = useState<'edit' | 'preview'>('edit')
+  // 본문 편집기는 자기 원문을 스스로 들고 있다. 다른 곳의 내용을 불러오면 key를 바꿔 새로 만든다.
+  const [bodyDoc, setBodyDoc] = useState({ key: 0, text: note.body })
+  const bodyRef = useRef<MarkdownEditorHandle>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
@@ -84,7 +84,7 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
       const current = state.conflictNote ?? (await getNote(note.id))
       const draft = saver.loadServerVersion(current)
       setTitle(draft.title)
-      setBody(draft.body)
+      setBodyDoc((prev) => ({ key: prev.key + 1, text: draft.body }))
       applySavedNote(current)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : '불러오지 못했습니다.')
@@ -121,19 +121,6 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
           <span className={styles.breadcrumbTitle}>{savedTitle}</span>
         </nav>
         <div className={styles.actions}>
-          {/* Live Preview(W1-06) 전까지 쓰는 편집·미리보기 전환 */}
-          <div className={styles.modes} role="group" aria-label="보기 방식">
-            <button type="button" aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>
-              편집
-            </button>
-            <button
-              type="button"
-              aria-pressed={mode === 'preview'}
-              onClick={() => setMode('preview')}
-            >
-              미리보기
-            </button>
-          </div>
           <SaveStatusIndicator status={state.status} />
           <IconButton
             ref={moreRef}
@@ -203,6 +190,13 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
                 saver.edit({ title: e.target.value })
               }}
               onFocus={(e) => isNew && e.target.select()}
+              onKeyDown={(e) => {
+                // 제목에서 Enter·↓를 누르면 본문 첫 줄로
+                if ((e.key === 'Enter' && !e.nativeEvent.isComposing) || e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  bodyRef.current?.focus()
+                }
+              }}
               placeholder="제목"
               aria-label="제목"
               aria-invalid={titleError !== null}
@@ -212,27 +206,15 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
             {titleError && <FieldError id="title-error" message={titleError} />}
           </div>
 
-          {mode === 'edit' ? (
-            <textarea
-              className={styles.body}
-              value={body}
-              onChange={(e) => {
-                setBody(e.target.value)
-                saver.edit({ body: e.target.value })
-              }}
-              placeholder="내용을 입력하세요"
-              aria-label="본문"
-              autoFocus={!isNew}
-            />
-          ) : (
-            <div className={styles.preview}>
-              {body.trim() ? (
-                <Markdown remarkPlugins={[remarkGfm]}>{body}</Markdown>
-              ) : (
-                <p className={styles.previewEmpty}>내용을 입력하세요</p>
-              )}
-            </div>
-          )}
+          <MarkdownEditor
+            key={bodyDoc.key}
+            ref={bodyRef}
+            initialValue={bodyDoc.text}
+            onChange={(text) => saver.edit({ body: text })}
+            placeholder="내용을 입력하세요"
+            ariaLabel="본문"
+            autoFocus={!isNew}
+          />
         </div>
       </div>
 
