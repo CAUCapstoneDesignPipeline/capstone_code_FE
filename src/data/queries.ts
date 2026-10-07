@@ -16,6 +16,8 @@ import {
   listNotes,
   listTopics,
   moveNote,
+  orderConflictCurrent,
+  reorderTopics,
   updateTopic,
   type Note,
   type NoteSummary,
@@ -89,7 +91,9 @@ export function useApplySavedNote() {
       qc.setQueryData(keys.note(note.id), note)
       qc.setQueriesData<NoteSummary[]>({ queryKey: keys.noteLists }, (list) =>
         list?.map((n) =>
-          n.id === note.id ? { ...n, title: note.title, updatedAt: note.updatedAt } : n,
+          n.id === note.id
+            ? { ...n, title: note.title, version: note.version, updatedAt: note.updatedAt }
+            : n,
         ),
       )
     },
@@ -153,22 +157,17 @@ export interface SwapTopicInput {
 }
 
 /**
- * 주제를 위·아래 이웃과 자리를 바꾼다. 두 주제의 sortOrder를 맞바꾸는 PATCH 두 번이라 한 번에 처리되지 않는다.
- * 화면은 먼저 바꿔 두고, 끝나면(실패해도) 서버 목록을 다시 불러와 맞춘다.
+ * 주제를 위·아래 이웃과 자리를 바꾼다. 바뀐 전체 순서를 PUT /topics/order 한 요청으로 보낸다.
+ * 화면은 먼저 바꿔 두고, 끝나면 서버 목록으로 맞춘다.
+ * 그 사이 다른 곳에서 주제가 추가·삭제됐으면 TOPIC_ORDER_CONFLICT의 현재 목록으로 바로 바꾼다.
  */
 export function useSwapTopicOrder() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ topic, neighbor, direction }: SwapTopicInput) => {
-      // sortOrder가 같으면 맞바꿔도 그대로이므로 한 칸 차이를 만든다.
-      const topicOrder =
-        topic.sortOrder === neighbor.sortOrder
-          ? neighbor.sortOrder + (direction === 'up' ? -1 : 1)
-          : neighbor.sortOrder
-      await updateTopic(topic.id, { sortOrder: topicOrder })
-      if (topicOrder === neighbor.sortOrder) {
-        await updateTopic(neighbor.id, { sortOrder: topic.sortOrder })
-      }
+    mutationFn: ({ topic, neighbor }: SwapTopicInput) => {
+      const ids = (qc.getQueryData<TopicList>(keys.topics)?.topics ?? []).map((t) => t.id)
+      // onMutate가 이미 자리를 바꿔 두었다. 캐시가 비었으면 두 주제만이라도 바꿔 보낸다 (서버가 409로 알려준다).
+      return reorderTopics(ids.length ? ids : [neighbor.id, topic.id])
     },
     onMutate: async ({ topic, neighbor }) => {
       await qc.cancelQueries({ queryKey: keys.topics })
@@ -182,7 +181,12 @@ export function useSwapTopicOrder() {
         return { ...data, topics: list }
       })
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: keys.topics }),
+    onSuccess: (list) => qc.setQueryData(keys.topics, list),
+    onError: (e) => {
+      const current = isApiError(e, 'TOPIC_ORDER_CONFLICT') ? orderConflictCurrent(e) : undefined
+      if (current) qc.setQueryData(keys.topics, current)
+      else void qc.invalidateQueries({ queryKey: keys.topics })
+    },
   })
 }
 

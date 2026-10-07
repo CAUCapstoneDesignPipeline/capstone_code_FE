@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { getNote, updateNote, type Note } from '../../api'
+import { getNote, onSessionChange, updateNote, type Note } from '../../api'
 import { Banner } from '../../components/Banner'
 import { Button, IconButton } from '../../components/Button'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -53,9 +53,16 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
   // 노트를 떠날 때 남은 입력을 바로 저장한다.
   useEffect(() => () => saver.flush(), [saver])
 
+  // 로그인이 만료돼 멈춘 저장을 다시 로그인하면 잇는다.
+  useEffect(() => onSessionChange((session) => session && saver.resume()), [saver])
+
   useEffect(() => {
     registerLeaveGuard?.(() =>
-      saver.hasStuckChanges() ? (STUCK_REASON[saver.getState().status] ?? null) : null,
+      saver.hasStuckChanges()
+        ? saver.isWaitingForLogin()
+          ? '로그인이 만료되어 저장이 멈춰 있습니다.'
+          : (STUCK_REASON[saver.getState().status] ?? null)
+        : null,
     )
     return () => registerLeaveGuard?.(null)
   }, [saver, registerLeaveGuard])
@@ -101,6 +108,7 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
       },
       onError: (e) => {
         setConfirmingDelete(false)
+        // NOTE_DELETE_BLOCKED: AI 근거가 연결된 노트. 서버 문구를 그대로 보이고 노트는 둔다.
         toast('error', `노트를 삭제하지 못했습니다. ${e.message}`)
       },
     })

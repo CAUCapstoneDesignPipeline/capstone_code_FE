@@ -4,6 +4,186 @@
  */
 
 export interface paths {
+    "/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 사용할 수 있는 로그인 제공자
+         * @description 로그인 화면은 이 목록으로 버튼을 그린다. 제공자를 더해도 앱의 로그인 화면 코드를 바꾸지 않는다.
+         *     devTokenEnabled는 개발용 로그인 버튼을 보일지 정한다 (운영에서는 항상 false).
+         */
+        get: operations["listAuthProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oauth2/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 로그인 제공자 id (GET /auth/providers) */
+                provider: components["parameters"]["Provider"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 소셜 로그인 시작
+         * @description 앱은 fetch가 아니라 브라우저 페이지를 이 주소로 이동시킨다. BE는 state·PKCE·nonce를 만들어
+         *     짧은 쿠키(SameSite=Lax)에 두고 제공자의 로그인 화면으로 보낸다.
+         */
+        get: operations["startOAuth2Login"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oauth2/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 로그인 제공자 id (GET /auth/providers) */
+                provider: components["parameters"]["Provider"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 소셜 로그인 콜백 (제공자가 부름)
+         * @description 앱이 직접 부르지 않는다. BE는 state를 확인하고 code를 토큰으로 바꾼 뒤 ID 토큰(서명·aud·nonce)을 검증한다.
+         *     (provider, sub)로 신원을 찾고, 없으면 허용 목록에 있는 검증된 이메일일 때만 사용자와 신원을 만든다.
+         *     성공: refresh 토큰 쿠키를 심고 {APP_URL}/auth/callback?returnTo=...로 이동.
+         *     실패: {APP_URL}/login?error=<code>로 이동. code는 access_denied(사용자가 취소), signup_not_allowed(허용 목록에 없음),
+         *     email_not_verified(제공자가 이메일을 검증하지 않음), oauth_failed(그 밖). 화면 문구는 기능명세서 7.1.
+         */
+        get: operations["completeOAuth2Login"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 액세스 토큰 발급·갱신
+         * @description refresh 토큰 쿠키(CAPSTONE_REFRESH)로 새 액세스 토큰을 받는다. 앱은 로그인 콜백 직후, 페이지를 새로 연 직후,
+         *     API가 401을 줬을 때 부른다. 부를 때마다 refresh 토큰을 새것으로 바꾸고 쿠키도 새로 심는다.
+         *     이미 교체된 refresh 토큰을 다시 쓰면(탈취 의심) 그 로그인 계열을 모두 끊고 401.
+         *     여러 탭이 동시에 부를 수 있으므로, 앱은 한 탭에서 부르는 동안 다른 탭은 결과를 기다리게 한다(api/rules.md).
+         */
+        post: operations["refreshAccessToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 로그아웃
+         * @description 이 기기의 refresh 토큰을 폐기하고 쿠키를 만료시킨다. 로그인하지 않은 상태에서 불러도 204.
+         *     이미 발급된 액세스 토큰은 만료(최대 30분)까지 유효하므로 앱은 메모리에서 바로 지운다.
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 현재 로그인한 사용자 */
+        get: operations["getMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/dev/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 개발용 토큰 발급 (local·test 프로필 전용)
+         * @description 운영에는 이 경로가 없다(404). local·test 프로필이고 capstone.auth.dev-token.enabled=true일 때만 열린다.
+         *     구글 로그인 없이 개발 사용자(provider = dev)의 액세스 토큰을 준다. 사용자가 없으면 만든다(허용 목록 검사 없음).
+         *     curl·Postman·통합 테스트에서 Authorization: Bearer <accessToken>으로 쓴다.
+         *     issueRefreshCookie가 true면 refresh 쿠키도 심어서 앱에서 "개발용 로그인"으로 쓸 수 있다.
+         *     개발용 토큰에는 dev 클레임이 들어가고, 운영 BE는 이 클레임이 있는 토큰을 거부한다.
+         */
+        post: operations["issueDevToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/topics/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 주제 순서 변경 (한 요청)
+         * @description 사용자의 모든 주제 id를 원하는 순서대로 보낸다. 서버는 한 트랜잭션에서 0부터 sortOrder를 다시 매긴다.
+         *     보낸 id 집합이 서버의 주제 집합과 다르면(그 사이 다른 곳에서 주제를 추가·삭제함) 바꾸지 않고
+         *     409 TOPIC_ORDER_CONFLICT와 현재 목록(details.current)을 돌려준다. 앱은 목록을 새로 그리고 다시 시도하게 한다.
+         *     위·아래 이동도 이 요청으로 한다.
+         */
+        put: operations["reorderTopics"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/topics": {
         parameters: {
             query?: never;
@@ -13,11 +193,14 @@ export interface paths {
         };
         /**
          * 주제 목록
-         * @description sortOrder 오름차순, 같으면 이름순. 미분류 노트 수를 함께 준다.
+         * @description sortOrder 오름차순, 같으면 이름순. 주제마다 노트 수, 전체에 미분류 노트 수를 함께 준다.
          */
         get: operations["listTopics"];
         put?: never;
-        /** 주제 생성 */
+        /**
+         * 주제 생성
+         * @description 이름 중복은 대소문자를 구분해 비교한다 ("DB"와 "db"는 다른 주제, erd.md E2).
+         */
         post: operations["createTopic"];
         delete?: never;
         options?: never;
@@ -42,13 +225,14 @@ export interface paths {
          * @description 소속 노트는 지우지 않고 미분류로 옮긴다.
          *     미분류에 같은 제목의 노트가 이미 있으면 삭제하지 않고 409 NOTE_TITLE_TAKEN을 돌려준다.
          *     error.details.titles에 겹치는 제목 목록이 들어 있다. 사용자가 제목을 바꾼 뒤 다시 시도한다.
+         *     BE는 DB 유일 제약에 걸리기 전에 겹치는 제목을 먼저 검사한다 (BE의 V1__initial_schema.sql 주석).
          */
         delete: operations["deleteTopic"];
         options?: never;
         head?: never;
         /**
-         * 주제 이름·표시 순서 변경
-         * @description 보낸 필드만 바꾼다.
+         * 주제 이름 변경
+         * @description 이름만 바꾼다. 순서 변경은 PUT /topics/order. 두 곳에서 동시에 바꾸면 나중 요청이 이긴다(단일 사용자라 드묾).
          */
         patch: operations["updateTopic"];
         trace?: never;
@@ -66,7 +250,10 @@ export interface paths {
          */
         get: operations["listNotes"];
         put?: never;
-        /** 노트 생성 */
+        /**
+         * 노트 생성
+         * @description topicId가 없거나 null이면 미분류에 만든다.
+         */
         post: operations["createNote"];
         delete?: never;
         options?: never;
@@ -83,18 +270,24 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** 노트 한 건 (본문 포함) */
+        /**
+         * 노트 한 건 (본문 포함)
+         * @description 편집기를 열 때 호출한다. 받은 version을 편집 기준으로 들고 있는다.
+         */
         get: operations["getNote"];
         /**
          * 노트 제목·본문 수정
          * @description 요청의 version이 서버 값과 다르면 그 사이에 다른 곳에서 고친 것이므로 409 NOTE_CONFLICT를 돌려준다.
          *     error.details.current에 서버의 현재 노트가 들어 있다. 성공하면 version이 1 늘어난다.
-         *     충돌 창에서 "내 내용으로 덮어쓰기"를 고르면 앱은 같은 제목·본문을 details.current.version으로 다시 보낸다.
-         *     "다른 곳의 내용 불러오기"를 고르면 details.current를 편집기에 채운다.
+         *     "다른 곳의 내용 불러오기"를 고르면 앱은 details.current를 편집기에 채운다.
+         *     "내 내용으로 덮어쓰기"(이후 추가)는 같은 제목·본문을 details.current.version으로 다시 보낸다.
          */
         put: operations["updateNote"];
         post?: never;
-        /** 노트 삭제 */
+        /**
+         * 노트 삭제
+         * @description 바로 지운다 (휴지통 없음). 이후 이 노트를 근거로 한 관계는 근거 소실 처리한다 (F-REV-04).
+         */
         delete: operations["deleteNote"];
         options?: never;
         head?: never;
@@ -113,10 +306,202 @@ export interface paths {
         get?: never;
         /**
          * 노트를 다른 주제로 이동
-         * @description topicId가 null이면 미분류로 옮긴다. 제목·본문과 version은 바뀌지 않는다.
-         *     옮길 주제에 같은 제목이 있으면 409 NOTE_TITLE_TAKEN.
+         * @description topicId가 null이면 미분류로 옮긴다. 제목·본문과 version은 바뀌지 않고 updatedAt은 바뀐다 (erd.md E3).
+         *     옮길 주제에 같은 제목이 있으면 409 NOTE_TITLE_TAKEN, details.titles에 그 제목.
          */
         put: operations["moveNote"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notes/{noteId}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: components["parameters"]["NoteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 노트의 최근 분석 작업 (F-ANL-01, W2-02)
+         * @description 가장 최근 작업을 준다. 분석한 적이 없으면 job이 null이다.
+         */
+        get: operations["getNoteAnalysis"];
+        put?: never;
+        /**
+         * 분석 요청 (명시적 분석)
+         * @description 노트의 현재 version으로 분석 작업을 만든다. 저장할 때 자동으로 만드는 기준은 미정이라(F-ANL-01)
+         *     명시적 요청도 둔다. 이미 대기·진행 중인 작업이 있으면 새로 만들지 않고 그 작업을 준다.
+         */
+        post: operations["requestNoteAnalysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notes/{noteId}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: components["parameters"]["NoteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 노트별 개념·관계 (F-GRA-03, W2-01, W2-07)
+         * @description 전체 그래프에서 이 노트를 근거로 가진 부분만 골라 준다. 따로 저장한 "노트 그래프"가 아니다.
+         *     relations[].evidence에는 이 노트의 원문 구간만 넣는다.
+         */
+        get: operations["getNoteGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 그래프 보기 (F-VIZ-01, W2-08)
+         * @description scope=all이면 전체, topic이면 그 주제 노트를 근거로 가진 부분, note면 그 노트를 근거로 가진 부분.
+         *     추출·확정·근거 소실 관계를 origin·status로 구분해 준다.
+         */
+        get: operations["getGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/relations/{relationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                relationId: string;
+            };
+            cookie?: never;
+        };
+        /** 관계 한 건과 근거 (간선을 누를 때, W2-08·W2-09) */
+        get: operations["getRelation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/relation-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 관계 유형 목록 (닫힌 목록, 후보 수정 창에서 사용) */
+        get: operations["listRelationTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 후보 목록 (F-CAN-01, W2-03)
+         * @description 순위순(score 내림차순). openCount는 사이드바 "발견" 배지에 쓴다 (알림 방식 D15).
+         */
+        get: operations["listCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidates/{candidateId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: components["parameters"]["CandidateId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 후보 상세 (F-CAN-01, W2-04·W2-05)
+         * @description A → B → C 단계와 관계 유형, 단계별 근거, B가 나오는 두 문장, 설명(전제·조건·가정·결론), 검증 결과.
+         */
+        get: operations["getCandidate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidates/{candidateId}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: components["parameters"]["CandidateId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 후보 승인·수정·기각 (F-REV-01, W2-04·W2-05·W2-06)
+         * @description approve·modify는 확정 관계를 만들고 그래프에 넣는다. reject는 기각 이력만 남긴다.
+         *     후보 하나에 한 번만 검토한다 (erd.md E5). 가설 후보를 승인하려면 asHypothesis를 true로 보낸다.
+         */
+        post: operations["reviewCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 검토 이력 (F-REV-01, F-EVAL-04)
+         * @description 최근 검토순.
+         */
+        get: operations["listReviews"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -128,6 +513,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description DB 테이블 topic. noteCount는 조회 때 센다. */
         Topic: {
             /** Format: uuid */
             id: string;
@@ -145,9 +531,60 @@ export interface components {
             name: string;
         };
         TopicUpdate: {
-            name?: string;
-            sortOrder?: number;
+            name: string;
         };
+        TopicOrder: {
+            /** @description 사용자의 모든 주제 id, 원하는 순서대로. 빠지거나 더한 id가 있으면 409 */
+            topicIds: string[];
+        };
+        AuthProvider: {
+            /**
+             * @description 제공자를 더하면 값이 늘어난다 (DB user_identity.provider와 같다)
+             * @enum {string}
+             */
+            id: "google";
+            /** @example Google */
+            name: string;
+        };
+        AuthProviderList: {
+            providers: components["schemas"]["AuthProvider"][];
+            /** @description 개발용 로그인 버튼을 보일지. 운영에서는 false */
+            devTokenEnabled: boolean;
+        };
+        /** @description DB 테이블 app_user (+ user_identity의 provider 목록) */
+        Me: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            email: string | null;
+            displayName: string;
+            /** @description 연결된 로그인 제공자 (개발 사용자는 dev) */
+            providers: string[];
+        };
+        TokenResponse: {
+            /** @description BE가 서명한 JWT. Authorization Bearer 헤더로 보낸다 */
+            accessToken: string;
+            /** @enum {string} */
+            tokenType: "Bearer";
+            /** @description 만료까지 남은 초 (기본 1800) */
+            expiresIn: number;
+            user: components["schemas"]["Me"];
+        };
+        DevTokenRequest: {
+            /**
+             * Format: email
+             * @default dev@capstone.local
+             */
+            email?: string;
+            /** @default 개발자 */
+            displayName?: string;
+            /**
+             * @description true면 refresh 쿠키도 심는다 (앱의 개발용 로그인)
+             * @default false
+             */
+            issueRefreshCookie?: boolean;
+        };
+        /** @description DB 테이블 note. */
         Note: {
             /** Format: uuid */
             id: string;
@@ -159,7 +596,7 @@ export interface components {
             title: string;
             /** @description 마크다운 원문 (NFC) */
             body: string;
-            /** @description 제목·본문을 수정할 때마다 1 증가 */
+            /** @description 제목·본문을 수정할 때마다 1 증가. 이동에는 그대로 */
             version: number;
             /** Format: date-time */
             createdAt: string;
@@ -172,7 +609,12 @@ export interface components {
             /** Format: uuid */
             topicId: string | null;
             title: string;
-            /** @description 검색어가 있으면 본문에서 검색어 주변 80자, 없으면 본문 앞 80자 */
+            /** @description 앱이 목록을 다시 받을 때 열린 노트가 다른 곳에서 바뀌었는지 비교한다 */
+            version: number;
+            /**
+             * @description 검색어가 있으면 본문에서 검색어 주변 80자, 없으면 본문 앞 80자.
+             *     마크다운 원문이라 '#', '**' 같은 기호가 섞일 수 있다. 앱은 렌더링하지 않고 평문으로 보인다.
+             */
             snippet: string;
             /** Format: date-time */
             updatedAt: string;
@@ -196,23 +638,320 @@ export interface components {
         Error: {
             error: {
                 /** @enum {string} */
-                code: "VALIDATION_FAILED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "INTERNAL";
-                /** @description 사용자에게 보여줄 수 있는 한국어 문장 */
+                code: "VALIDATION_FAILED" | "UNAUTHENTICATED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "TOPIC_ORDER_CONFLICT" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "CANDIDATE_CLOSED" | "INTERNAL";
+                /** @description 사용자에게 그대로 보여줄 한국어 문장. 문구는 기능명세서 7.1 */
                 message: string;
                 /**
                  * @description VALIDATION_FAILED - fields: [{field, reason}]
                  *     NOTE_TITLE_TAKEN  - titles: [겹치는 제목]
                  *     NOTE_CONFLICT     - current: Note
+                 *     TOPIC_ORDER_CONFLICT - current: TopicList
                  */
                 details?: {
+                    fields?: components["schemas"]["FieldError"][];
+                    titles?: string[];
+                    /** @description NOTE_CONFLICT면 Note, TOPIC_ORDER_CONFLICT면 TopicList */
+                    current?: components["schemas"]["Note"] | components["schemas"]["TopicList"];
+                } & {
                     [key: string]: unknown;
                 };
             };
         };
+        FieldError: {
+            /** @description 요청 본문의 필드 이름 (예: title, name, q) */
+            field: string;
+            /**
+             * @description empty - 비었음 (앞뒤 공백을 지운 뒤)
+             *     too_long - 최대 길이 초과
+             *     contains_slash - '/' 포함
+             *     invalid - 그 밖의 형식 오류 (타입, 누락된 필수 필드 등)
+             * @enum {string}
+             */
+            reason: "empty" | "too_long" | "contains_slash" | "invalid";
+        };
+        ConceptRef: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+        };
+        /** @description DB 테이블 relation_type */
+        RelationType: {
+            /** @example cause */
+            code: string;
+            /** @example 원인 */
+            label: string;
+            description?: string | null;
+        };
+        RelationTypeRef: {
+            code: string;
+            label: string;
+        };
+        /** @description id가 null이면 미분류 */
+        TopicRef: {
+            /** Format: uuid */
+            id: string | null;
+            /**
+             * @example 네트워크
+             * @example 미분류
+             */
+            name: string;
+        };
+        /** @description DB 테이블 analysis_job */
+        AnalysisJob: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            noteId: string;
+            noteVersion: number;
+            /**
+             * @description 화면 문구는 분석 대기 · 분석 중 · 분석 완료 · 분석 실패
+             * @enum {string}
+             */
+            status: "pending" | "running" | "succeeded" | "failed";
+            errorMessage?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt?: string | null;
+            /** Format: date-time */
+            finishedAt?: string | null;
+        };
+        /** @description DB 테이블 evidence_span. quote는 저장 당시 원문 문장 그대로다 (LLM 인용 아님) */
+        EvidenceSpan: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description 노트가 지워졌으면 null
+             */
+            noteId: string | null;
+            noteTitle: string | null;
+            topic: components["schemas"]["TopicRef"] | null;
+            noteVersion: number;
+            startOffset: number;
+            endOffset: number;
+            /** @example 클라이언트는 응답 시간이 초과되면 요청을 재전송한다. */
+            quote: string;
+            /** @enum {string} */
+            status: "valid" | "lost";
+        };
+        ConceptInNote: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            mentions: {
+                surface: string;
+                startOffset: number;
+                endOffset: number;
+            }[];
+        };
+        /** @description DB 테이블 relation (+ relation_evidence) */
+        Relation: {
+            /** Format: uuid */
+            id: string;
+            source: components["schemas"]["ConceptRef"];
+            target: components["schemas"]["ConceptRef"];
+            type: components["schemas"]["RelationTypeRef"];
+            /**
+             * @description extracted = 노트에 적힌 관계, confirmed = 사용자가 승인·수정한 관계
+             * @enum {string}
+             */
+            origin: "extracted" | "confirmed";
+            /** @enum {string} */
+            status: "active" | "evidence_lost";
+            /** @description 가설로 승인한 확정 관계 */
+            asHypothesis: boolean;
+            evidence: components["schemas"]["EvidenceSpan"][];
+        };
+        RelationDetail: components["schemas"]["Relation"] & {
+            /**
+             * Format: uuid
+             * @description 확정 관계면 만든 후보 id
+             */
+            candidateId: string | null;
+            /** @description 이 관계를 단계로 써서 만든 확정 관계. 이 관계가 근거 소실이면 함께 근거 소실이다 */
+            derived: {
+                /** Format: uuid */
+                id: string;
+                source: components["schemas"]["ConceptRef"];
+                target: components["schemas"]["ConceptRef"];
+                /** @enum {string} */
+                status: "active" | "evidence_lost";
+            }[];
+        };
+        NoteGraph: {
+            /** Format: uuid */
+            noteId: string;
+            /** @description 가장 최근 분석 작업. 없으면 null */
+            analysis: components["schemas"]["AnalysisJob"] | null;
+            concepts: components["schemas"]["ConceptInNote"][];
+            relations: components["schemas"]["Relation"][];
+        };
+        Graph: {
+            /** @enum {string} */
+            scope: "all" | "topic" | "note";
+            nodes: components["schemas"]["ConceptRef"][];
+            edges: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                sourceId: string;
+                /** Format: uuid */
+                targetId: string;
+                type: components["schemas"]["RelationTypeRef"];
+                /** @enum {string} */
+                origin: "extracted" | "confirmed";
+                /** @enum {string} */
+                status: "active" | "evidence_lost";
+                asHypothesis: boolean;
+            }[];
+        };
+        /** @description DB 테이블 candidate */
+        CandidateSummary: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description hypothesis = 빈 단계가 있거나 합성 규칙이 없음 ("가설" 배지)
+             * @enum {string}
+             */
+            kind: "candidate" | "hypothesis";
+            /** @enum {string} */
+            status: "open" | "accepted" | "rejected" | "withdrawn";
+            source: components["schemas"]["ConceptRef"];
+            bridge: components["schemas"]["ConceptRef"];
+            target: components["schemas"]["ConceptRef"];
+            /** @description 합성 규칙으로 나온 A→C 유형. 없으면 null */
+            proposedType: components["schemas"]["RelationTypeRef"] | null;
+            /** @description 한 줄 설명 */
+            summary: string;
+            /** @description 경로 근거 노트의 주제 (예 네트워크, DB). 서로 다른 주제를 잇는 후보면 둘 이상 */
+            topics: components["schemas"]["TopicRef"][];
+            score: number | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        CandidateList: {
+            candidates: components["schemas"]["CandidateSummary"][];
+            /** @description 검토 전 후보 수 (사이드바 배지) */
+            openCount: number;
+        };
+        /** @description DB 테이블 candidate_step. gap이면 relationId가 null이고 evidence가 비어 있다 */
+        CandidateStep: {
+            order: number;
+            from: components["schemas"]["ConceptRef"];
+            to: components["schemas"]["ConceptRef"];
+            type: components["schemas"]["RelationTypeRef"] | null;
+            /** Format: uuid */
+            relationId: string | null;
+            gap: boolean;
+            evidence: components["schemas"]["EvidenceSpan"][];
+        };
+        /** @description DB 테이블 candidate_claim */
+        Claim: {
+            /** @enum {string} */
+            kind: "premise" | "condition" | "assumption" | "conclusion";
+            text: string;
+            /** Format: uuid */
+            evidenceSpanId: string | null;
+        };
+        CandidateDetail: components["schemas"]["CandidateSummary"] & {
+            steps: components["schemas"]["CandidateStep"][];
+            /** @description 매개 개념 B가 나오는 문장 (보통 두 노트에 하나씩) */
+            bridgeMentions: components["schemas"]["EvidenceSpan"][];
+            claims: components["schemas"]["Claim"][];
+            verification: {
+                /** @enum {integer} */
+                layer: 1 | 2 | 3;
+                stepOrder: number | null;
+                /** @enum {string} */
+                outcome: "pass" | "fail" | "uncertain";
+            }[];
+            /** @description 검토했으면 그 기록, 아니면 null */
+            review: components["schemas"]["Review"] | null;
+        };
+        ReviewRequest: {
+            /** @enum {string} */
+            action: "approve" | "modify" | "reject";
+            /**
+             * @description 가설 후보(kind = hypothesis)를 가설임을 알고 승인할 때 true. approve·modify에만 쓴다
+             * @default false
+             */
+            asHypothesis?: boolean;
+            /** @description action이 modify일 때 필수, 아니면 보내지 않는다 */
+            modification?: {
+                /** @description relation_type.code */
+                typeCode: string;
+                /**
+                 * @description forward = A → C, reverse = C → A
+                 * @enum {string}
+                 */
+                direction: "forward" | "reverse";
+                explanation: string;
+            };
+        };
+        /** @description DB 테이블 review */
+        Review: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            candidateId: string;
+            /** @enum {string} */
+            action: "approve" | "modify" | "reject";
+            asHypothesis: boolean;
+            /**
+             * Format: uuid
+             * @description approve·modify로 만든 확정 관계. reject면 null
+             */
+            relationId: string | null;
+            /** @description 검토 당시 후보 (유형·방향·설명) */
+            original: {
+                [key: string]: unknown;
+            };
+            /** @description modify일 때 바꾼 내용 */
+            modified: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: date-time */
+            reviewedAt: string;
+        };
     };
     responses: {
-        /** @description 필수 필드 누락, 길이 초과, '/' 포함 등 */
-        ValidationFailed: {
+        /** @description 토큰이 없거나 만료·위조됨, 또는 refresh 토큰이 없거나 만료·폐기됨. 앱은 refresh를 한 번 시도하고 실패하면 로그인 화면 (문구 안) */
+        Unauthenticated: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "UNAUTHENTICATED",
+                 *         "message": "로그인이 필요합니다."
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 지원하지 않는 로그인 제공자 */
+        ProviderNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_FOUND",
+                 *         "message": "지원하지 않는 로그인 방식입니다."
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description topicIds가 비었거나 같은 id가 두 번 있음 */
+        TopicOrderValidationFailed: {
             headers: {
                 [name: string]: unknown;
             };
@@ -221,12 +960,12 @@ export interface components {
                  * @example {
                  *       "error": {
                  *         "code": "VALIDATION_FAILED",
-                 *         "message": "제목에는 '/'를 쓸 수 없습니다.",
+                 *         "message": "주제 순서가 올바르지 않습니다.",
                  *         "details": {
                  *           "fields": [
                  *             {
-                 *               "field": "title",
-                 *               "reason": "contains_slash"
+                 *               "field": "topicIds",
+                 *               "reason": "invalid"
                  *             }
                  *           ]
                  *         }
@@ -236,8 +975,46 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description 없는 id */
-        NotFound: {
+        /** @description 보낸 주제 목록이 서버와 다름 (다른 곳에서 주제를 추가·삭제함). 순서는 바꾸지 않았다 (문구 안) */
+        TopicOrderConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "TOPIC_ORDER_CONFLICT",
+                 *         "message": "다른 곳에서 주제 목록이 바뀌었습니다. 목록을 새로 불러왔으니 다시 시도하세요.",
+                 *         "details": {
+                 *           "current": {
+                 *             "topics": [
+                 *               {
+                 *                 "id": "5b20c1d4-8f2a-4e61-9b3a-2d7f0c9e1a44",
+                 *                 "name": "네트워크",
+                 *                 "sortOrder": 0,
+                 *                 "noteCount": 2,
+                 *                 "createdAt": "2026-09-29T05:00:00Z"
+                 *               },
+                 *               {
+                 *                 "id": "0c9e1a44-5b20-4e61-8f2a-2d7f9b3a1111",
+                 *                 "name": "DB",
+                 *                 "sortOrder": 1,
+                 *                 "noteCount": 1,
+                 *                 "createdAt": "2026-09-29T05:01:00Z"
+                 *               }
+                 *             ],
+                 *             "unassignedNoteCount": 0
+                 *           }
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 노트 제목·본문이 규칙에 맞지 않음. message는 첫 번째 fields 항목의 이유 */
+        NoteValidationFailed: {
             headers: {
                 [name: string]: unknown;
             };
@@ -245,17 +1022,141 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description 같은 이름의 주제가 이미 있음 */
+        /** @description 주제 이름이 규칙에 맞지 않음 */
+        TopicValidationFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 검색어가 100자를 넘음 */
+        QueryValidationFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "VALIDATION_FAILED",
+                 *         "message": "검색어는 100자 이하로 입력하세요.",
+                 *         "details": {
+                 *           "fields": [
+                 *             {
+                 *               "field": "q",
+                 *               "reason": "too_long"
+                 *             }
+                 *           ]
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 없는 주제 (문구 안) */
+        TopicNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_FOUND",
+                 *         "message": "삭제된 주제입니다."
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 노트를 열 때(조회·삭제) 없음 */
+        NoteNotFoundOnGet: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_FOUND",
+                 *         "message": "삭제된 노트입니다"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 편집 중 저장했는데 다른 곳에서 삭제됨. 앱은 자동 저장을 멈추고 편집기 내용을 지우지 않는다 */
+        NoteNotFoundOnSave: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_FOUND",
+                 *         "message": "다른 곳에서 삭제된 노트입니다"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 같은 이름의 주제가 이미 있음 (문구 안) */
         TopicNameTaken: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "TOPIC_NAME_TAKEN",
+                 *         "message": "같은 이름의 주제가 이미 있습니다."
+                 *       }
+                 *     }
+                 */
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description 같은 주제(또는 미분류)에 같은 제목이 이미 있음 */
-        NoteTitleTaken: {
+        /** @description 같은 주제(또는 미분류)에 같은 제목이 이미 있음 (문구 안) */
+        NoteTitleTakenOnSave: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 옮길 주제에 같은 제목이 있음. 노트는 원래 자리에 남는다 (문구 안) */
+        NoteTitleTakenOnMove: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOTE_TITLE_TAKEN",
+                 *         "message": "옮길 주제에 같은 제목의 노트가 있어 옮기지 못했습니다.",
+                 *         "details": {
+                 *           "titles": [
+                 *             "재시도 정책"
+                 *           ]
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 주제를 지우면 미분류와 제목이 겹침. 삭제하지 않는다 */
+        NoteTitleTakenOnTopicDelete: {
             headers: {
                 [name: string]: unknown;
             };
@@ -276,10 +1177,72 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description 그 밖의 서버 오류 (문구 안) */
+        Internal: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "INTERNAL",
+                 *         "message": "일시적인 오류가 발생했습니다. 잠시 후 다시 시도하세요."
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 없는 id */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_FOUND",
+                 *         "message": "삭제된 노트입니다"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 요청이 규칙에 맞지 않음 (예 scope=topic인데 topicId 없음, modify인데 modification 없음) */
+        ValidationFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "VALIDATION_FAILED",
+                 *         "message": "수정할 관계 유형을 고르세요.",
+                 *         "details": {
+                 *           "fields": [
+                 *             {
+                 *               "field": "modification.typeCode",
+                 *               "reason": "empty"
+                 *             }
+                 *           ]
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
+        /** @description 로그인 제공자 id (GET /auth/providers) */
+        Provider: string;
         TopicId: string;
         NoteId: string;
+        CandidateId: string;
     };
     requestBodies: never;
     headers: never;
@@ -287,6 +1250,251 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAuthProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderList"];
+                };
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
+    startOAuth2Login: {
+        parameters: {
+            query?: {
+                /** @description 로그인 뒤 돌아갈 앱 안의 경로. '/'로 시작하는 상대 경로만 받는다(다른 사이트로 보내는 것을 막음). 기본 '/' */
+                returnTo?: string;
+            };
+            header?: never;
+            path: {
+                /** @description 로그인 제공자 id (GET /auth/providers) */
+                provider: components["parameters"]["Provider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 제공자의 인가 주소로 이동 */
+            302: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["ProviderNotFound"];
+        };
+    };
+    completeOAuth2Login: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                /** @description 제공자가 준 오류 (예 access_denied) */
+                error?: string;
+            };
+            header?: never;
+            path: {
+                /** @description 로그인 제공자 id (GET /auth/providers) */
+                provider: components["parameters"]["Provider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 앱으로 이동 (성공이면 CAPSTONE_REFRESH 쿠키를 심는다) */
+            302: {
+                headers: {
+                    Location?: string;
+                    /** @description CAPSTONE_REFRESH (성공 시) */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["ProviderNotFound"];
+        };
+    };
+    refreshAccessToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 새 액세스 토큰 */
+            200: {
+                headers: {
+                    /** @description 새 CAPSTONE_REFRESH */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 로그아웃됨 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    issueDevToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                /**
+                 * @example {
+                 *       "email": "dev@capstone.local",
+                 *       "displayName": "개발자"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DevTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description 개발용 액세스 토큰 */
+            200: {
+                headers: {
+                    /** @description CAPSTONE_REFRESH (issueRefreshCookie가 true일 때만) */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description 이메일 형식 오류 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_FAILED",
+                     *         "message": "이메일 형식이 올바르지 않습니다.",
+                     *         "details": {
+                     *           "fields": [
+                     *             {
+                     *               "field": "email",
+                     *               "reason": "invalid"
+                     *             }
+                     *           ]
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 개발용 토큰이 꺼져 있음 (운영) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "NOT_FOUND",
+                     *         "message": "요청한 주소를 찾을 수 없습니다."
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
+    reorderTopics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TopicOrder"];
+            };
+        };
+        responses: {
+            /** @description 바뀐 주제 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicList"];
+                };
+            };
+            400: components["responses"]["TopicOrderValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            409: components["responses"]["TopicOrderConflict"];
+            500: components["responses"]["Internal"];
+        };
+    };
     listTopics: {
         parameters: {
             query?: never;
@@ -305,6 +1513,8 @@ export interface operations {
                     "application/json": components["schemas"]["TopicList"];
                 };
             };
+            401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["Internal"];
         };
     };
     createTopic: {
@@ -316,6 +1526,11 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "name": "네트워크"
+                 *     }
+                 */
                 "application/json": components["schemas"]["TopicCreate"];
             };
         };
@@ -329,8 +1544,10 @@ export interface operations {
                     "application/json": components["schemas"]["Topic"];
                 };
             };
-            400: components["responses"]["ValidationFailed"];
+            400: components["responses"]["TopicValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
             409: components["responses"]["TopicNameTaken"];
+            500: components["responses"]["Internal"];
         };
     };
     deleteTopic: {
@@ -351,8 +1568,10 @@ export interface operations {
                 };
                 content?: never;
             };
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["NoteTitleTaken"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["TopicNotFound"];
+            409: components["responses"]["NoteTitleTakenOnTopicDelete"];
+            500: components["responses"]["Internal"];
         };
     };
     updateTopic: {
@@ -379,9 +1598,11 @@ export interface operations {
                     "application/json": components["schemas"]["Topic"];
                 };
             };
-            400: components["responses"]["ValidationFailed"];
-            404: components["responses"]["NotFound"];
+            400: components["responses"]["TopicValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["TopicNotFound"];
             409: components["responses"]["TopicNameTaken"];
+            500: components["responses"]["Internal"];
         };
     };
     listNotes: {
@@ -389,7 +1610,10 @@ export interface operations {
             query?: {
                 /** @description 주제 id. 'none'이면 미분류만. 없으면 전체. */
                 topicId?: string;
-                /** @description 제목 또는 본문에 들어간 문자열 (대소문자 무시, 부분 일치) */
+                /**
+                 * @description 제목 또는 본문에 들어간 문자열 (대소문자 무시, 부분 일치). 마크다운 원문 기준.
+                 *     앞뒤 공백을 지운 뒤 비면 검색하지 않은 것과 같다. 100자를 넘으면 400.
+                 */
                 q?: string;
                 sort?: "title" | "updated";
             };
@@ -410,7 +1634,9 @@ export interface operations {
                     };
                 };
             };
-            400: components["responses"]["ValidationFailed"];
+            400: components["responses"]["QueryValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["Internal"];
         };
     };
     createNote: {
@@ -442,9 +1668,11 @@ export interface operations {
                     "application/json": components["schemas"]["Note"];
                 };
             };
-            400: components["responses"]["ValidationFailed"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["NoteTitleTaken"];
+            400: components["responses"]["NoteValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["TopicNotFound"];
+            409: components["responses"]["NoteTitleTakenOnSave"];
+            500: components["responses"]["Internal"];
         };
     };
     getNote: {
@@ -467,7 +1695,9 @@ export interface operations {
                     "application/json": components["schemas"]["Note"];
                 };
             };
-            404: components["responses"]["NotFound"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NoteNotFoundOnGet"];
+            500: components["responses"]["Internal"];
         };
     };
     updateNote: {
@@ -494,8 +1724,9 @@ export interface operations {
                     "application/json": components["schemas"]["Note"];
                 };
             };
-            400: components["responses"]["ValidationFailed"];
-            404: components["responses"]["NotFound"];
+            400: components["responses"]["NoteValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NoteNotFoundOnSave"];
             /** @description NOTE_CONFLICT (version 불일치) 또는 NOTE_TITLE_TAKEN (같은 주제에 같은 제목) */
             409: {
                 headers: {
@@ -505,6 +1736,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
         };
     };
     deleteNote: {
@@ -525,7 +1757,9 @@ export interface operations {
                 };
                 content?: never;
             };
-            404: components["responses"]["NotFound"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NoteNotFoundOnGet"];
+            500: components["responses"]["Internal"];
         };
     };
     moveNote: {
@@ -555,8 +1789,281 @@ export interface operations {
                     "application/json": components["schemas"]["Note"];
                 };
             };
+            401: components["responses"]["Unauthenticated"];
+            /** @description 노트 또는 옮길 주제가 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            409: components["responses"]["NoteTitleTakenOnMove"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getNoteAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: components["parameters"]["NoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        job: components["schemas"]["AnalysisJob"] | null;
+                    };
+                };
+            };
             404: components["responses"]["NotFound"];
-            409: components["responses"]["NoteTitleTaken"];
+        };
+    };
+    requestNoteAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: components["parameters"]["NoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 작업을 만들었거나 이미 있는 작업 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisJob"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getNoteGraph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: components["parameters"]["NoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteGraph"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getGraph: {
+        parameters: {
+            query?: {
+                scope?: "all" | "topic" | "note";
+                /** @description scope=topic일 때 필수. 'none'이면 미분류 */
+                topicId?: string;
+                /** @description scope=note일 때 필수 */
+                noteId?: string;
+                /** @description 근거 소실 관계를 넣을지 */
+                includeLost?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Graph"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getRelation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                relationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRelationTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. active인 유형만 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        types: components["schemas"]["RelationType"][];
+                    };
+                };
+            };
+        };
+    };
+    listCandidates: {
+        parameters: {
+            query?: {
+                status?: "open" | "accepted" | "rejected" | "withdrawn";
+                /** @description 없으면 후보와 가설 모두 */
+                kind?: "candidate" | "hypothesis";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateList"];
+                };
+            };
+        };
+    };
+    getCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: components["parameters"]["CandidateId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    reviewCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: components["parameters"]["CandidateId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description 검토 기록을 만듦 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            404: components["responses"]["NotFound"];
+            /** @description 이미 검토했거나 거둔 후보 (문구 안) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CANDIDATE_CLOSED",
+                     *         "message": "이미 검토했거나 더 이상 제안하지 않는 후보입니다.",
+                     *         "details": {
+                     *           "status": "accepted"
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listReviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reviews: components["schemas"]["Review"][];
+                    };
+                };
+            };
         };
     };
 }

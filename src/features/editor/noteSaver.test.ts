@@ -165,6 +165,22 @@ describe('충돌과 삭제', () => {
     expect(save).toHaveBeenCalledTimes(1)
   })
 
+  it('로그인이 만료되면 멈추고, resume()하면 최신 내용으로 이어 저장한다', async () => {
+    const { saver, save, calls, fail } = setup()
+    saver.edit({ body: 'a' })
+    await vi.advanceTimersByTimeAsync(1000)
+    await fail(new ApiError('UNAUTHENTICATED', '로그인이 필요합니다.', 401))
+    expect(saver.getState().status).toBe('pending')
+    expect(saver.hasStuckChanges()).toBe(true)
+    saver.edit({ body: 'ab' })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(save).toHaveBeenCalledTimes(1)
+
+    saver.resume()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(calls[1].input).toMatchObject({ body: 'ab', version: 3 })
+  })
+
   it('충돌이 나면 기다리던 다음 저장도 보내지 않는다', async () => {
     const { saver, save, fail } = setup()
     saver.edit({ body: 'a' })

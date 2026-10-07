@@ -4,19 +4,24 @@ import { createMockServer } from './server.mjs'
 
 let server: ReturnType<typeof createMockServer>
 let base: string
+let token: string
 
 beforeEach(async () => {
   server = createMockServer()
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const res = await fetch(`${base}/auth/dev/token`, { method: 'POST' })
+  token = ((await res.json()) as { accessToken: string }).accessToken
 })
 
 afterEach(() => new Promise<void>((resolve) => server.close(() => resolve())))
 
-async function call(method: string, path: string, body?: unknown) {
+async function call(method: string, path: string, body?: unknown, auth = true) {
+  const headers: Record<string, string> = auth ? { Authorization: `Bearer ${token}` } : {}
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
   const res = await fetch(base + path, {
     method,
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const text = await res.text()
@@ -50,6 +55,52 @@ describe('주제', () => {
 
   it('/api 경로로도 받는다', async () => {
     expect((await call('GET', '/api/topics')).status).toBe(200)
+  })
+})
+
+describe('로그인', () => {
+  it('토큰이 없으면 401 UNAUTHENTICATED', async () => {
+    const r = await call('GET', '/topics', undefined, false)
+    expect(r.status).toBe(401)
+    expect(errorCode(r)).toBe('UNAUTHENTICATED')
+  })
+
+  it('개발용 로그인 쿠키로 refresh하면 새 토큰을 받고, 쓴 refresh 토큰은 다시 못 쓴다', async () => {
+    const login = await fetch(`${base}/auth/dev/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ issueRefreshCookie: true }),
+    })
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]
+    const first = await fetch(`${base}/auth/refresh`, { method: 'POST', headers: { cookie } })
+    expect(first.status).toBe(200)
+    expect(((await first.json()) as { user: { providers: string[] } }).user.providers).toEqual([
+      'dev',
+    ])
+    const again = await fetch(`${base}/auth/refresh`, { method: 'POST', headers: { cookie } })
+    expect(again.status).toBe(401)
+  })
+})
+
+describe('주제 순서', () => {
+  it('모든 id를 보내면 그 순서로 0부터 다시 매긴다', async () => {
+    const a = (await call('POST', '/topics', { name: 'A' })).data
+    const b = (await call('POST', '/topics', { name: 'B' })).data
+    const r = await call('PUT', '/topics/order', { topicIds: [b.id, a.id] })
+    expect(
+      r.data.topics.map((t: { name: string; sortOrder: number }) => [t.name, t.sortOrder]),
+    ).toEqual([
+      ['B', 0],
+      ['A', 1],
+    ])
+  })
+
+  it('빠진 id가 있으면 409 TOPIC_ORDER_CONFLICT와 현재 목록', async () => {
+    const a = (await call('POST', '/topics', { name: 'A' })).data
+    await call('POST', '/topics', { name: 'B' })
+    const r = await call('PUT', '/topics/order', { topicIds: [a.id] })
+    expect(errorCode(r)).toBe('TOPIC_ORDER_CONFLICT')
+    expect(r.data.error.details.current.topics).toHaveLength(2)
   })
 })
 

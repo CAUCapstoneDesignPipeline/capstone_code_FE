@@ -6,7 +6,11 @@ import {
   deleteTopic,
   isApiError,
   listNotes,
+  listTopics,
+  onSessionChange,
+  setSession,
   titleTakenTitles,
+  type TokenResponse,
   updateNote,
   validationFields,
   type Note,
@@ -40,6 +44,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setSession(null)
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
@@ -164,5 +169,64 @@ describe('오류', () => {
   it('요청 취소는 ApiError로 바꾸지 않는다', async () => {
     fetchMock.mockRejectedValue(new DOMException('aborted', 'AbortError'))
     await expect(listNotes()).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
+const session = (accessToken: string): TokenResponse => ({
+  accessToken,
+  tokenType: 'Bearer',
+  expiresIn: 1800,
+  user: { id: 'u1', email: null, displayName: '개발자', providers: ['dev'] },
+})
+
+const unauthenticated = () =>
+  json(401, { error: { code: 'UNAUTHENTICATED', message: '로그인이 필요합니다.' } })
+
+describe('로그인', () => {
+  it('액세스 토큰을 Bearer로 붙이고, 쿠키는 보내지 않는다', async () => {
+    setSession(session('t1'))
+    fetchMock.mockResolvedValue(json(200, { topics: [], unassignedNoteCount: 0 }))
+    await listTopics()
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.headers.Authorization).toBe('Bearer t1')
+    expect(init.credentials).toBe('same-origin')
+  })
+
+  it('401이면 refresh(쿠키 포함)를 한 번 하고 새 토큰으로 다시 보낸다', async () => {
+    setSession(session('old'))
+    fetchMock
+      .mockResolvedValueOnce(unauthenticated())
+      .mockResolvedValueOnce(json(200, session('new')))
+      .mockResolvedValueOnce(json(200, { topics: [], unassignedNoteCount: 0 }))
+    await listTopics()
+    const [refreshUrl, refreshInit] = fetchMock.mock.calls[1]
+    expect(refreshUrl).toBe(`${BASE}/auth/refresh`)
+    expect(refreshInit.credentials).toBe('include')
+    expect(refreshInit.headers.Authorization).toBeUndefined()
+    expect(fetchMock.mock.calls[2][1].headers.Authorization).toBe('Bearer new')
+  })
+
+  it('동시에 401을 받아도 refresh는 한 번만 보낸다', async () => {
+    setSession(session('old'))
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/auth/refresh')) return json(200, session('new'))
+      const auth = (init.headers as Record<string, string>).Authorization
+      return auth === 'Bearer new' ? json(200, { notes: [] }) : unauthenticated()
+    })
+    await Promise.all([listNotes(), listNotes(), listNotes()])
+    const refreshes = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/auth/refresh'))
+    expect(refreshes).toHaveLength(1)
+  })
+
+  it('refresh도 401이면 로그인 만료를 알리고 UNAUTHENTICATED를 던진다', async () => {
+    setSession(session('old'))
+    const listener = vi.fn()
+    const off = onSessionChange(listener)
+    fetchMock.mockImplementation(async () => unauthenticated())
+    const e = await catchError(listTopics())
+    off()
+    expect(e.code).toBe('UNAUTHENTICATED')
+    expect(listener).toHaveBeenLastCalledWith(null)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

@@ -1,4 +1,6 @@
 export * from './types'
 export * from './errors'
+export { getAccessToken, onSessionChange, refreshSession, setSession } from './client'
+export * from './auth'
 export * from './topics'
 export * from './notes'
