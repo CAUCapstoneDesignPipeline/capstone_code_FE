@@ -1,0 +1,21 @@
+.region {
+  position: fixed;
+  bottom: var(--space-24);
+  left: 50%;
+  z-index: 100;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-16);
+  border-radius: var(--radius-card);
+  background: var(--color-ink);
+  color: var(--color-canvas);
+  font: var(--text-ui-body-sm);
+  white-space: nowrap;
+  pointer-events: auto;
+}

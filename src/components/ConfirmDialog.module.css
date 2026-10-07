@@ -1,0 +1,35 @@
+.dialog {
+  flex-direction: column;
+  gap: var(--space-16);
+  width: min(400px, calc(100vw - var(--space-32)));
+  padding: var(--space-24);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.dialog[open] {
+  display: flex;
+}
+
+.dialog::backdrop {
+  background: var(--color-scrim);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-ui-title-sm);
+}
+
+.description {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-body-sm);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-8);
+}

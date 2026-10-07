@@ -1,0 +1,98 @@
+/*
+ * 디자인 토큰. Figma CAPSTONE "01 Foundations"의 변수·텍스트 스타일과 이름을 맞춘다.
+ * 값을 바꿀 때는 Figma를 먼저 고치고 여기를 따라 고친다.
+ */
+:root {
+  /* Color */
+  --color-canvas: #f7f7f4;
+  --color-ink: #26251e;
+  --color-ink-muted: rgb(38 37 30 / 0.6);
+  --color-surface-card: #f2f1ed;
+  --color-surface-muted: #e6e5e0;
+  --color-surface-emphasis: #ebeae5;
+  --color-surface-selected: #e1e0db;
+  /** 텍스트 링크 전용. 버튼·강조에 쓰지 않는다 */
+  --color-accent-link: #f54e00;
+  --color-border-ghost: rgb(38 37 30 / 0.2);
+  --color-border-subtle: rgb(38 37 30 / 0.1);
+  --color-scrim: rgb(38 37 30 / 0.16);
+
+  /* Radius */
+  --radius-card: 4px;
+  --radius-pill: 9999px;
+
+  /* Spacing */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --space-64: 64px;
+
+  /* Layout */
+  --layout-sidebar-width: 260px;
+  --layout-topbar-height: 44px;
+  --layout-editor-width: 700px;
+  --layout-panel-width: 300px;
+  --layout-row-height: 28px;
+  --layout-icon: 16px;
+
+  /* Typography: Figma는 Pretendard가 없어 Noto Sans KR로 대신 그렸다. 앱은 Pretendard를 쓴다. */
+  --font-ui: 'Pretendard Variable', Pretendard, 'Noto Sans KR', system-ui, sans-serif;
+  --font-code: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --text-content-note-title: 700 32px/40px var(--font-ui);
+  --text-content-h1: 700 28px/36px var(--font-ui);
+  --text-content-h2: 700 22px/30px var(--font-ui);
+  --text-content-h3: 700 18px/26px var(--font-ui);
+  --text-content-body: 400 16px/24px var(--font-ui);
+  --text-content-body-strong: 700 16px/24px var(--font-ui);
+  --text-ui-button-large: 400 16px/24px var(--font-ui);
+  --text-ui-button-compact: 400 14px/14px var(--font-ui);
+  --text-ui-body-sm: 400 14px/20px var(--font-ui);
+  --text-ui-body-sm-strong: 500 14px/20px var(--font-ui);
+  --text-ui-title-sm: 700 18px/26px var(--font-ui);
+  --text-ui-label: 400 13px/17px var(--font-ui);
+  --text-ui-label-strong: 500 13px/17px var(--font-ui);
+  --text-ui-caption: 400 12px/16px var(--font-ui);
+  --text-code-inline: 400 14px/20px var(--font-code);
+  --text-code-block: 400 14px/22px var(--font-code);
+
+  font: var(--text-ui-body-sm);
+  color: var(--color-ink);
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+a {
+  color: var(--color-accent-link);
+}
