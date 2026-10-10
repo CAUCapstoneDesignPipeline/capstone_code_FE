@@ -12,10 +12,10 @@
     "typecheck": "tsc -b",
     "mock": "node mock/server.mjs",
     "preview": "vite preview",
-    "gen:api": "openapi-typescript ../docs/api/openapi.yaml -o src/api/schema.gen.ts --default-non-nullable false",
+    "gen:api": "openapi-typescript \"${DOCS_CONTRACT_PATH:-../capstone_docs/api/openapi.yaml}\" -o src/api/schema.gen.ts --default-non-nullable false",
     "test": "vitest run",
     "test:watch": "vitest",
-    "mock:prism": "prism mock ../docs/api/openapi.yaml -p 4010"
+    "mock:prism": "prism mock \"${DOCS_CONTRACT_PATH:-../capstone_docs/api/openapi.yaml}\" -p 4010"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

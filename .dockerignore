@@ -1,0 +1,16 @@
+*
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!index.html
+!tsconfig*.json
+!vite.config.ts
+!src/
+!src/**
+!public/
+!public/**
+!deploy/
+!deploy/nginx.conf
+!deploy/ready.html
+!deploy/start.sh

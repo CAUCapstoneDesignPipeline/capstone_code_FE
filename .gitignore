@@ -27,3 +27,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Local drafts and Python deployment checks
+/.local/
+__pycache__/
+*.py[cod]

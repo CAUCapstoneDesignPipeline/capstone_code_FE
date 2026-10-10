@@ -4,6 +4,28 @@
  */
 
 export interface paths {
+    "/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * AI 기능 사용 가능 여부 (AI-off)
+         * @description 인증 없이 공개하는 기능 여부만 반환한다. AI-off 구현은 세 값 모두 false다.
+         *     개인 정보·내부 주소·모델/인증 정보는 포함하지 않는다. 잘못된 Bearer 헤더도 이 공개 조회에는 사용하지 않는다.
+         *     true 활성화는 이 제안의 범위가 아니며 별도 계약·구현·승인이 필요하다.
+         */
+        get: operations["getCapabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/providers": {
         parameters: {
             query?: never;
@@ -328,13 +350,20 @@ export interface paths {
         };
         /**
          * 노트의 최근 분석 작업 (F-ANL-01, W2-02)
-         * @description 가장 최근 작업을 준다. 분석한 적이 없으면 job이 null이다.
+         * @description 인증·정규 UUID·현재 사용자 소유를 확인한 뒤 가장 최근 실제 작업을 준다. 분석한 적이 없으면 job이 null이다.
+         *     AI-off여도 과거 작업의 id·noteVersion·status·시간을 보존한다. createdAt 내림차순, 동률은 id 내림차순이다.
+         *     작업 생성·상태 변경·폴링 예약은 하지 않는다. 선택 필드 errorMessage는 AI-off 조회에서 생략해 내부 error_message 원문을 공개하지 않는다.
+         *     Cache-Control은 no-store다. 타 사용자/없는 노트는 같은 404, 미인증은 401이다.
          */
         get: operations["getNoteAnalysis"];
         put?: never;
         /**
          * 분석 요청 (명시적 분석)
-         * @description 노트의 현재 version으로 분석 작업을 만든다. 저장할 때 자동으로 만드는 기준은 미정이라(F-ANL-01)
+         * @description 승인된 AI-off 동작: 인증·정규 UUID·현재 사용자 소유를 먼저 확인한 뒤 503 AI_UNAVAILABLE / reason=NOT_DEPLOYED다.
+         *     job을 만들거나 기존 pending/running을 변경하지 않는다. 202·가짜 id·성공 상태를 만들지 않는다.
+         *     Retry-After는 보내지 않는다. FE는 자동 retry/분석 폴링을 시작하지 않는다.
+         *     아래 202는 기존 AI 활성 동작 초안이며 승인된 AI-off 모드에는 해당하지 않는다.
+         *     노트의 현재 version으로 분석 작업을 만든다. 저장할 때 자동으로 만드는 기준은 미정이라(F-ANL-01)
          *     명시적 요청도 둔다. 이미 대기·진행 중인 작업이 있으면 새로 만들지 않고 그 작업을 준다.
          */
         post: operations["requestNoteAnalysis"];
@@ -635,10 +664,21 @@ export interface components {
             /** @description 편집을 시작할 때 받은 version */
             version: number;
         };
+        Capabilities: {
+            /** @constant */
+            analysisEnabled: false;
+            /** @constant */
+            graphEnabled: false;
+            /** @constant */
+            discoveriesEnabled: false;
+        };
         Error: {
             error: {
-                /** @enum {string} */
-                code: "VALIDATION_FAILED" | "UNAUTHENTICATED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "TOPIC_ORDER_CONFLICT" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "CANDIDATE_CLOSED" | "INTERNAL";
+                /**
+                 * @description AI_UNAVAILABLE는 승인된 AI-off 공개 계약의 코드다.
+                 * @enum {string}
+                 */
+                code: "VALIDATION_FAILED" | "UNAUTHENTICATED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "TOPIC_ORDER_CONFLICT" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "CANDIDATE_CLOSED" | "AI_UNAVAILABLE" | "INTERNAL";
                 /** @description 사용자에게 그대로 보여줄 한국어 문장. 문구는 기능명세서 7.1 */
                 message: string;
                 /**
@@ -646,6 +686,7 @@ export interface components {
                  *     NOTE_TITLE_TAKEN  - titles: [겹치는 제목]
                  *     NOTE_CONFLICT     - current: Note
                  *     TOPIC_ORDER_CONFLICT - current: TopicList
+                 *     AI_UNAVAILABLE (approved AI-off) - reason: NOT_DEPLOYED. 내부 오류나 비밀값은 포함하지 않음.
                  */
                 details?: {
                     fields?: components["schemas"]["FieldError"][];
@@ -1177,6 +1218,37 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description AI-off. 소유 확인 후 기능 차단, 작업 생성 없음. Retry-After 없음 */
+        AiUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "AI_UNAVAILABLE",
+                 *         "message": "AI 분석은 아직 사용할 수 없습니다.",
+                 *         "details": {
+                 *           "reason": "NOT_DEPLOYED"
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"] & {
+                    error?: {
+                        /** @constant */
+                        code: "AI_UNAVAILABLE";
+                        /** @constant */
+                        message: "AI 분석은 아직 사용할 수 없습니다.";
+                        details: {
+                            /** @constant */
+                            reason: "NOT_DEPLOYED";
+                        };
+                    };
+                };
+            };
+        };
         /** @description 그 밖의 서버 오류 (문구 안) */
         Internal: {
             headers: {
@@ -1250,6 +1322,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getCapabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI-off 기능 상태. Cache-Control은 no-store */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "analysisEnabled": false,
+                     *       "graphEnabled": false,
+                     *       "discoveriesEnabled": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Capabilities"];
+                };
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
     listAuthProviders: {
         parameters: {
             query?: never;
@@ -1814,18 +1915,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 성공 */
+            /** @description 성공 (실제 job 또는 null) */
             200: {
                 headers: {
+                    "Cache-Control"?: "no-store";
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "job": null
+                     *     }
+                     */
                     "application/json": {
                         job: components["schemas"]["AnalysisJob"] | null;
                     };
                 };
             };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
         };
     };
     requestNoteAnalysis: {
@@ -1839,7 +1949,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 작업을 만들었거나 이미 있는 작업 */
+            /** @description AI 활성 동작 초안 (이번 AI-off 구현에서 미제공) — 작업을 만들었거나 이미 있는 작업 */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -1848,7 +1958,11 @@ export interface operations {
                     "application/json": components["schemas"]["AnalysisJob"];
                 };
             };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+            503: components["responses"]["AiUnavailable"];
         };
     };
     getNoteGraph: {
