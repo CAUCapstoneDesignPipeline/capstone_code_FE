@@ -6,3 +6,9 @@
   color: var(--color-ink-muted);
   font: var(--text-ui-caption);
 }
+
+.dashed {
+  border: 1px dashed var(--color-ink);
+  background: none;
+  color: var(--color-ink);
+}

@@ -1,4 +1,4 @@
-import type { ErrorBody, Note, ServerErrorCode } from './types'
+import type { ErrorBody, Note, ServerErrorCode, TopicList } from './types'
 
 /** 서버에 닿지 못했을 때(네트워크 끊김, 서버 꺼짐, CORS) 앱이 붙이는 코드. 계약의 코드와 겹치지 않는다. */
 export type ApiErrorCode = ServerErrorCode | 'NETWORK_ERROR'
@@ -49,6 +49,16 @@ export function conflictCurrent(e: ApiError): Note | undefined {
   const note = current as Partial<Note>
   return typeof note.id === 'string' && typeof note.version === 'number'
     ? (current as Note)
+    : undefined
+}
+
+/** TOPIC_ORDER_CONFLICT: 서버에 있는 현재 주제 목록 */
+export function orderConflictCurrent(e: ApiError): TopicList | undefined {
+  const current = e.details.current
+  if (typeof current !== 'object' || current === null) return undefined
+  const list = current as Partial<TopicList>
+  return Array.isArray(list.topics) && typeof list.unassignedNoteCount === 'number'
+    ? (current as TopicList)
     : undefined
 }
 

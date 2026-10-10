@@ -21,6 +21,11 @@ API 주소는 `.env.local`의 `VITE_API_BASE_URL`로 정한다.
 | 가짜 서버 (BE 없이 개발) | `http://localhost:4010`     | `npm run mock`                 |
 | 실제 백엔드              | `http://localhost:8080/api` | capstone_be README의 실행 방법 |
 
+로그인: 앱을 열면 `POST /auth/refresh`로 로그인을 이어 가고, 안 되면 로그인 화면이 뜬다.
+
+- 가짜 서버(`npm run mock`)는 "개발용 로그인" 버튼만 있다. 누르면 바로 들어간다.
+- 실제 백엔드는 BE의 `CAPSTONE_APP_URL`이 앱 주소(`http://localhost:5173`)와 정확히 같아야 한다. `127.0.0.1:5173`으로 열면 refresh가 403 `FORBIDDEN`이다. "개발용 로그인"은 BE `local` 프로필에서 `CAPSTONE_DEV_TOKEN_ENABLED=true`일 때만 보인다.
+
 가짜 서버 두 가지:
 
 - `npm run mock`: `mock/server.mjs`. 데이터를 메모리에 기억하고 계약의 규칙(제목 중복, `/` 금지, version 충돌, 주제 삭제 충돌)을 따른다. 화면 흐름은 이것으로 확인한다. 끄면 데이터가 사라진다. `npm run mock -- --delay 500`으로 응답을 늦출 수 있다.

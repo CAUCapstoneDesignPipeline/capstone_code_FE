@@ -1,5 +1,6 @@
 // @ts-check
-// 데이터를 메모리에 기억하는 가짜 서버. BE 연결 전 개발용이며 docs/api/openapi.yaml v0.1과 docs/api/rules.md를 따른다.
+// 데이터를 메모리에 기억하는 가짜 서버. BE 연결 전 개발용이며 docs/api/openapi.yaml v0.3과 docs/api/rules.md를 따른다.
+// 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
 // 실행: npm run mock [-- --port 4010 --delay 300]
@@ -12,7 +13,7 @@ import { pathToFileURL } from 'node:url'
 /**
  * @typedef {{ id: string, name: string, sortOrder: number, createdAt: string }} Topic
  * @typedef {{ id: string, topicId: string | null, title: string, body: string, version: number, createdAt: string, updatedAt: string }} Note
- * @typedef {{ status: number, body?: unknown }} Reply
+ * @typedef {{ status: number, body?: unknown, cookie?: string }} Reply
  */
 
 const NAME_MAX = 50
@@ -52,9 +53,9 @@ const normalize = (/** @type {string} */ s) => s.normalize('NFC').trim()
  * @param {unknown} value @param {string} field @param {string} label @param {number} max
  */
 function checkName(value, field, label, max) {
-  if (typeof value !== 'string') throw invalid(field, 'required', `${label}이 필요합니다.`)
+  if (typeof value !== 'string') throw invalid(field, 'invalid', `${label}이 필요합니다.`)
   const name = normalize(value)
-  if (!name) throw invalid(field, 'required', `${label}을 입력하세요.`)
+  if (!name) throw invalid(field, 'empty', `${label}을 입력하세요.`)
   if (name.includes('/'))
     throw invalid(field, 'contains_slash', `${label}에는 '/'를 쓸 수 없습니다.`)
   if ([...name].length > max)
@@ -64,7 +65,7 @@ function checkName(value, field, label, max) {
 
 /** @param {unknown} value */
 function checkBody(value) {
-  if (typeof value !== 'string') throw invalid('body', 'required', '본문이 필요합니다.')
+  if (typeof value !== 'string') throw invalid('body', 'invalid', '본문이 필요합니다.')
   if (value.length > BODY_MAX) throw invalid('body', 'too_long', '본문이 너무 깁니다.')
   return value.normalize('NFC')
 }
@@ -132,7 +133,7 @@ export function createStore() {
   function checkTopicId(value) {
     if (value === null || value === undefined) return null
     if (typeof value !== 'string')
-      throw invalid('topicId', 'invalid_type', 'topicId가 올바르지 않습니다.')
+      throw invalid('topicId', 'invalid', 'topicId가 올바르지 않습니다.')
     topicOr404(value)
     return value
   }
@@ -164,22 +165,37 @@ export function createStore() {
       return topicView(topic)
     },
 
-    /** @param {string} id @param {unknown} input */
+    /** 이름만 바꾼다. 순서는 reorderTopics @param {string} id @param {unknown} input */
     updateTopic(id, input) {
-      const body = asObject(input)
+      const name = checkName(asObject(input).name, 'name', '주제 이름', NAME_MAX)
       const topic = topicOr404(id)
-      if (body.name === undefined && body.sortOrder === undefined) {
-        throw invalid('name', 'required', '바꿀 값이 없습니다.')
-      }
-      const name =
-        body.name === undefined ? topic.name : checkName(body.name, 'name', '주제 이름', NAME_MAX)
-      if (body.sortOrder !== undefined && !Number.isInteger(body.sortOrder)) {
-        throw invalid('sortOrder', 'invalid_type', 'sortOrder는 정수여야 합니다.')
-      }
       assertTopicNameFree(name, id)
       topic.name = name
-      if (body.sortOrder !== undefined) topic.sortOrder = /** @type {number} */ (body.sortOrder)
       return topicView(topic)
+    },
+
+    /** 모든 주제 id를 원하는 순서대로 받는다. 집합이 다르면 409 TOPIC_ORDER_CONFLICT @param {unknown} input */
+    reorderTopics(input) {
+      const ids = asObject(input).topicIds
+      if (
+        !Array.isArray(ids) ||
+        ids.some((id) => typeof id !== 'string') ||
+        new Set(ids).size !== ids.length
+      ) {
+        throw invalid('topicIds', 'invalid', '주제 순서가 올바르지 않습니다.')
+      }
+      if (ids.length !== topics.size || ids.some((id) => !topics.has(id))) {
+        throw new HttpError(
+          409,
+          'TOPIC_ORDER_CONFLICT',
+          '다른 곳에서 주제 목록이 바뀌었습니다. 목록을 새로 불러왔으니 다시 시도하세요.',
+          { current: this.listTopics() },
+        )
+      }
+      ids.forEach((id, i) => {
+        ;/** @type {Topic} */ (topics.get(id)).sortOrder = i
+      })
+      return this.listTopics()
     },
 
     /** @param {string} id */
@@ -209,7 +225,7 @@ export function createStore() {
       if ([...q].length > Q_MAX)
         throw invalid('q', 'too_long', `검색어는 ${Q_MAX}자까지 쓸 수 있습니다.`)
       if (sort !== 'title' && sort !== 'updated')
-        throw invalid('sort', 'invalid_value', 'sort가 올바르지 않습니다.')
+        throw invalid('sort', 'invalid', 'sort가 올바르지 않습니다.')
 
       let list = [...notes.values()]
       if (topicId === 'none') list = list.filter((n) => n.topicId === null)
@@ -231,6 +247,7 @@ export function createStore() {
           topicId: n.topicId,
           title: n.title,
           snippet: snippet(n.body, needle),
+          version: n.version,
           updatedAt: n.updatedAt,
         })),
       }
@@ -269,7 +286,7 @@ export function createStore() {
       const title = checkName(body.title, 'title', '제목', TITLE_MAX)
       const text = checkBody(body.body)
       if (!Number.isInteger(body.version) || /** @type {number} */ (body.version) < 0) {
-        throw invalid('version', 'required', 'version이 필요합니다.')
+        throw invalid('version', 'invalid', 'version이 필요합니다.')
       }
       const note = noteOr404(id)
       if (body.version !== note.version) {
@@ -291,7 +308,7 @@ export function createStore() {
     /** @param {string} id @param {unknown} input */
     moveNote(id, input) {
       const body = asObject(input)
-      if (!('topicId' in body)) throw invalid('topicId', 'required', 'topicId가 필요합니다.')
+      if (!('topicId' in body)) throw invalid('topicId', 'invalid', 'topicId가 필요합니다.')
       const note = noteOr404(id)
       const topicId = checkTopicId(body.topicId)
       assertTitleFree(topicId, note.title, id)
@@ -303,14 +320,109 @@ export function createStore() {
 
 /** @typedef {ReturnType<typeof createStore>} Store */
 
+const REFRESH_COOKIE = 'CAPSTONE_REFRESH'
+const ACCESS_TTL_S = 1800
+const DEV_USER = {
+  id: '00000000-0000-4000-8000-000000000001',
+  email: 'dev@capstone.local',
+  displayName: '개발자',
+  providers: ['dev'],
+}
+
+const unauthenticated = () => new HttpError(401, 'UNAUTHENTICATED', '로그인이 필요합니다.')
+
+/** 개발용 로그인만 있는 로그인 상태. 토큰은 무작위 문자열이고 서버를 끄면 사라진다. */
+export function createAuth() {
+  const accessTokens = new Set()
+  const refreshTokens = new Set()
+
+  /** @param {string} value @param {number} maxAge */
+  const cookie = (value, maxAge) =>
+    `${REFRESH_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`
+
+  function issue() {
+    const accessToken = randomUUID()
+    accessTokens.add(accessToken)
+    return { accessToken, tokenType: 'Bearer', expiresIn: ACCESS_TTL_S, user: DEV_USER }
+  }
+
+  function newRefreshCookie() {
+    const refresh = randomUUID()
+    refreshTokens.add(refresh)
+    return cookie(refresh, 14 * 24 * 3600)
+  }
+
+  return {
+    /** @param {string | undefined} header */
+    requireUser(header) {
+      const token = header?.match(/^Bearer (.+)$/)?.[1]
+      if (!token || !accessTokens.has(token)) throw unauthenticated()
+      return DEV_USER
+    },
+
+    /** @param {unknown} input @returns {Reply} */
+    devToken(input) {
+      const body = input === undefined ? {} : asObject(input)
+      const reply = { status: 200, body: issue() }
+      return body.issueRefreshCookie === true ? { ...reply, cookie: newRefreshCookie() } : reply
+    },
+
+    /** 쓸 때마다 새 refresh 토큰으로 바꾼다 @param {string | undefined} refresh @returns {Reply} */
+    refresh(refresh) {
+      if (!refresh || !refreshTokens.delete(refresh)) {
+        const e = unauthenticated()
+        throw Object.assign(e, { cookie: cookie('', 0) })
+      }
+      return { status: 200, body: issue(), cookie: newRefreshCookie() }
+    },
+
+    /** @param {string | undefined} refresh @returns {Reply} */
+    logout(refresh) {
+      if (refresh) refreshTokens.delete(refresh)
+      return { status: 204, cookie: cookie('', 0) }
+    },
+  }
+}
+
+/** @typedef {ReturnType<typeof createAuth>} Auth */
+
+/** @param {string | undefined} header @param {string} name */
+function readCookie(header, name) {
+  for (const part of (header ?? '').split(';')) {
+    const [key, ...value] = part.trim().split('=')
+    if (key === name) return value.join('=')
+  }
+  return undefined
+}
+
 /**
- * @param {Store} store @param {string} method @param {string[]} parts @param {URLSearchParams} params @param {unknown} body
+ * @param {Store} store @param {Auth} auth @param {import('node:http').IncomingMessage} req
+ * @param {string[]} parts @param {URLSearchParams} params @param {unknown} body
  * @returns {Reply}
  */
-function route(store, method, parts, params, body) {
+function route(store, auth, req, parts, params, body) {
+  const method = req.method ?? 'GET'
   const [resource, id, sub, ...rest] = parts
   if (rest.length) throw notFound()
 
+  if (resource === 'auth') {
+    const refresh = readCookie(req.headers.cookie, REFRESH_COOKIE)
+    const path = parts.slice(1).join('/')
+    if (path === 'providers' && method === 'GET')
+      return { status: 200, body: { providers: [], devTokenEnabled: true } }
+    if (path === 'dev/token' && method === 'POST') return auth.devToken(body)
+    if (path === 'refresh' && method === 'POST') return auth.refresh(refresh)
+    if (path === 'logout' && method === 'POST') return auth.logout(refresh)
+    if (path === 'me' && method === 'GET')
+      return { status: 200, body: auth.requireUser(req.headers.authorization) }
+    throw new HttpError(404, 'NOT_FOUND', `없는 경로입니다: ${method} /${parts.join('/')}`)
+  }
+
+  // 그 밖의 경로는 모두 로그인이 필요하다.
+  auth.requireUser(req.headers.authorization)
+
+  if (resource === 'topics' && id === 'order' && !sub && method === 'PUT')
+    return { status: 200, body: store.reorderTopics(body) }
   if (resource === 'topics' && !sub) {
     if (!id && method === 'GET') return { status: 200, body: store.listTopics() }
     if (!id && method === 'POST') return { status: 201, body: store.createTopic(body) }
@@ -344,11 +456,13 @@ async function readBody(req) {
 /** @param {{ delayMs?: number, log?: boolean }} [options] */
 export function createMockServer({ delayMs = 0, log = false } = {}) {
   const store = createStore()
+  const auth = createAuth()
 
   return createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*')
+    res.setHeader('Access-Control-Allow-Credentials', 'true')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization')
     res.setHeader('Vary', 'Origin')
     if (req.method === 'OPTIONS') {
       res.writeHead(204).end()
@@ -364,7 +478,7 @@ export function createMockServer({ delayMs = 0, log = false } = {}) {
     let reply
     try {
       const body = await readBody(req)
-      reply = route(store, req.method ?? 'GET', parts, url.searchParams, body)
+      reply = route(store, auth, req, parts, url.searchParams, body)
     } catch (e) {
       if (e instanceof HttpError) {
         reply = {
@@ -372,6 +486,7 @@ export function createMockServer({ delayMs = 0, log = false } = {}) {
           body: {
             error: { code: e.code, message: e.message, ...(e.details && { details: e.details }) },
           },
+          cookie: /** @type {{ cookie?: string }} */ (e).cookie,
         }
       } else {
         console.error(e)
@@ -381,6 +496,7 @@ export function createMockServer({ delayMs = 0, log = false } = {}) {
 
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs))
     if (log) console.log(`${req.method} ${url.pathname}${url.search} → ${reply.status}`)
+    if (reply.cookie) res.setHeader('Set-Cookie', reply.cookie)
     if (reply.body === undefined) {
       res.writeHead(reply.status).end()
     } else {

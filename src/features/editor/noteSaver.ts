@@ -3,6 +3,7 @@
 // - 저장 요청은 한 번에 하나. 응답을 기다리는 동안 들어온 입력은 응답 뒤 최신 내용으로 한 번 더 저장
 // - 응답의 version을 다음 요청에 쓴다 (안 그러면 자기 자신과 충돌한다)
 // - NOTE_CONFLICT·NOT_FOUND를 받으면 자동 저장을 멈추고 편집기 내용은 그대로 둔다
+// - 로그인이 만료되면(UNAUTHENTICATED) 다시 로그인할 때까지 자동 저장을 멈춘다 (resume()으로 잇는다)
 import {
   conflictCurrent,
   isApiError,
@@ -73,6 +74,8 @@ export class NoteSaver {
   private readonly listeners = new Set<() => void>()
   /** 노트를 지우기로 했다. 이후 어떤 저장도 보내지 않는다. */
   private discarded = false
+  /** 로그인이 만료됐다. 다시 로그인해 resume()을 부를 때까지 저장을 보내지 않는다. */
+  private waitingForLogin = false
 
   constructor(note: Note, options: NoteSaverOptions) {
     this.noteId = note.id
@@ -127,6 +130,13 @@ export class NoteSaver {
     return this.draft
   }
 
+  /** 다시 로그인한 뒤 부른다. 로그인 만료로 멈춘 저장을 잇는다. */
+  resume() {
+    if (!this.waitingForLogin) return
+    this.waitingForLogin = false
+    this.flush()
+  }
+
   /** 노트를 지우기 전에 부른다. 기다리던 저장을 버리고 이후 저장을 보내지 않는다. */
   discard() {
     this.discarded = true
@@ -138,16 +148,29 @@ export class NoteSaver {
     return this.inFlight || !sameDraft(this.draft, this.saved)
   }
 
-  /** 자동 저장이 멈춰 있어서(invalid·error·conflict·deleted) 이 노트를 떠나면 사라질 내용이 있는지 */
+  /** 자동 저장이 멈춰 있어서(invalid·error·conflict·deleted·로그인 만료) 이 노트를 떠나면 사라질 내용이 있는지 */
   hasStuckChanges(): boolean {
     const stuck: SaveStatus[] = ['invalid', 'error', 'conflict', 'deleted']
-    return stuck.includes(this.state.status) && !sameDraft(this.draft, this.saved)
+    return (
+      (this.waitingForLogin || stuck.includes(this.state.status)) &&
+      !sameDraft(this.draft, this.saved)
+    )
+  }
+
+  /** 로그인이 만료돼 저장이 멈춰 있는지 */
+  isWaitingForLogin(): boolean {
+    return this.waitingForLogin
   }
 
   // --- 내부 ---
 
   private isStopped() {
-    return this.discarded || this.state.status === 'conflict' || this.state.status === 'deleted'
+    return (
+      this.discarded ||
+      this.waitingForLogin ||
+      this.state.status === 'conflict' ||
+      this.state.status === 'deleted'
+    )
   }
 
   private clearTimer() {
@@ -224,6 +247,10 @@ export class NoteSaver {
       this.setState({ status: 'conflict', conflictNote: conflictCurrent(e) ?? null })
     } else if (isApiError(e, 'NOT_FOUND')) {
       this.setState({ status: 'deleted' })
+    } else if (isApiError(e, 'UNAUTHENTICATED')) {
+      // W1-00e: 다시 로그인할 때까지 "저장할 내용 있음"으로 둔다. 로그인 만료 창은 AuthGate가 띄운다.
+      this.waitingForLogin = true
+      this.setState({ status: 'pending' })
     } else if (
       isApiError(e, 'NOTE_TITLE_TAKEN') ||
       (isApiError(e, 'VALIDATION_FAILED') && validationFields(e).some((f) => f.field === 'title'))

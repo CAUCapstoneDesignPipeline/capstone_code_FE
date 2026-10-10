@@ -14,6 +14,7 @@ import { moveNoteErrorMessage } from '../../lib/errorMessages'
 import { withRo } from '../../lib/korean'
 import { normalizeName } from '../../lib/names'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
+import { AccountMenu } from './AccountMenu'
 import { DeleteTopicDialog } from './DeleteTopicDialog'
 import type { NoteDrag } from './noteDrag'
 import { SearchResults } from './SearchResults'
@@ -124,7 +125,10 @@ export function Sidebar(props: Props) {
 
   return (
     <nav className={styles.sidebar} aria-label="주제와 노트">
-      <div className={styles.header}>CAPSTONE</div>
+      <div className={styles.header}>
+        CAPSTONE
+        <AccountMenu />
+      </div>
 
       <label className={styles.field}>
         <Icon name="search" className={styles.muted} />
