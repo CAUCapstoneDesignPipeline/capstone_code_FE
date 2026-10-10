@@ -10,10 +10,9 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3
 ARG SOURCE_REVISION
-ARG DOCS_CONTRACT_SHA
 LABEL org.opencontainers.image.source="https://github.com/CAUCapstoneDesignPipeline/capstone_code_FE" \
       org.opencontainers.image.revision=$SOURCE_REVISION \
-      art.capsnote.contract-sha=$DOCS_CONTRACT_SHA
+      art.capsnote.release-protocol="4"
 COPY --from=build /workspace/dist /usr/share/nginx/app
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/ready.html /usr/share/nginx/ready/index.html
