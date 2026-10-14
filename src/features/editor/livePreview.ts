@@ -1,16 +1,24 @@
 // Live Preview (Figma W1-06, Notion 편집 감각 참고)
 // 마크다운 원문을 그대로 편집하면서 서식을 입혀 보여준다.
-// - 줄 앞 기호(`##`, `-`, `>`, `- [ ]`)는 늘 숨긴다. 뒤에 글자가 없는 줄을 쓰는 중일 때만 드러낸다 (`## ` 입력 직후).
+// - 줄 앞 기호(`##`, `-`, `>`, `- [ ]`)는 늘 숨긴다. 기호 뒤에 공백을 치기 전(`##` 입력 중)에만 드러낸다.
 //   숨긴 기호는 한 덩어리(atomic)라 커서가 건너뛰고, 글 맨 앞에서 Backspace를 누르면 통째로 지워져 본문이 된다.
+// - 글이 없는 제목 줄(`## `)에는 `Header 2` 같은 안내 글을 보이고, 거기서 Backspace를 누르면 줄을 지운다.
 // - 줄 안 기호(`**`, `` ` ``, 링크)는 커서가 그 서식에 닿아 있을 때만 드러낸다. 같은 줄의 다른 서식은 그대로 둔다.
 // 저장되는 것은 언제나 마크다운 원문이다. 여기서는 보이는 모양만 바꾼다.
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
-import { RangeSetBuilder, type EditorState, type Range } from '@codemirror/state'
+import {
+  Prec,
+  RangeSetBuilder,
+  type EditorState,
+  type Range,
+  type StateCommand,
+} from '@codemirror/state'
 import {
   Decoration,
   EditorView,
   ViewPlugin,
   WidgetType,
+  keymap,
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view'
@@ -57,6 +65,28 @@ class CheckboxWidget extends WidgetType {
     return true
   }
 }
+
+/** 글이 없는 제목 줄의 안내 글 (`Header 2`). 문서에는 들어가지 않는다 */
+class HeadingPlaceholderWidget extends WidgetType {
+  readonly level: number
+  constructor(level: number) {
+    super()
+    this.level = level
+  }
+  eq(other: HeadingPlaceholderWidget) {
+    return other.level === this.level
+  }
+  toDOM() {
+    const span = document.createElement('span')
+    span.className = 'cm-lp-heading-placeholder'
+    span.setAttribute('aria-hidden', 'true')
+    span.textContent = `Header ${this.level}`
+    return span
+  }
+}
+
+/** `## `처럼 기호와 공백만 있고 글이 없는 제목 줄 */
+const EMPTY_HEADING = /^ {0,3}#{1,6}[ \t]+$/
 
 /** 원문 기호를 숨긴다 */
 const hide = Decoration.replace({})
@@ -105,15 +135,14 @@ export function buildDecorations(
     focused && state.selection.ranges.some((r) => r.from <= end && r.to >= start)
   /** pos 바로 뒤가 공백이면 그 공백까지 (`## 제목`, `> 인용`의 기호 뒤 공백) */
   const withSpace = (end: number) => (doc.sliceString(end, end + 1) === ' ' ? end + 1 : end)
-  /** 줄 앞 기호를 드러낼지: 커서가 있는 줄인데 기호 뒤에 아직 쓴 글이 없을 때만 (`## ` 입력 중) */
+  /** 줄 앞 기호를 드러낼지: 커서가 있는 줄이고 기호가 줄 끝일 때만 (`##` 입력 중, 공백을 치면 숨긴다) */
   const writingMark = (end: number) => {
     const l = doc.lineAt(end)
-    return active.has(l.number) && doc.sliceString(end, l.to).trim() === ''
+    return active.has(l.number) && end === l.to
   }
   /** 줄 앞 기호(뒤 공백까지)를 숨기거나 deco로 바꿔 그린다. 쓰는 중이면 그대로 둔다 */
   const replaceBlockMark = (start: number, end: number, deco: Decoration = hide) => {
-    const until = withSpace(end)
-    if (!writingMark(until)) decos.push(deco.range(start, until))
+    if (!writingMark(end)) decos.push(deco.range(start, withSpace(end)))
   }
 
   tree.iterate({
@@ -125,9 +154,13 @@ export function buildDecorations(
 
       const heading = /^ATXHeading([1-6])$/.exec(name)
       if (heading) {
-        decos.push(
-          line(`cm-lp-h${Math.min(Number(heading[1]), 4)}`).range(doc.lineAt(node.from).from),
-        )
+        const level = Number(heading[1])
+        const l = doc.lineAt(node.from)
+        decos.push(line(`cm-lp-h${Math.min(level, 4)}`).range(l.from))
+        if (EMPTY_HEADING.test(l.text)) {
+          const placeholder = new HeadingPlaceholderWidget(level)
+          decos.push(Decoration.widget({ widget: placeholder, side: 1 }).range(l.to))
+        }
         return
       }
 
@@ -164,7 +197,7 @@ export function buildDecorations(
           // 번호 목록(1.)은 그대로 둔다 (W1-06)
           if (parentNode?.parent?.name !== 'BulletList') return
           if (parentNode.getChild('Task')) replaceBlockMark(node.from, node.to)
-          else if (!writingMark(withSpace(node.to))) decos.push(bullet.range(node.from, node.to))
+          else if (!writingMark(node.to)) decos.push(bullet.range(node.from, node.to))
           return
         case 'TaskMarker': {
           const checked = /x/i.test(doc.sliceString(node.from, node.to))
@@ -274,7 +307,31 @@ function build(view: EditorView) {
   return buildDecorations(view.state, { from, to, focused: view.hasFocus })
 }
 
+/**
+ * 글이 없는 제목 줄(`## `)에서 Backspace: 줄을 통째로 지우고 커서를 앞 줄 끝으로 옮긴다.
+ * 글이 있는 제목은 글자를 지우는 기본 동작을 따르므로, 마지막 글자를 지우면 빈 제목 줄로 남는다.
+ */
+export const deleteEmptyHeadingLine: StateCommand = ({ state, dispatch }) => {
+  const sel = state.selection.main
+  if (state.selection.ranges.length > 1 || !sel.empty) return false
+  const l = state.doc.lineAt(sel.head)
+  if (!EMPTY_HEADING.test(l.text)) return false
+  const from = l.number > 1 ? l.from - 1 : l.from
+  const to = l.number > 1 || l.to === state.doc.length ? l.to : l.to + 1
+  dispatch(
+    state.update({
+      changes: { from, to },
+      selection: { anchor: from },
+      scrollIntoView: true,
+      userEvent: 'delete.backward',
+    }),
+  )
+  return true
+}
+
 export const livePreview = [
   livePreviewPlugin,
+  // markdownKeymap의 Backspace(기호 지우기)보다 먼저
+  Prec.high(keymap.of([{ key: 'Backspace', run: deleteEmptyHeadingLine }])),
   EditorView.atomicRanges.of((view) => view.plugin(livePreviewPlugin)?.atomic ?? Decoration.none),
 ]

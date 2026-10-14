@@ -1,7 +1,7 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
-import { atomicRanges, buildDecorations } from './livePreview'
+import { atomicRanges, buildDecorations, deleteEmptyHeadingLine } from './livePreview'
 
 /** 문서와 커서 위치(줄 번호, 1부터)로 장식을 만들고 알아보기 쉬운 모양으로 돌려준다 */
 function decorate(doc: string, cursorLine: number, focused = true) {
@@ -37,10 +37,11 @@ describe('제목', () => {
     expect(d.lines[1]).toBe('cm-lp-h2')
   })
 
-  it('뒤에 아직 글이 없으면(## 입력 중) 기호를 드러낸다', () => {
-    const d = decorate('본문\n## ', 2)
-    expect(d.hidden).toEqual([])
-    expect(d.lines[2]).toBe('cm-lp-h2')
+  it('## 입력 중에는 기호를 드러내고, 공백을 치면 바로 숨긴다', () => {
+    const typing = decorate('본문\n##', 2)
+    expect(typing.hidden).toEqual([])
+    expect(typing.lines[2]).toBe('cm-lp-h2')
+    expect(decorate('본문\n## ', 2).hidden).toEqual(['## '])
   })
 
   it('닫는 ## 는 앞 공백까지 숨긴다', () => {
@@ -79,9 +80,10 @@ describe('목록·인용', () => {
     expect(d.hidden).toEqual([])
   })
 
-  it('커서가 있는 글머리표 줄도 •로 보이고, 빈 항목을 쓰는 중이면 - 를 드러낸다', () => {
+  it('커서가 있는 글머리표 줄도 •로 보이고, - 뒤에 공백을 치기 전에만 - 를 드러낸다', () => {
     expect(decorate('- 첫째\n- 둘째', 1).bullets).toEqual([0, 5])
-    expect(decorate('- 첫째\n- ', 2).bullets).toEqual([0])
+    expect(decorate('- 첫째\n- ', 2).bullets).toEqual([0, 5])
+    expect(decorate('- 첫째\n-', 2).bullets).toEqual([0])
   })
 
   it('할 일: - [ ] 를 체크박스로 바꾸고, 끝낸 일은 줄에 표시한다', () => {
@@ -159,5 +161,52 @@ describe('포커스·빈 줄', () => {
       }
     })
     expect(blank).toEqual([2])
+  })
+})
+
+describe('빈 제목 줄', () => {
+  it('## 뒤에 공백을 치면 Header {단계} 안내 글을 보인다', () => {
+    const state = EditorState.create({
+      doc: '본문\n## ',
+      extensions: [markdown({ base: markdownLanguage })],
+    })
+    const widgets: [number, string][] = []
+    buildDecorations(state).between(0, state.doc.length, (from, _to, deco) => {
+      const widget = deco.spec.widget as { level?: number } | undefined
+      if (widget?.level) widgets.push([from, `Header ${widget.level}`])
+    })
+    expect(widgets).toEqual([[6, 'Header 2']])
+  })
+
+  it('글이 있거나 공백 전(## 입력 중)이면 안내 글이 없다', () => {
+    for (const doc of ['## 제목', '##']) {
+      const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] })
+      let count = 0
+      buildDecorations(state).between(0, doc.length, (_from, _to, deco) => {
+        if ((deco.spec.widget as { level?: number } | undefined)?.level) count++
+      })
+      expect(count).toBe(0)
+    }
+  })
+
+  /** 커서를 cursor에 두고 deleteEmptyHeadingLine을 실행한다 */
+  function backspace(doc: string, cursor: number) {
+    let state = EditorState.create({ doc, selection: EditorSelection.cursor(cursor) })
+    const handled = deleteEmptyHeadingLine({ state, dispatch: (tr) => (state = tr.state) })
+    return { handled, doc: state.doc.toString(), cursor: state.selection.main.head }
+  }
+
+  it('빈 제목 줄에서 Backspace를 누르면 줄을 지우고 커서는 앞 줄 끝으로 간다', () => {
+    expect(backspace('본문\n## ', 6)).toEqual({ handled: true, doc: '본문', cursor: 2 })
+  })
+
+  it('첫 줄이면 줄과 줄바꿈을 지운다', () => {
+    expect(backspace('# \n본문', 2)).toEqual({ handled: true, doc: '본문', cursor: 0 })
+  })
+
+  it('글이 있는 제목이나 다른 줄은 기본 동작에 맡긴다', () => {
+    expect(backspace('# 가', 3).handled).toBe(false)
+    expect(backspace('##', 2).handled).toBe(false)
+    expect(backspace('- ', 2).handled).toBe(false)
   })
 })
