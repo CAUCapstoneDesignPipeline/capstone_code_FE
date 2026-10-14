@@ -35,7 +35,10 @@ class BulletWidget extends WidgetType {
   }
 }
 
-/** `- [ ]` 할 일 체크박스. 누르면 원문의 `[ ]`·`[x]`를 바꾼다 */
+/**
+ * `- [ ]` 할 일 체크박스. 누르거나 Tab으로 가서 Space를 누르면 원문의 `[ ]`·`[x]`를 바꾼다.
+ * 원문 기호는 숨긴 덩어리라 키보드로는 이 체크박스로만 바꿀 수 있으므로 Tab 순서에 둔다.
+ */
 class CheckboxWidget extends WidgetType {
   readonly checked: boolean
   constructor(checked: boolean) {
@@ -49,17 +52,27 @@ class CheckboxWidget extends WidgetType {
     const box = document.createElement('input')
     box.type = 'checkbox'
     box.className = 'cm-lp-checkbox'
-    box.checked = this.checked
-    box.tabIndex = -1
-    box.setAttribute('aria-label', this.checked ? '완료한 할 일' : '할 일')
+    this.updateDOM(box)
+    // 마우스로 누를 때는 포커스를 편집기에 둔다 (키보드 포커스는 그대로 받는다)
     box.addEventListener('mousedown', (e) => e.preventDefault())
-    box.addEventListener('click', (e) => {
-      e.preventDefault()
+    // 클릭과 Space 모두 click으로 온다. 브라우저가 바꾼 체크 상태를 그대로 두고 원문만 맞춘다.
+    // 요소는 updateDOM으로 계속 쓰므로 체크 여부는 위젯(this)이 아니라 원문에서 읽는다.
+    box.addEventListener('click', () => {
       const pos = view.posAtDOM(box)
-      if (!/^\[[ xX]\]$/.test(view.state.doc.sliceString(pos, pos + 3))) return
-      view.dispatch({ changes: { from: pos + 1, to: pos + 2, insert: this.checked ? ' ' : 'x' } })
+      const marker = view.state.doc.sliceString(pos, pos + 3)
+      if (!/^\[[ xX]\]$/.test(marker)) return
+      view.dispatch({
+        changes: { from: pos + 1, to: pos + 2, insert: marker === '[ ]' ? 'x' : ' ' },
+      })
     })
     return box
+  }
+  /** 체크할 때 요소를 새로 만들지 않아 Space로 바꾼 뒤에도 키보드 포커스가 남는다 */
+  updateDOM(dom: HTMLElement) {
+    const box = dom as HTMLInputElement
+    box.checked = this.checked
+    box.setAttribute('aria-label', this.checked ? '완료한 할 일' : '할 일')
+    return true
   }
   ignoreEvent() {
     return true
@@ -310,12 +323,24 @@ function build(view: EditorView) {
 /**
  * 글이 없는 제목 줄(`## `)에서 Backspace: 줄을 통째로 지우고 커서를 앞 줄 끝으로 옮긴다.
  * 글이 있는 제목은 글자를 지우는 기본 동작을 따르므로, 마지막 글자를 지우면 빈 제목 줄로 남는다.
+ * 구문 트리에서 제목인 줄만 지운다 (코드 블록 안의 `# `는 그대로 둔다).
  */
 export const deleteEmptyHeadingLine: StateCommand = ({ state, dispatch }) => {
   const sel = state.selection.main
   if (state.selection.ranges.length > 1 || !sel.empty) return false
   const l = state.doc.lineAt(sel.head)
   if (!EMPTY_HEADING.test(l.text)) return false
+  let isHeading = false
+  const tree = ensureSyntaxTree(state, l.to, 50) ?? syntaxTree(state)
+  tree.iterate({
+    from: l.from,
+    to: l.to,
+    enter(node) {
+      if (/^ATXHeading[1-6]$/.test(node.name) && node.from >= l.from) isHeading = true
+      return !isHeading
+    },
+  })
+  if (!isHeading) return false
   const from = l.number > 1 ? l.from - 1 : l.from
   const to = l.number > 1 || l.to === state.doc.length ? l.to : l.to + 1
   dispatch(

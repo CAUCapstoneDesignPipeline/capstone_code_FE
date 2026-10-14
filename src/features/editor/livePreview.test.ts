@@ -191,7 +191,11 @@ describe('빈 제목 줄', () => {
 
   /** 커서를 cursor에 두고 deleteEmptyHeadingLine을 실행한다 */
   function backspace(doc: string, cursor: number) {
-    let state = EditorState.create({ doc, selection: EditorSelection.cursor(cursor) })
+    let state = EditorState.create({
+      doc,
+      selection: EditorSelection.cursor(cursor),
+      extensions: [markdown({ base: markdownLanguage })],
+    })
     const handled = deleteEmptyHeadingLine({ state, dispatch: (tr) => (state = tr.state) })
     return { handled, doc: state.doc.toString(), cursor: state.selection.main.head }
   }
@@ -208,5 +212,9 @@ describe('빈 제목 줄', () => {
     expect(backspace('# 가', 3).handled).toBe(false)
     expect(backspace('##', 2).handled).toBe(false)
     expect(backspace('- ', 2).handled).toBe(false)
+  })
+
+  it('코드 블록 안의 # 줄은 제목이 아니므로 지우지 않는다', () => {
+    expect(backspace('```\n# \n```', 6).handled).toBe(false)
   })
 })
