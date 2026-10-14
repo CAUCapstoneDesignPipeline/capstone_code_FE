@@ -92,6 +92,27 @@
   width: 0.5em;
 }
 
+/* 할 일: 체크박스, 끝낸 일은 흐리게 */
+.editor :global(.cm-lp-checkbox) {
+  width: 1em;
+  height: 1em;
+  margin: 0 var(--space-8) 0 0;
+  vertical-align: -0.125em;
+  accent-color: var(--color-ink);
+  cursor: pointer;
+}
+
+.editor :global(.cm-lp-task-done) {
+  color: var(--color-ink-muted);
+  text-decoration: line-through;
+}
+
+/* 구분선 `---` */
+.editor :global(.cm-lp-hr) {
+  background: linear-gradient(var(--color-border-subtle), var(--color-border-subtle)) center / 100%
+    1px no-repeat;
+}
+
 /* 인용 */
 .editor :global(.cm-lp-quote) {
   padding-left: var(--space-12);
