@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useRef, useState } from 'react'
+import { Button } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useToast } from '../components/toastContext'
 import { useCreateUntitledNote } from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
@@ -62,7 +64,7 @@ export function App() {
     <div className={styles.app}>
       <aside className={styles.sidebar}>
         <Sidebar
-          selectedNoteId={graphOpen ? null : selectedNoteId}
+          selectedNoteId={selectedNoteId}
           graphOpen={graphOpen}
           onOpenGraph={() => go({ kind: 'graph' })}
           onSelectNote={selectNote}
@@ -74,9 +76,21 @@ export function App() {
       </aside>
       <main className={styles.main}>
         {graphOpen ? (
-          <Suspense fallback={null}>
-            <GraphView onOpenNote={selectNote} />
-          </Suspense>
+          // 그래프 화면 파일을 못 받으면(오프라인, 새 배포로 옛 파일이 사라짐) 앱 전체 대신 이 자리만 알린다.
+          <ErrorBoundary
+            fallback={
+              <div className={styles.notice} role="alert">
+                <p>그래프 화면을 불러오지 못했습니다. 인터넷 연결을 확인하고 새로 고침하세요.</p>
+                <Button variant="secondary" onClick={() => window.location.reload()}>
+                  새로 고침
+                </Button>
+              </div>
+            }
+          >
+            <Suspense fallback={<p className={styles.notice}>불러오는 중…</p>}>
+              <GraphView onOpenNote={selectNote} />
+            </Suspense>
+          </ErrorBoundary>
         ) : (
           <NotePane
             noteId={selectedNoteId}

@@ -388,14 +388,21 @@ export function createStore(analysisOptions) {
           nodes.set(c.id, node)
         }
         for (const r of result.relations) {
+          // 같은 관계가 여러 노트에서 나오면 하나의 간선이다. 노트 순서와 관계없이
+          // 확정이 추출보다, 근거가 남은 쪽이 근거 소실보다 앞선다.
+          const prev = edges.get(r.id)
+          const confirmed = prev?.origin === 'confirmed' || r.origin === 'confirmed'
           edges.set(r.id, {
             id: r.id,
             sourceId: r.source.id,
             targetId: r.target.id,
             type: r.type,
-            origin: r.origin,
-            status: r.status,
-            asHypothesis: r.asHypothesis,
+            origin: confirmed ? 'confirmed' : 'extracted',
+            status: prev?.status === 'active' || r.status === 'active' ? 'active' : 'evidence_lost',
+            asHypothesis: confirmed
+              ? (prev?.origin === 'confirmed' && prev.asHypothesis) ||
+                (r.origin === 'confirmed' && r.asHypothesis)
+              : false,
           })
         }
       }

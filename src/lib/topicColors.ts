@@ -12,13 +12,43 @@ export const TOPIC_SLOTS = 8
  */
 export type TopicColorKey = `topic-${number}` | 'topic-other' | 'topic-none' | 'topic-mixed'
 
-/** 주제 → 색 칸. 만든 순서로 정해 두어 주제 순서를 바꾸거나 걸러도 색이 바뀌지 않는다. */
-export function topicColorKeys(topics: readonly Topic[]): Map<string, TopicColorKey> {
-  const byCreation = [...topics].sort(
-    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
-  )
+/** 주제 id → 색 칸 번호(1 … TOPIC_SLOTS). 칸이 없는 주제는 빠져 있다 (기타). */
+export type TopicSlots = Readonly<Record<string, number>>
+
+/**
+ * 주제에 색 칸을 정한다. 이미 칸이 있는 주제는 그 칸을 그대로 둔다 (주제를 지우거나 순서를 바꿔도 다른 주제 색이 바뀌지 않는다).
+ * 새 주제(와 아직 칸이 없는 기타 주제)는 만든 순서대로 빈 칸을 받는다. 지운 주제의 칸은 비어 다음 주제가 쓴다.
+ */
+export function assignTopicSlots(topics: readonly Topic[], previous: TopicSlots): TopicSlots {
+  const next: Record<string, number> = {}
+  const used = new Set<number>()
+  for (const t of topics) {
+    const slot = previous[t.id]
+    if (Number.isInteger(slot) && slot >= 1 && slot <= TOPIC_SLOTS && !used.has(slot)) {
+      next[t.id] = slot
+      used.add(slot)
+    }
+  }
+  const waiting = topics
+    .filter((t) => !(t.id in next))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+  let free = 1
+  for (const t of waiting) {
+    while (used.has(free)) free++
+    if (free > TOPIC_SLOTS) break
+    next[t.id] = free
+    used.add(free)
+  }
+  return next
+}
+
+/** 주제 → 색 종류. 칸이 없으면 기타 */
+export function topicColorKeys(
+  topics: readonly Topic[],
+  slots: TopicSlots,
+): Map<string, TopicColorKey> {
   return new Map(
-    byCreation.map((t, i) => [t.id, i < TOPIC_SLOTS ? `topic-${i + 1}` : 'topic-other']),
+    topics.map((t) => [t.id, slots[t.id] ? (`topic-${slots[t.id]}` as const) : 'topic-other']),
   )
 }
 

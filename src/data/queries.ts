@@ -148,6 +148,8 @@ export function useApplySavedNote() {
             : n,
         ),
       )
+      // 그래프의 근거 노트 제목. 그래프 화면이 닫혀 있으면 표시만 해 두고 열 때 받는다.
+      void qc.invalidateQueries({ queryKey: keys.graph })
       const job = qc.getQueryData<AnalysisJob | null>(keys.noteAnalysis(note.id))
       if (!isAnalysisActive(job))
         void qc.invalidateQueries({ queryKey: keys.noteAnalysis(note.id) })
@@ -257,6 +259,8 @@ export function useDeleteTopic() {
       qc.removeQueries({ queryKey: keys.notesIn(topicId) })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
+      // 근거 노트의 주제가 미분류로 바뀐다
+      void qc.invalidateQueries({ queryKey: keys.graph })
     },
   })
 }
@@ -281,6 +285,7 @@ export function useMoveNote() {
       )
       // version은 그대로지만 근거의 주제가 바뀌어 BE가 다시 분석한다.
       void qc.invalidateQueries({ queryKey: keys.noteAnalysis(moved.id) })
+      void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },
@@ -295,6 +300,7 @@ export function useDeleteNote() {
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
       qc.removeQueries({ queryKey: keys.noteGraph(noteId) })
+      void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },

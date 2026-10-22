@@ -23,6 +23,7 @@ import { TopicNameForm } from './TopicNameForm'
 import { TopicNode } from './TopicNode'
 
 interface Props {
+  /** 마지막으로 연 노트. 그래프를 보는 동안에도 새 노트를 그 주제에 만든다. */
   selectedNoteId: string | null
   onSelectNote: (noteId: string) => void
   /** 전체 그래프를 보고 있는지 */
@@ -52,6 +53,8 @@ export function Sidebar(props: Props) {
   const moveNote = useMoveNote()
   const toast = useToast()
   const selectedTopicId = useNoteTopicId(selectedNoteId)
+  // 그래프를 보는 동안에는 트리에서 노트를 강조하지 않는다
+  const currentNoteId = graphOpen ? null : selectedNoteId
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [deletingTopic, setDeletingTopic] = useState<Topic | null>(null)
   const [query, setQuery] = useState('')
@@ -121,7 +124,7 @@ export function Sidebar(props: Props) {
         onMoveDown={canMove && index < list.length - 1 ? () => move('down') : undefined}
         onDelete={topic ? () => setDeletingTopic(topic) : undefined}
         onDropNote={(drag) => handleDropNote(topicId, drag)}
-        selectedNoteId={selectedNoteId}
+        selectedNoteId={currentNoteId}
         onSelectNote={onSelectNote}
       />
     )
@@ -155,7 +158,7 @@ export function Sidebar(props: Props) {
           <SearchResults
             q={q}
             topicNames={topicNames}
-            selectedNoteId={selectedNoteId}
+            selectedNoteId={currentNoteId}
             onSelectNote={onSelectNote}
           />
         ) : (

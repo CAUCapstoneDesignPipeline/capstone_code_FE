@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react'
 import type { GraphNode, Topic } from '../../api'
 import { Button } from '../../components/Button'
 import { useGraph, useTopics } from '../../data/queries'
-import { nodeColorKey, topicColorKeys, type TopicColorKey } from '../../lib/topicColors'
+import { nodeColorKey, type TopicColorKey } from '../../lib/topicColors'
 import { GraphCanvas } from './GraphCanvas'
 import styles from './GraphView.module.css'
+import { useTopicColorKeys } from './useTopicColorKeys'
 
 interface Props {
   /** 근거 노트를 연다 (저장 안 된 내용 확인은 App이 한다) */
@@ -20,7 +21,12 @@ export function GraphView({ onOpenNote }: Props) {
   const topics = useTopics()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const topicList = useMemo(() => topics.data?.topics ?? [], [topics.data])
-  const colorKeys = useMemo(() => topicColorKeys(topicList), [topicList])
+  // 주제를 못 불러오면 모두 기타 색으로 그린다
+  const loadedKeys = useTopicColorKeys(topics.data?.topics)
+  const colorKeys = useMemo(
+    () => loadedKeys ?? (topics.isError ? new Map<string, TopicColorKey>() : null),
+    [loadedKeys, topics.isError],
+  )
 
   const nodes = graph.data?.nodes ?? []
   const selected = nodes.find((n) => n.id === selectedId) ?? null
@@ -44,7 +50,7 @@ export function GraphView({ onOpenNote }: Props) {
 
       <div className={styles.body}>
         <div className={styles.stage}>
-          {graph.data && nodes.length > 0 ? (
+          {graph.data && colorKeys && nodes.length > 0 ? (
             <GraphCanvas
               graph={graph.data}
               colorKeys={colorKeys}
@@ -60,7 +66,7 @@ export function GraphView({ onOpenNote }: Props) {
                     다시 시도
                   </Button>
                 </div>
-              ) : graph.data ? (
+              ) : graph.data && colorKeys ? (
                 <p className={styles.hint}>
                   아직 분석된 개념이 없습니다. 노트에 개념을 쓰고 저장하면 분석이 끝난 뒤 여기에
                   보입니다.
@@ -92,9 +98,9 @@ export function GraphView({ onOpenNote }: Props) {
             </section>
           )}
 
-          <Legend nodes={nodes} topics={topicList} colorKeys={colorKeys} />
+          {colorKeys && <Legend nodes={nodes} topics={topicList} colorKeys={colorKeys} />}
 
-          {nodes.length > 0 && (
+          {colorKeys && nodes.length > 0 && (
             <section aria-labelledby="graph-concepts">
               <h2 id="graph-concepts" className={styles.sectionLabel}>
                 개념
