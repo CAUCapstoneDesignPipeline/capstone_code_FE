@@ -137,3 +137,132 @@ export function extractNoteGraph(registry, note, topic) {
 
   return { concepts: [...concepts.values()], relations: [...relations.values()] }
 }
+
+/**
+ * @typedef {{ id: string, noteId: string, noteVersion: number, status: 'pending' | 'running' | 'succeeded' | 'failed',
+ *   errorMessage: string | null, createdAt: string, startedAt: string | null, finishedAt: string | null }} AnalysisJob
+ * @typedef {{ debounceMs?: number, maxDebounceMs?: number, runMs?: number, fail?: boolean }} AnalysisOptions
+ */
+
+const AI_DOWN_MESSAGE = 'AI 서버에 연결하지 못했습니다.'
+
+/**
+ * 노트별 분석 작업 (F-ANL-01). docs/architecture/ai-communication.md 권장안을 줄여 흉내 낸다.
+ * - 저장하면 활성 작업이 없을 때 pending을 만들고, 마지막 저장 후 debounceMs(처음 저장 후 최대 maxDebounceMs) 뒤에 실행한다.
+ * - 실행 전·후에 노트가 다시 저장됐으면 그 작업은 failed로 끝내고(내부 SUPERSEDED) 최신 version으로 pending을 새로 만든다.
+ * - fail이면 AI 서버가 꺼진 것처럼 실패한다.
+ * 결과(개념·관계)는 마지막으로 성공한 작업의 것을 둔다.
+ * @param {{ registry: ConceptRegistry, getNote: (id: string) => NoteLike | undefined,
+ *   topicOf: (note: NoteLike) => { id: string | null, name: string }, now: () => string }} deps
+ * @param {AnalysisOptions} [options]
+ */
+export function createAnalysisQueue(deps, options = {}) {
+  const { debounceMs = 5000, maxDebounceMs = 30_000, runMs = 1500, fail = false } = options
+  const { registry, getNote, topicOf, now } = deps
+  /** 노트별 가장 최근 작업 @type {Map<string, AnalysisJob>} */
+  const latest = new Map()
+  /** 노트별 마지막 성공 결과 @type {Map<string, ReturnType<typeof extractNoteGraph>>} */
+  const results = new Map()
+  /** @type {Map<string, { timer: NodeJS.Timeout, firstDirtyAt: number }>} */
+  const timers = new Map()
+
+  /** @param {string} noteId @param {number} delay */
+  function schedule(noteId, delay) {
+    const prev = timers.get(noteId)
+    if (prev) clearTimeout(prev.timer)
+    const firstDirtyAt = prev?.firstDirtyAt ?? Date.now()
+    const wait = Math.max(0, Math.min(delay, firstDirtyAt + maxDebounceMs - Date.now()))
+    const timer = setTimeout(() => {
+      timers.delete(noteId)
+      step(noteId)
+    }, wait)
+    timer.unref?.()
+    timers.set(noteId, { timer, firstDirtyAt })
+  }
+
+  /** @param {NoteLike} note */
+  function createPending(note) {
+    /** @type {AnalysisJob} */
+    const job = {
+      id: randomUUID(),
+      noteId: note.id,
+      noteVersion: note.version,
+      status: 'pending',
+      errorMessage: null,
+      createdAt: now(),
+      startedAt: null,
+      finishedAt: null,
+    }
+    latest.set(note.id, job)
+    return job
+  }
+
+  /** 다음 단계로: pending → running → succeeded·failed @param {string} noteId */
+  function step(noteId) {
+    const job = latest.get(noteId)
+    const note = getNote(noteId)
+    if (!job || !note) return
+    if (job.status === 'pending' || job.status === 'running') {
+      if (note.version !== job.noteVersion) {
+        // SUPERSEDED: 외부 상태는 failed. 최신 pending이 바로 이어진다.
+        Object.assign(job, { status: 'failed', errorMessage: null, finishedAt: now() })
+        createPending(note)
+        schedule(noteId, 0)
+        return
+      }
+    }
+    if (job.status === 'pending') {
+      Object.assign(job, { status: 'running', startedAt: now() })
+      schedule(noteId, runMs)
+    } else if (job.status === 'running') {
+      if (fail) {
+        Object.assign(job, { status: 'failed', errorMessage: AI_DOWN_MESSAGE, finishedAt: now() })
+      } else {
+        results.set(noteId, extractNoteGraph(registry, note, topicOf(note)))
+        Object.assign(job, { status: 'succeeded', finishedAt: now() })
+      }
+    }
+  }
+
+  const isActive = (/** @type {AnalysisJob | undefined} */ job) =>
+    job?.status === 'pending' || job?.status === 'running'
+
+  return {
+    /** 노트를 저장했을 때 (본문이 있는 새 노트 포함) @param {NoteLike} note */
+    noteSaved(note) {
+      const job = latest.get(note.id)
+      if (job?.status === 'running') return // 끝날 때 version을 보고 이어 간다
+      if (!isActive(job)) createPending(note)
+      schedule(note.id, debounceMs)
+    },
+
+    /** 명시적 분석 요청: 활성 작업이 있으면 그 작업을, 없으면 새 작업을 바로 실행한다 @param {NoteLike} note */
+    request(note) {
+      const job = latest.get(note.id)
+      if (job?.status === 'running') return { ...job }
+      const pending = job?.status === 'pending' ? job : createPending(note)
+      schedule(note.id, 0)
+      return { ...pending }
+    },
+
+    /** @param {string} noteId */
+    latestJob(noteId) {
+      const job = latest.get(noteId)
+      return job ? { ...job } : null
+    },
+
+    /** @param {string} noteId */
+    result(noteId) {
+      return results.get(noteId) ?? { concepts: [], relations: [] }
+    },
+
+    /** @param {string} noteId */
+    forget(noteId) {
+      const t = timers.get(noteId)
+      if (t) clearTimeout(t.timer)
+      timers.delete(noteId)
+      latest.delete(noteId)
+      results.delete(noteId)
+    },
+  }
+}

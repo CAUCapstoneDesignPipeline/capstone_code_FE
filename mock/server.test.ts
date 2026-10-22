@@ -6,15 +6,19 @@ let server: ReturnType<typeof createMockServer>
 let base: string
 let token: string
 
-beforeEach(async () => {
-  server = createMockServer()
+/** 분석은 테스트가 기다릴 수 있게 짧게 돈다. */
+async function start(analysis: { fail?: boolean } = {}) {
+  server = createMockServer({ analysis: { debounceMs: 20, runMs: 20, ...analysis } })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const res = await fetch(`${base}/auth/dev/token`, { method: 'POST' })
   token = ((await res.json()) as { accessToken: string }).accessToken
-})
+}
 
-afterEach(() => new Promise<void>((resolve) => server.close(() => resolve())))
+const stop = () => new Promise<void>((resolve) => server.close(() => resolve()))
+
+beforeEach(() => start())
+afterEach(stop)
 
 async function call(method: string, path: string, body?: unknown, auth = true) {
   const headers: Record<string, string> = auth ? { Authorization: `Bearer ${token}` } : {}
@@ -205,14 +209,25 @@ describe('주제 삭제', () => {
   })
 })
 
-describe('노트별 개념·관계 (draft)', () => {
-  async function noteWith(body: string, topicId: string | null = null) {
-    const n = (await call('POST', '/notes', { title: '재시도 정책', topicId })).data
-    return (await call('PUT', `/notes/${n.id}`, { title: n.title, body, version: 0 })).data
-  }
+async function noteWith(body: string, topicId: string | null = null) {
+  const n = (await call('POST', '/notes', { title: '재시도 정책', topicId })).data
+  return (await call('PUT', `/notes/${n.id}`, { title: n.title, body, version: 0 })).data
+}
 
+/** 가장 최근 작업이 끝날 때까지 기다린다 */
+async function settledJob(noteId: string) {
+  for (let i = 0; i < 100; i++) {
+    const { job } = (await call('GET', `/notes/${noteId}/analysis`)).data
+    if (job && (job.status === 'succeeded' || job.status === 'failed')) return job
+    await new Promise((r) => setTimeout(r, 10))
+  }
+  throw new Error('분석이 끝나지 않았다')
+}
+
+describe('분석 작업 (draft)', () => {
   it('새로 만든 빈 노트는 분석한 적이 없다', async () => {
     const n = (await call('POST', '/notes', { title: '빈 노트' })).data
+    expect((await call('GET', `/notes/${n.id}/analysis`)).data).toEqual({ job: null })
     expect((await call('GET', `/notes/${n.id}/graph`)).data).toEqual({
       noteId: n.id,
       analysis: null,
@@ -221,10 +236,64 @@ describe('노트별 개념·관계 (draft)', () => {
     })
   })
 
+  it('저장하면 pending이 생기고 debounce 뒤 running을 거쳐 succeeded', async () => {
+    const n = await noteWith('**WAL**')
+    const { job } = (await call('GET', `/notes/${n.id}/analysis`)).data
+    expect(job).toMatchObject({ noteId: n.id, noteVersion: 1, status: 'pending', startedAt: null })
+    const done = await settledJob(n.id)
+    expect(done).toMatchObject({ id: job.id, status: 'succeeded', errorMessage: null })
+    expect(done.startedAt).not.toBeNull()
+  })
+
+  it('연달아 저장하면 작업은 하나이고, 실행 전에 바뀐 version이면 최신 version으로 새로 만든다', async () => {
+    const n = await noteWith('**A**')
+    const first = (await call('GET', `/notes/${n.id}/analysis`)).data.job
+    await call('PUT', `/notes/${n.id}`, { title: n.title, body: '**A** **B**', version: 1 })
+    expect((await call('GET', `/notes/${n.id}/analysis`)).data.job.id).toBe(first.id)
+    const done = await settledJob(n.id)
+    expect(done).toMatchObject({ noteVersion: 2, status: 'succeeded' })
+    expect(done.id).not.toBe(first.id)
+  })
+
+  it('명시적 요청은 활성 작업이 있으면 그 작업을, 끝났으면 새 작업을 준다 (202)', async () => {
+    const n = await noteWith('**A**')
+    const active = (await call('GET', `/notes/${n.id}/analysis`)).data.job
+    const r = await call('POST', `/notes/${n.id}/analysis`)
+    expect(r.status).toBe(202)
+    expect(r.data.id).toBe(active.id)
+    await settledJob(n.id)
+    const again = await call('POST', `/notes/${n.id}/analysis`)
+    expect(again.data).toMatchObject({ status: 'pending', noteVersion: 1 })
+    expect(again.data.id).not.toBe(active.id)
+  })
+
+  it('AI 서버가 꺼져 있으면 failed와 오류 문구, 개념·관계는 비어 있다', async () => {
+    await stop()
+    await start({ fail: true })
+    const n = await noteWith('**A**와 **B**')
+    expect(await settledJob(n.id)).toMatchObject({
+      status: 'failed',
+      errorMessage: 'AI 서버에 연결하지 못했습니다.',
+    })
+    expect((await call('GET', `/notes/${n.id}/graph`)).data).toMatchObject({
+      analysis: { status: 'failed' },
+      concepts: [],
+      relations: [],
+    })
+  })
+
+  it('없는 노트는 404', async () => {
+    const r = await call('GET', '/notes/00000000-0000-4000-8000-000000000999/analysis')
+    expect(errorCode(r)).toBe('NOT_FOUND')
+  })
+})
+
+describe('노트별 개념·관계 (draft)', () => {
   it('굵게 쓴 말이 개념이고, 한 문장의 개념끼리 관계가 되며 근거는 그 문장 (UTF-16 위치)', async () => {
     const topic = (await call('POST', '/topics', { name: '네트워크' })).data
     const body = '# 정리\n클라이언트는 **응답 시간 초과**가 되면 **재전송**한다. 끝.'
     const n = await noteWith(body, topic.id)
+    await settledJob(n.id)
     const g = (await call('GET', `/notes/${n.id}/graph`)).data
     expect(g.analysis).toMatchObject({ noteId: n.id, noteVersion: 1, status: 'succeeded' })
     expect(g.concepts.map((c: { label: string }) => c.label)).toEqual(['응답 시간 초과', '재전송'])
@@ -247,18 +316,25 @@ describe('노트별 개념·관계 (draft)', () => {
     expect(body.slice(r.evidence[0].startOffset, r.evidence[0].endOffset)).toBe(r.evidence[0].quote)
   })
 
+  it('결과는 마지막으로 성공한 분석의 것이고, 다시 저장해도 끝나기 전까지 그대로다', async () => {
+    const n = await noteWith('**A**와 **B**')
+    await settledJob(n.id)
+    await call('PUT', `/notes/${n.id}`, { title: n.title, body: '없음', version: 1 })
+    const g = (await call('GET', `/notes/${n.id}/graph`)).data
+    expect(g.analysis.status).toBe('pending')
+    expect(g.concepts).toHaveLength(2)
+    await settledJob(n.id)
+    expect((await call('GET', `/notes/${n.id}/graph`)).data.concepts).toEqual([])
+  })
+
   it('별칭은 하나의 개념이고, 다시 불러와도 id가 같다', async () => {
     const n = await noteWith('**WAL**은 **Write Ahead Logging**과 같이 쓴다.')
+    await settledJob(n.id)
     const a = (await call('GET', `/notes/${n.id}/graph`)).data
     const b = (await call('GET', `/notes/${n.id}/graph`)).data
     expect(a.concepts).toHaveLength(1)
     expect(a.concepts[0].mentions).toHaveLength(2)
     expect(a.relations).toEqual([])
     expect(b).toEqual(a)
-  })
-
-  it('없는 노트는 404', async () => {
-    const r = await call('GET', '/notes/00000000-0000-4000-8000-000000000999/graph')
-    expect(errorCode(r)).toBe('NOT_FOUND')
   })
 })

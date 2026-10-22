@@ -4,13 +4,15 @@
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
-// 실행: npm run mock [-- --port 4010 --delay 300]
+// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis]
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
+//   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
+//   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번).
 
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
-import { createConceptRegistry, extractNoteGraph } from './fakeAnalysis.mjs'
+import { createAnalysisQueue, createConceptRegistry } from './fakeAnalysis.mjs'
 
 /**
  * @typedef {{ id: string, name: string, sortOrder: number, createdAt: string }} Topic
@@ -93,12 +95,24 @@ function snippet(text, q) {
   return flat.slice(start, start + SNIPPET_LEN)
 }
 
-export function createStore() {
+/** @param {import('./fakeAnalysis.mjs').AnalysisOptions} [analysisOptions] */
+export function createStore(analysisOptions) {
   /** @type {Map<string, Topic>} */
   const topics = new Map()
   /** @type {Map<string, Note>} */
   const notes = new Map()
-  const concepts = createConceptRegistry()
+  const analysis = createAnalysisQueue(
+    {
+      registry: createConceptRegistry(),
+      getNote: (id) => notes.get(id),
+      topicOf: (note) => {
+        const topic = note.topicId ? topics.get(note.topicId) : undefined
+        return topic ? { id: topic.id, name: topic.name } : { id: null, name: '미분류' }
+      },
+      now,
+    },
+    analysisOptions,
+  )
 
   /** @param {string} id */
   const topicOr404 = (id) => {
@@ -275,6 +289,7 @@ export function createStore() {
         updatedAt: at,
       }
       notes.set(note.id, note)
+      if (text) analysis.noteSaved(note)
       return { ...note }
     },
 
@@ -299,6 +314,7 @@ export function createStore() {
       }
       assertTitleFree(note.topicId, title, id)
       Object.assign(note, { title, body: text, version: note.version + 1, updatedAt: now() })
+      analysis.noteSaved(note)
       return { ...note }
     },
 
@@ -306,6 +322,7 @@ export function createStore() {
     deleteNote(id) {
       noteOr404(id)
       notes.delete(id)
+      analysis.forget(id)
     },
 
     /** @param {string} id @param {unknown} input */
@@ -319,33 +336,21 @@ export function createStore() {
       return { ...note }
     },
 
-    /**
-     * 노트별 개념·관계 (draft). 지금은 저장된 최신 본문을 바로 분석한 것처럼 준다.
-     * 새로 만든 빈 노트는 분석한 적이 없다 (analysis: null).
-     * @param {string} id
-     */
+    /** 가장 최근 분석 작업 (draft). 분석한 적이 없으면 null @param {string} id */
+    getNoteAnalysis(id) {
+      noteOr404(id)
+      return { job: analysis.latestJob(id) }
+    },
+
+    /** 명시적 분석 요청 (draft) @param {string} id */
+    requestNoteAnalysis(id) {
+      return analysis.request(noteOr404(id))
+    },
+
+    /** 노트별 개념·관계 (draft). 개념·관계는 마지막으로 성공한 분석의 결과다. @param {string} id */
     getNoteGraph(id) {
-      const note = noteOr404(id)
-      if (note.version === 0 && note.body === '') {
-        return { noteId: id, analysis: null, concepts: [], relations: [] }
-      }
-      const topic = note.topicId
-        ? { id: note.topicId, name: topicOr404(note.topicId).name }
-        : { id: null, name: '미분류' }
-      return {
-        noteId: id,
-        analysis: {
-          id: concepts.stableId(`job|${id}|${note.version}`),
-          noteId: id,
-          noteVersion: note.version,
-          status: 'succeeded',
-          errorMessage: null,
-          createdAt: note.updatedAt,
-          startedAt: note.updatedAt,
-          finishedAt: note.updatedAt,
-        },
-        ...extractNoteGraph(concepts, note, topic),
-      }
+      noteOr404(id)
+      return { noteId: id, analysis: analysis.latestJob(id), ...analysis.result(id) }
     },
   }
 }
@@ -469,6 +474,10 @@ function route(store, auth, req, parts, params, body) {
     if (id && !sub && method === 'DELETE') return (store.deleteNote(id), { status: 204 })
     if (id && sub === 'topic' && method === 'PUT')
       return { status: 200, body: store.moveNote(id, body) }
+    if (id && sub === 'analysis' && method === 'GET')
+      return { status: 200, body: store.getNoteAnalysis(id) }
+    if (id && sub === 'analysis' && method === 'POST')
+      return { status: 202, body: store.requestNoteAnalysis(id) }
     if (id && sub === 'graph' && method === 'GET')
       return { status: 200, body: store.getNoteGraph(id) }
   }
@@ -487,9 +496,11 @@ async function readBody(req) {
   }
 }
 
-/** @param {{ delayMs?: number, log?: boolean }} [options] */
-export function createMockServer({ delayMs = 0, log = false } = {}) {
-  const store = createStore()
+/**
+ * @param {{ delayMs?: number, log?: boolean, analysis?: import('./fakeAnalysis.mjs').AnalysisOptions }} [options]
+ */
+export function createMockServer({ delayMs = 0, log = false, analysis } = {}) {
+  const store = createStore(analysis)
   const auth = createAuth()
 
   return createServer(async (req, res) => {
@@ -550,8 +561,14 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const argv = process.argv.slice(2)
   const port = numberArg(argv, 'port', 4010)
   const delayMs = numberArg(argv, 'delay', 0)
-  createMockServer({ delayMs, log: true }).listen(port, '127.0.0.1', () => {
+  const analysis = {
+    debounceMs: numberArg(argv, 'analysis-debounce', 5000),
+    runMs: numberArg(argv, 'analysis-run', 1500),
+    fail: argv.includes('--fail-analysis'),
+  }
+  createMockServer({ delayMs, log: true, analysis }).listen(port, '127.0.0.1', () => {
     console.log(`가짜 서버: http://localhost:${port}${delayMs ? ` (응답 지연 ${delayMs}ms)` : ''}`)
+    if (analysis.fail) console.log('분석은 모두 실패한다 (--fail-analysis).')
     console.log('데이터는 메모리에만 있다. 끄면 사라진다.')
   })
 }

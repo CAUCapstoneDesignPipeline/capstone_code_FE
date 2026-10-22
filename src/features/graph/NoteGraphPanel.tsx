@@ -1,17 +1,53 @@
-import { useState } from 'react'
-import type { ConceptInNote, EvidenceSpan, NoteGraph, Relation } from '../../api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import type { AnalysisJob, ConceptInNote, EvidenceSpan, NoteGraph, Relation } from '../../api'
 import { DashedBadge } from '../../components/Badge'
-import { useNoteGraph } from '../../data/queries'
+import { Button } from '../../components/Button'
+import { keys, useNoteGraph, useRequestAnalysis } from '../../data/queries'
+import { isAnalysisActive } from '../../lib/analysisPoll'
 import styles from './NoteGraphPanel.module.css'
 
+interface Props {
+  noteId: string
+  /** 폴링 중인 가장 최근 분석 작업 (불러오기 전이면 undefined) */
+  job: AnalysisJob | null | undefined
+}
+
 /** 노트 옆 오른쪽 패널: 이 노트에서 나온 개념과 관계 (F-GRA-03) */
-export function NoteGraphPanel({ noteId }: { noteId: string }) {
+export function NoteGraphPanel({ noteId, job }: Props) {
   const graph = useNoteGraph(noteId)
+  const qc = useQueryClient()
+  const retry = useRequestAnalysis(noteId)
+
+  // 분석이 끝났는데 받아 둔 결과가 그 작업 것이 아니면 다시 받는다. 처음 받는 중이면 기다린다.
+  const shown = graph.data?.analysis
+  const outdated =
+    !!graph.data &&
+    !!job &&
+    !isAnalysisActive(job) &&
+    (shown?.id !== job.id || shown.status !== job.status)
+  useEffect(() => {
+    if (outdated) void qc.invalidateQueries({ queryKey: keys.noteGraph(noteId) })
+  }, [outdated, qc, noteId])
+
+  const current = job === undefined ? shown : job
   return (
     <aside className={styles.panel} aria-label="개념·관계">
       <h2 className={styles.heading}>개념·관계</h2>
+      {current?.status === 'failed' && (
+        <div className={styles.failed} role="alert">
+          <p className={styles.hint}>
+            분석하지 못했습니다. {current.errorMessage ?? ''}
+            {graph.data?.concepts.length ? ' 아래는 마지막으로 분석한 결과입니다.' : ''}
+          </p>
+          <Button variant="secondary" disabled={retry.isPending} onClick={() => retry.mutate()}>
+            다시 분석
+          </Button>
+          {retry.isError && <p className={styles.hint}>{retry.error.message}</p>}
+        </div>
+      )}
       {graph.data ? (
-        <GraphContent graph={graph.data} />
+        <GraphContent graph={graph.data} job={current} />
       ) : graph.isError ? (
         <p className={styles.hint} role="alert">
           개념·관계를 불러오지 못했습니다. {graph.error.message}
@@ -23,15 +59,24 @@ export function NoteGraphPanel({ noteId }: { noteId: string }) {
   )
 }
 
-function GraphContent({ graph }: { graph: NoteGraph }) {
-  const [conceptId, setConceptId] = useState<string | null>(null)
+function GraphContent({ graph, job }: { graph: NoteGraph; job: AnalysisJob | null | undefined }) {
+  const [selectedConceptId, setConceptId] = useState<string | null>(null)
   const [relationId, setRelationId] = useState<string | null>(null)
 
-  if (!graph.analysis) return <p className={styles.hint}>아직 분석하지 않은 노트입니다.</p>
+  if (!job) return <p className={styles.hint}>아직 분석하지 않은 노트입니다.</p>
   if (graph.concepts.length === 0) {
-    return <p className={styles.hint}>이 노트에서 찾은 개념이 없습니다.</p>
+    if (isAnalysisActive(job)) {
+      return <p className={styles.hint}>분석이 끝나면 개념과 관계가 보입니다.</p>
+    }
+    return job.status === 'failed' ? null : (
+      <p className={styles.hint}>이 노트에서 찾은 개념이 없습니다.</p>
+    )
   }
 
+  // 다시 받은 결과에 고른 개념이 없으면 고르지 않은 것으로 본다.
+  const conceptId = graph.concepts.some((c) => c.id === selectedConceptId)
+    ? selectedConceptId
+    : null
   // 개념을 고르면 그 개념이 들어간 관계만 보인다. 고른 관계가 목록에서 빠지면 상세도 닫는다.
   const relations = conceptId
     ? graph.relations.filter((r) => r.source.id === conceptId || r.target.id === conceptId)
