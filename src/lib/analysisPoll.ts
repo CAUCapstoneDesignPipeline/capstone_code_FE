@@ -45,3 +45,25 @@ export function createAnalysisPoller(now = Date.now, random = Math.random) {
       : POLL.slowMs + Math.floor(random() * POLL.jitterMs)
   }
 }
+
+/**
+ * 폴링한 작업(job)과 받아 둔 그래프의 작업(shown)이 어긋났을 때 무엇을 다시 받을지.
+ * 값은 effect의 키다: 같은 어긋남에는 한 번만 다시 받고, 어긋남이 바뀌면 또 받는다. null이면 받지 않는다.
+ * - graph: 분석이 끝났는데 그래프가 그 작업의 결과가 아니면 그래프를 다시 받는다.
+ * - analysis: 폴링이 멈췄는데 그래프가 다른 작업을 가리키면 분석 상태를 다시 받는다.
+ *   그래프 쪽이 더 새 작업일 수 있다(다른 탭에서 저장 등). 어느 쪽이 최신인지는 GET /analysis가 정한다.
+ * 진행 중이면 폴링이 따라잡으므로 아무것도 하지 않는다. 둘 중 하나라도 아직 불러오지 않았으면 기다린다.
+ */
+export function analysisMismatch(
+  job: AnalysisJob | null | undefined,
+  shown: AnalysisJob | null | undefined,
+): { graph: string | null; analysis: string | null } {
+  if (job === undefined || shown === undefined || isAnalysisActive(job)) {
+    return { graph: null, analysis: null }
+  }
+  const pair = `${job?.id}:${job?.status}|${shown?.id}:${shown?.status}`
+  return {
+    graph: job && (shown?.id !== job.id || shown.status !== job.status) ? pair : null,
+    analysis: shown && shown.id !== job?.id ? pair : null,
+  }
+}

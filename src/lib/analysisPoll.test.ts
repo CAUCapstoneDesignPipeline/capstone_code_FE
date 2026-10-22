@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AnalysisJob } from '../api'
-import { createAnalysisPoller, POLL } from './analysisPoll'
+import { analysisMismatch, createAnalysisPoller, POLL } from './analysisPoll'
 
 const job = (id: string, status: AnalysisJob['status']): AnalysisJob => ({
   id,
@@ -71,5 +71,33 @@ describe('저장한 version보다 오래된 작업', () => {
 
   it('작업을 아직 불러오지 않았으면 조회하지 않는다', () => {
     expect(createAnalysisPoller()(undefined, 3)).toBe(false)
+  })
+})
+
+describe('폴링한 작업과 그래프의 작업이 어긋날 때', () => {
+  it('분석이 끝났는데 그래프가 진행 중일 때 것이면 그래프만 다시 받는다', () => {
+    expect(analysisMismatch(job('a', 'succeeded'), job('a', 'running'))).toEqual({
+      graph: 'a:succeeded|a:running',
+      analysis: null,
+    })
+  })
+
+  it('그래프가 다른 작업 것이면 분석 상태도 다시 받는다 (어느 쪽이 최신인지 서버가 정한다)', () => {
+    const r = analysisMismatch(job('a', 'succeeded'), job('b', 'pending'))
+    expect(r.graph).not.toBeNull()
+    expect(r.analysis).not.toBeNull()
+    expect(analysisMismatch(null, job('b', 'succeeded'))).toEqual({
+      graph: null,
+      analysis: 'undefined:undefined|b:succeeded',
+    })
+  })
+
+  it('맞으면, 진행 중이면, 아직 불러오지 않았으면 아무것도 하지 않는다', () => {
+    const none = { graph: null, analysis: null }
+    expect(analysisMismatch(job('a', 'failed'), job('a', 'failed'))).toEqual(none)
+    expect(analysisMismatch(job('b', 'running'), job('a', 'succeeded'))).toEqual(none)
+    expect(analysisMismatch(undefined, job('a', 'succeeded'))).toEqual(none)
+    expect(analysisMismatch(job('a', 'succeeded'), undefined)).toEqual(none)
+    expect(analysisMismatch(null, null)).toEqual(none)
   })
 })

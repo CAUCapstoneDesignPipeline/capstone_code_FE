@@ -4,7 +4,7 @@ import type { AnalysisJob, ConceptInNote, EvidenceSpan, NoteGraph, Relation } fr
 import { DashedBadge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { keys, useNoteGraph, useRequestAnalysis } from '../../data/queries'
-import { isAnalysisActive } from '../../lib/analysisPoll'
+import { analysisMismatch, isAnalysisActive } from '../../lib/analysisPoll'
 import styles from './NoteGraphPanel.module.css'
 
 interface Props {
@@ -19,19 +19,15 @@ export function NoteGraphPanel({ noteId, job }: Props) {
   const qc = useQueryClient()
   const retry = useRequestAnalysis(noteId)
 
-  // 분석이 끝났는데 받아 둔 결과가 그 작업 것이 아니면 다시 받는다. 처음 받는 중이면 기다린다.
-  // 끝난 작업마다 한 번씩: 다시 받은 결과가 또 다른 작업 것이면 그 작업을 기준으로 다시 받는다.
+  // 폴링한 작업과 그래프의 작업이 어긋나면 다시 받는다 (analysisMismatch).
   const shown = graph.data?.analysis
-  const outdatedBy =
-    graph.data &&
-    job &&
-    !isAnalysisActive(job) &&
-    (shown?.id !== job.id || shown.status !== job.status)
-      ? `${job.id}:${job.status}:${shown?.id}:${shown?.status}`
-      : null
+  const mismatch = analysisMismatch(job, graph.data ? shown : undefined)
   useEffect(() => {
-    if (outdatedBy) void qc.invalidateQueries({ queryKey: keys.noteGraph(noteId) })
-  }, [outdatedBy, qc, noteId])
+    if (mismatch.graph) void qc.invalidateQueries({ queryKey: keys.noteGraph(noteId) })
+  }, [mismatch.graph, qc, noteId])
+  useEffect(() => {
+    if (mismatch.analysis) void qc.invalidateQueries({ queryKey: keys.noteAnalysis(noteId) })
+  }, [mismatch.analysis, qc, noteId])
 
   const current = job === undefined ? shown : job
   return (
