@@ -1,0 +1,152 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* 편집기 상단 막대와 같은 높이·여백 */
+.topBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--layout-topbar-height);
+  padding: 0 var(--space-16);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-ui-body-sm-strong);
+}
+
+.body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) var(--layout-panel-width);
+  min-height: 0;
+}
+
+.stage {
+  position: relative;
+  min-width: 0;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-32);
+  text-align: center;
+}
+
+.emptyBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+/* 오른쪽 패널: 노트 패널과 같은 모양 */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  overflow-y: auto;
+  padding: var(--space-16);
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-card);
+}
+
+.sectionLabel {
+  margin: 0 0 var(--space-8);
+  font: var(--text-ui-label-strong);
+}
+
+.hint {
+  margin: 0 0 var(--space-4);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+}
+
+.caption {
+  flex: none;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  height: var(--layout-row-height);
+  padding: 0 var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink);
+  font: var(--text-ui-body-sm);
+  text-align: left;
+}
+
+.row:hover {
+  background: var(--color-surface-muted);
+}
+
+.row[aria-pressed='true'] {
+  background: var(--color-surface-selected);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -2px;
+}
+
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font: var(--text-ui-label);
+}
+
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.swatchMixed {
+  border: 2px solid var(--color-ink);
+  background: var(--color-canvas);
+}

@@ -118,6 +118,7 @@
 }
 
 .item.selected,
+.item[aria-current='true'],
 .note[aria-current='true'] {
   background: var(--color-surface-selected);
 }

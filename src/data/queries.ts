@@ -12,6 +12,7 @@ import {
   deleteNote,
   deleteTopic,
   getNote,
+  getGraph,
   getNoteAnalysis,
   getNoteGraph,
   isApiError,
@@ -45,6 +46,7 @@ export const keys = {
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
+  graph: ['graph'] as const,
 }
 
 export function useTopics() {
@@ -115,6 +117,11 @@ export function useRequestAnalysis(noteId: string) {
     mutationFn: () => requestNoteAnalysis(noteId),
     onSuccess: (job) => qc.setQueryData(keys.noteAnalysis(noteId), job),
   })
+}
+
+/** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
+export function useGraph() {
+  return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal) })
 }
 
 /** 노트 옆 패널의 개념·관계 (F-GRA-03) */

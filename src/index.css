@@ -17,6 +17,21 @@
   --color-border-subtle: rgb(38 37 30 / 0.1);
   --color-scrim: rgb(38 37 30 / 0.16);
 
+  /*
+   * 그래프 주제 색 (안, 디자인 미정). dataviz 기본 범주 팔레트 8칸을 만든 순서대로 쓴다.
+   * canvas 위에서 색맹 구분 검사는 통과했지만 2~5번은 대비가 3:1 아래라 노드에 항상 이름을 붙이고 범례를 둔다.
+   */
+  --color-topic-1: #2a78d6;
+  --color-topic-2: #eb6834;
+  --color-topic-3: #1baf7a;
+  --color-topic-4: #eda100;
+  --color-topic-5: #e87ba4;
+  --color-topic-6: #008300;
+  --color-topic-7: #6250d6;
+  --color-topic-8: #e34948;
+  --color-topic-other: #8a897f;
+  --color-topic-none: #c4c3bb;
+
   /* Radius */
   --radius-card: 4px;
   --radius-pill: 9999px;

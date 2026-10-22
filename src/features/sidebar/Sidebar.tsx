@@ -25,6 +25,9 @@ import { TopicNode } from './TopicNode'
 interface Props {
   selectedNoteId: string | null
   onSelectNote: (noteId: string) => void
+  /** 전체 그래프를 보고 있는지 */
+  graphOpen: boolean
+  onOpenGraph: () => void
   /** 트리에 새 주제 입력칸을 띄웠는지 (빈 화면의 "새 주제" 버튼과 공유) */
   addingTopic: boolean
   onAddingTopicChange: (adding: boolean) => void
@@ -41,7 +44,8 @@ const SEARCH_DELAY_MS = 300
 
 /** Figma W1-05 Sidebar: 머리 · 검색 · "주제" · 트리 · 미분류 · (아래) 새 주제 · 새 노트 */
 export function Sidebar(props: Props) {
-  const { selectedNoteId, onSelectNote, addingTopic, onAddingTopicChange } = props
+  const { selectedNoteId, onSelectNote, addingTopic, onAddingTopicChange, graphOpen, onOpenGraph } =
+    props
   const topics = useTopics()
   const createTopic = useCreateTopic()
   const swapOrder = useSwapTopicOrder()
@@ -156,6 +160,20 @@ export function Sidebar(props: Props) {
           />
         ) : (
           <>
+            <h2 className={styles.sectionLabel}>발견</h2>
+            <ul className={styles.list}>
+              <li>
+                <button
+                  type="button"
+                  className={styles.item}
+                  aria-current={graphOpen}
+                  onClick={onOpenGraph}
+                >
+                  <Icon name="graph" />
+                  <span className={styles.label}>전체 그래프</span>
+                </button>
+              </li>
+            </ul>
             <h2 className={styles.sectionLabel}>주제</h2>
             {topics.isPending && <p className={styles.hint}>불러오는 중…</p>}
             {topics.isError && (
