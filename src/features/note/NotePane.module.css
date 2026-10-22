@@ -4,6 +4,13 @@
   height: 100%;
 }
 
+/* 편집기 + 오른쪽 패널 (패널 접기·좁은 화면은 미정) */
+.withPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--layout-panel-width);
+  height: 100%;
+}
+
 .topBar {
   flex: none;
   height: var(--layout-topbar-height);

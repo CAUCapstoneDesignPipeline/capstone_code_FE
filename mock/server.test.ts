@@ -204,3 +204,61 @@ describe('주제 삭제', () => {
     expect((await call('GET', '/topics')).data).toEqual({ topics: [], unassignedNoteCount: 1 })
   })
 })
+
+describe('노트별 개념·관계 (draft)', () => {
+  async function noteWith(body: string, topicId: string | null = null) {
+    const n = (await call('POST', '/notes', { title: '재시도 정책', topicId })).data
+    return (await call('PUT', `/notes/${n.id}`, { title: n.title, body, version: 0 })).data
+  }
+
+  it('새로 만든 빈 노트는 분석한 적이 없다', async () => {
+    const n = (await call('POST', '/notes', { title: '빈 노트' })).data
+    expect((await call('GET', `/notes/${n.id}/graph`)).data).toEqual({
+      noteId: n.id,
+      analysis: null,
+      concepts: [],
+      relations: [],
+    })
+  })
+
+  it('굵게 쓴 말이 개념이고, 한 문장의 개념끼리 관계가 되며 근거는 그 문장 (UTF-16 위치)', async () => {
+    const topic = (await call('POST', '/topics', { name: '네트워크' })).data
+    const body = '# 정리\n클라이언트는 **응답 시간 초과**가 되면 **재전송**한다. 끝.'
+    const n = await noteWith(body, topic.id)
+    const g = (await call('GET', `/notes/${n.id}/graph`)).data
+    expect(g.analysis).toMatchObject({ noteId: n.id, noteVersion: 1, status: 'succeeded' })
+    expect(g.concepts.map((c: { label: string }) => c.label)).toEqual(['응답 시간 초과', '재전송'])
+    const m = g.concepts[1].mentions[0]
+    expect(body.slice(m.startOffset, m.endOffset)).toBe('재전송')
+    expect(g.relations).toHaveLength(1)
+    const r = g.relations[0]
+    expect(r).toMatchObject({
+      source: { label: '응답 시간 초과' },
+      target: { label: '재전송' },
+      type: { code: 'causes', label: '원인' },
+      origin: 'extracted',
+      status: 'active',
+    })
+    expect(r.evidence[0]).toMatchObject({
+      noteTitle: '재시도 정책',
+      topic: { id: topic.id, name: '네트워크' },
+      quote: '클라이언트는 **응답 시간 초과**가 되면 **재전송**한다.',
+    })
+    expect(body.slice(r.evidence[0].startOffset, r.evidence[0].endOffset)).toBe(r.evidence[0].quote)
+  })
+
+  it('별칭은 하나의 개념이고, 다시 불러와도 id가 같다', async () => {
+    const n = await noteWith('**WAL**은 **Write Ahead Logging**과 같이 쓴다.')
+    const a = (await call('GET', `/notes/${n.id}/graph`)).data
+    const b = (await call('GET', `/notes/${n.id}/graph`)).data
+    expect(a.concepts).toHaveLength(1)
+    expect(a.concepts[0].mentions).toHaveLength(2)
+    expect(a.relations).toEqual([])
+    expect(b).toEqual(a)
+  })
+
+  it('없는 노트는 404', async () => {
+    const r = await call('GET', '/notes/00000000-0000-4000-8000-000000000999/graph')
+    expect(errorCode(r)).toBe('NOT_FOUND')
+  })
+})

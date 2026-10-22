@@ -1,5 +1,6 @@
 // @ts-check
 // 데이터를 메모리에 기억하는 가짜 서버. BE 연결 전 개발용이며 docs/api/openapi.yaml v0.3과 docs/api/rules.md를 따른다.
+// 분석·그래프(draft)는 fakeAnalysis.mjs의 규칙으로 흉내 낸다.
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
@@ -9,6 +10,7 @@
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
+import { createConceptRegistry, extractNoteGraph } from './fakeAnalysis.mjs'
 
 /**
  * @typedef {{ id: string, name: string, sortOrder: number, createdAt: string }} Topic
@@ -96,6 +98,7 @@ export function createStore() {
   const topics = new Map()
   /** @type {Map<string, Note>} */
   const notes = new Map()
+  const concepts = createConceptRegistry()
 
   /** @param {string} id */
   const topicOr404 = (id) => {
@@ -315,6 +318,35 @@ export function createStore() {
       note.topicId = topicId
       return { ...note }
     },
+
+    /**
+     * 노트별 개념·관계 (draft). 지금은 저장된 최신 본문을 바로 분석한 것처럼 준다.
+     * 새로 만든 빈 노트는 분석한 적이 없다 (analysis: null).
+     * @param {string} id
+     */
+    getNoteGraph(id) {
+      const note = noteOr404(id)
+      if (note.version === 0 && note.body === '') {
+        return { noteId: id, analysis: null, concepts: [], relations: [] }
+      }
+      const topic = note.topicId
+        ? { id: note.topicId, name: topicOr404(note.topicId).name }
+        : { id: null, name: '미분류' }
+      return {
+        noteId: id,
+        analysis: {
+          id: concepts.stableId(`job|${id}|${note.version}`),
+          noteId: id,
+          noteVersion: note.version,
+          status: 'succeeded',
+          errorMessage: null,
+          createdAt: note.updatedAt,
+          startedAt: note.updatedAt,
+          finishedAt: note.updatedAt,
+        },
+        ...extractNoteGraph(concepts, note, topic),
+      }
+    },
   }
 }
 
@@ -437,6 +469,8 @@ function route(store, auth, req, parts, params, body) {
     if (id && !sub && method === 'DELETE') return (store.deleteNote(id), { status: 204 })
     if (id && sub === 'topic' && method === 'PUT')
       return { status: 200, body: store.moveNote(id, body) }
+    if (id && sub === 'graph' && method === 'GET')
+      return { status: 200, body: store.getNoteGraph(id) }
   }
   throw new HttpError(404, 'NOT_FOUND', `없는 경로입니다: ${method} /${parts.join('/')}`)
 }

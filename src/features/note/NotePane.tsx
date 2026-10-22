@@ -5,6 +5,7 @@ import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
 import { keys, useNote } from '../../data/queries'
 import { NoteEditor, type LeaveGuard } from '../editor/NoteEditor'
+import { NoteGraphPanel } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
 
 interface Props {
@@ -64,7 +65,14 @@ function LoadedNote({
   // 한 번 불러온 뒤에는 이후 오류가 나도 편집기를 유지한다 (편집 중인 내용을 지우지 않는다).
   if (note.data) {
     return (
-      <NoteEditor note={note.data} registerLeaveGuard={registerLeaveGuard} onDeleted={onNoteGone} />
+      <div className={styles.withPanel}>
+        <NoteEditor
+          note={note.data}
+          registerLeaveGuard={registerLeaveGuard}
+          onDeleted={onNoteGone}
+        />
+        <NoteGraphPanel noteId={noteId} />
+      </div>
     )
   }
   return (

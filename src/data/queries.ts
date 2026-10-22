@@ -12,6 +12,7 @@ import {
   deleteNote,
   deleteTopic,
   getNote,
+  getNoteGraph,
   isApiError,
   listNotes,
   listTopics,
@@ -38,6 +39,7 @@ export const keys = {
   search: (q: string) => ['notes', 'search', q] as const,
   notes: ['note'] as const,
   note: (noteId: string) => ['note', noteId] as const,
+  noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
 }
 
 export function useTopics() {
@@ -80,6 +82,14 @@ export function useNote(noteId: string) {
     queryFn: ({ signal }) => getNote(noteId, signal),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
+  })
+}
+
+/** 노트 옆 패널의 개념·관계 (F-GRA-03) */
+export function useNoteGraph(noteId: string) {
+  return useQuery({
+    queryKey: keys.noteGraph(noteId),
+    queryFn: ({ signal }) => getNoteGraph(noteId, signal),
   })
 }
 
