@@ -20,15 +20,18 @@ export function NoteGraphPanel({ noteId, job }: Props) {
   const retry = useRequestAnalysis(noteId)
 
   // 분석이 끝났는데 받아 둔 결과가 그 작업 것이 아니면 다시 받는다. 처음 받는 중이면 기다린다.
+  // 끝난 작업마다 한 번씩: 다시 받은 결과가 또 다른 작업 것이면 그 작업을 기준으로 다시 받는다.
   const shown = graph.data?.analysis
-  const outdated =
-    !!graph.data &&
-    !!job &&
+  const outdatedBy =
+    graph.data &&
+    job &&
     !isAnalysisActive(job) &&
     (shown?.id !== job.id || shown.status !== job.status)
+      ? `${job.id}:${job.status}:${shown?.id}:${shown?.status}`
+      : null
   useEffect(() => {
-    if (outdated) void qc.invalidateQueries({ queryKey: keys.noteGraph(noteId) })
-  }, [outdated, qc, noteId])
+    if (outdatedBy) void qc.invalidateQueries({ queryKey: keys.noteGraph(noteId) })
+  }, [outdatedBy, qc, noteId])
 
   const current = job === undefined ? shown : job
   return (

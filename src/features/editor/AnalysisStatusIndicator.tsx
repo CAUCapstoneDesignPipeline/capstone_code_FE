@@ -1,6 +1,6 @@
 import type { AnalysisJob, AnalysisStatus } from '../../api'
-import { Icon, type IconName } from '../../components/Icon'
-import styles from './NoteEditor.module.css'
+import type { IconName } from '../../components/Icon'
+import { StatusPill } from './StatusPill'
 
 const VIEW: Record<AnalysisStatus, { label: string; icon: IconName; stuck: boolean }> = {
   pending: { label: '분석 대기', icon: 'dot', stuck: false },
@@ -15,16 +15,12 @@ const VIEW: Record<AnalysisStatus, { label: string; icon: IconName; stuck: boole
  */
 export function AnalysisStatusIndicator({ job }: { job: AnalysisJob | null | undefined }) {
   if (!job) return null
-  const view = VIEW[job.status]
   return (
-    <span
-      className={view.stuck ? `${styles.saveStatus} ${styles.saveStatusStuck}` : styles.saveStatus}
-      data-status={job.status}
-      role="status"
+    <StatusPill
+      {...VIEW[job.status]}
+      spinning={job.status === 'running'}
+      status={job.status}
       title={job.status === 'failed' ? (job.errorMessage ?? undefined) : undefined}
-    >
-      <Icon name={view.icon} className={job.status === 'running' ? styles.spin : undefined} />
-      {view.label}
-    </span>
+    />
   )
 }

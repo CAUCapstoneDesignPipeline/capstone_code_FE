@@ -91,16 +91,20 @@ export function useNote(noteId: string) {
 }
 
 /**
- * 노트의 가장 최근 분석 작업 (F-ANL-01). 대기·진행 중인 동안 폴링한다.
+ * 노트의 가장 최근 분석 작업 (F-ANL-01). 대기·진행 중이거나, 저장한 version의 작업이 아직 안 보이는 동안 폴링한다.
  * 숨겨진 탭에서는 멈추고(refetchIntervalInBackground 기본값) 돌아오면 바로 다시 받는다(refetchOnWindowFocus).
  * 같은 노트에서 한 곳만 부른다 (부르는 곳마다 폴링 타이머가 따로 돈다).
  */
 export function useNoteAnalysis(noteId: string) {
   const [nextPoll] = useState(() => createAnalysisPoller())
+  // 편집기가 저장할 때마다 캐시의 version을 올린다 (useApplySavedNote).
+  const savedVersion = useNote(noteId).data?.version
   return useQuery({
     queryKey: keys.noteAnalysis(noteId),
     queryFn: ({ signal }) => getNoteAnalysis(noteId, signal),
-    refetchInterval: (query) => nextPoll(query.state.data),
+    refetchInterval: (query) =>
+      // 노트가 지워졌으면 멈춘다
+      isApiError(query.state.error, 'NOT_FOUND') ? false : nextPoll(query.state.data, savedVersion),
   })
 }
 
@@ -268,6 +272,8 @@ export function useMoveNote() {
       qc.setQueryData<Note>(keys.note(moved.id), (note) =>
         note ? { ...note, topicId: moved.topicId } : note,
       )
+      // version은 그대로지만 근거의 주제가 바뀌어 BE가 다시 분석한다.
+      void qc.invalidateQueries({ queryKey: keys.noteAnalysis(moved.id) })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },
@@ -280,6 +286,8 @@ export function useDeleteNote() {
     mutationFn: (noteId: string) => deleteNote(noteId),
     onSuccess: (_, noteId) => {
       qc.removeQueries({ queryKey: keys.note(noteId) })
+      qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
+      qc.removeQueries({ queryKey: keys.noteGraph(noteId) })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },

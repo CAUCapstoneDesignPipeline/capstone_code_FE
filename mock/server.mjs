@@ -289,7 +289,7 @@ export function createStore(analysisOptions) {
         updatedAt: at,
       }
       notes.set(note.id, note)
-      if (text) analysis.noteSaved(note)
+      if (text) analysis.inputChanged(note)
       return { ...note }
     },
 
@@ -314,7 +314,7 @@ export function createStore(analysisOptions) {
       }
       assertTitleFree(note.topicId, title, id)
       Object.assign(note, { title, body: text, version: note.version + 1, updatedAt: now() })
-      analysis.noteSaved(note)
+      analysis.inputChanged(note)
       return { ...note }
     },
 
@@ -332,7 +332,11 @@ export function createStore(analysisOptions) {
       const note = noteOr404(id)
       const topicId = checkTopicId(body.topicId)
       assertTitleFree(topicId, note.title, id)
-      note.topicId = topicId
+      if (note.topicId !== topicId) {
+        note.topicId = topicId
+        // version은 그대로지만 근거의 주제가 바뀌므로 다시 분석한다 (입력 revision)
+        if (note.version > 0 || note.body) analysis.inputChanged(note)
+      }
       return { ...note }
     },
 

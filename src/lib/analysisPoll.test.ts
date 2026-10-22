@@ -42,3 +42,34 @@ describe('분석 상태 폴링 간격', () => {
     expect(next(job('b', 'pending'))).toBe(POLL.fastMs)
   })
 })
+
+describe('저장한 version보다 오래된 작업', () => {
+  const done = (version: number): AnalysisJob => ({
+    ...job('a', 'succeeded'),
+    noteVersion: version,
+  })
+
+  it('새 작업이 보일 때까지 더 조회하고, 60초가 지나면 멈춘다', () => {
+    let t = 0
+    const next = createAnalysisPoller(
+      () => t,
+      () => 0,
+    )
+    expect(next(done(1), 1)).toBe(false)
+    expect(next(done(1), 2)).toBe(POLL.fastMs)
+    t = 59_999
+    expect(next(done(1), 2)).toBe(POLL.slowMs)
+    t = 60_000
+    expect(next(done(1), 2)).toBe(false)
+  })
+
+  it('분석한 적이 없는 노트도 저장하면 작업을 기다린다. 새로 만든 빈 노트(version 0)는 기다리지 않는다', () => {
+    const next = createAnalysisPoller(() => 0)
+    expect(next(null, 0)).toBe(false)
+    expect(next(null, 1)).toBe(POLL.fastMs)
+  })
+
+  it('작업을 아직 불러오지 않았으면 조회하지 않는다', () => {
+    expect(createAnalysisPoller()(undefined, 3)).toBe(false)
+  })
+})
