@@ -4,7 +4,7 @@ import type { AnalysisJob, ConceptInNote, EvidenceSpan, NoteGraph, Relation } fr
 import type { EvidenceLocation } from '../editor/evidenceHighlight'
 import { DashedBadge } from '../../components/Badge'
 import { Button } from '../../components/Button'
-import { keys, useNoteGraph, useRequestAnalysis } from '../../data/queries'
+import { keys, useCapabilities, useNoteGraph, useRequestAnalysis } from '../../data/queries'
 import { analysisMismatch, isAnalysisActive } from '../../lib/analysisPoll'
 import styles from './NoteGraphPanel.module.css'
 
@@ -20,7 +20,8 @@ interface Props {
 
 /** 노트 옆 오른쪽 패널: 이 노트에서 나온 개념과 관계 (F-GRA-03) */
 export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
-  const graph = useNoteGraph(noteId)
+  const capabilities = useCapabilities()
+  const graph = useNoteGraph(noteId, capabilities?.graphEnabled === true)
   const qc = useQueryClient()
   const retry = useRequestAnalysis(noteId)
 
@@ -50,7 +51,14 @@ export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
           {retry.isError && <p className={styles.hint}>{retry.error.message}</p>}
         </div>
       )}
-      {graph.data ? (
+      {capabilities && !capabilities.graphEnabled ? (
+        // AI-off: 요청하지 않고 알린다
+        <p className={styles.hint}>
+          {capabilities.analysisEnabled
+            ? '개념·관계 보기는 아직 사용할 수 없습니다.'
+            : 'AI 분석은 아직 사용할 수 없습니다. 노트 편집과 저장은 그대로 됩니다.'}
+        </p>
+      ) : graph.data ? (
         <GraphContent graph={graph.data} job={current} onShowEvidence={onShowEvidence} />
       ) : graph.isError ? (
         <p className={styles.hint} role="alert">

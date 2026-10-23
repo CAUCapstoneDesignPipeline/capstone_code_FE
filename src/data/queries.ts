@@ -12,6 +12,7 @@ import {
   deleteNote,
   deleteTopic,
   getNote,
+  getCapabilities,
   getGraph,
   getNoteAnalysis,
   getNoteGraph,
@@ -47,7 +48,24 @@ export const keys = {
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
   graph: ['graph'] as const,
+  capabilities: ['capabilities'] as const,
 }
+
+/**
+ * AI 기능을 쓸 수 있는지 (AI-off 계약). 꺼져 있으면 분석 상태 폴링과 그래프 요청을 하지 않는다.
+ * 불러오는 동안은 undefined. 못 불러오면(경로가 없는 옛 서버 등) 모두 꺼진 것으로 본다.
+ */
+export function useCapabilities() {
+  const query = useQuery({
+    queryKey: keys.capabilities,
+    queryFn: ({ signal }) => getCapabilities(signal),
+    staleTime: 60_000,
+  })
+  if (query.isError) return OFF
+  return query.data
+}
+
+const OFF = { analysisEnabled: false, graphEnabled: false, discoveriesEnabled: false } as const
 
 export function useTopics() {
   return useQuery({ queryKey: keys.topics, queryFn: ({ signal }) => listTopics(signal) })
@@ -98,12 +116,14 @@ export function useNote(noteId: string) {
  * 같은 노트에서 한 곳만 부른다 (부르는 곳마다 폴링 타이머가 따로 돈다).
  */
 export function useNoteAnalysis(noteId: string) {
+  const enabled = useCapabilities()?.analysisEnabled === true
   const [nextPoll] = useState(() => createAnalysisPoller())
   // 편집기가 저장할 때마다 캐시의 version을 올린다 (useApplySavedNote).
   const savedVersion = useNote(noteId).data?.version
   return useQuery({
     queryKey: keys.noteAnalysis(noteId),
     queryFn: ({ signal }) => getNoteAnalysis(noteId, signal),
+    enabled,
     refetchInterval: (query) =>
       // 노트가 지워졌으면 멈춘다
       isApiError(query.state.error, 'NOT_FOUND') ? false : nextPoll(query.state.data, savedVersion),
@@ -116,19 +136,25 @@ export function useRequestAnalysis(noteId: string) {
   return useMutation({
     mutationFn: () => requestNoteAnalysis(noteId),
     onSuccess: (job) => qc.setQueryData(keys.noteAnalysis(noteId), job),
+    // AI가 꺼졌으면 기능 여부를 다시 받아 화면을 AI-off로 바꾼다
+    onError: (e) => {
+      if (isApiError(e, 'AI_UNAVAILABLE'))
+        void qc.invalidateQueries({ queryKey: keys.capabilities })
+    },
   })
 }
 
 /** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
-export function useGraph() {
-  return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal) })
+export function useGraph(enabled: boolean) {
+  return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal), enabled })
 }
 
 /** 노트 옆 패널의 개념·관계 (F-GRA-03) */
-export function useNoteGraph(noteId: string) {
+export function useNoteGraph(noteId: string, enabled: boolean) {
   return useQuery({
     queryKey: keys.noteGraph(noteId),
     queryFn: ({ signal }) => getNoteGraph(noteId, signal),
+    enabled,
   })
 }
 

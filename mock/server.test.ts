@@ -10,7 +10,7 @@ let token: string
  * 저장 후 자동 분석은 테스트 안에서 시작되지 않을 만큼 늦추고(중간 상태를 확인할 수 있게),
  * 분석은 analyzeNow(명시적 요청)로 바로 돌린다.
  */
-async function start(analysis: { fail?: boolean } = {}) {
+async function start(analysis: { fail?: boolean; off?: boolean } = {}) {
   server = createMockServer({ analysis: { debounceMs: 10_000, runMs: 20, ...analysis } })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -407,5 +407,38 @@ describe('그래프 보기 (draft)', () => {
   it('scope가 틀리거나 필요한 id가 없으면 400', async () => {
     expect(errorCode(await call('GET', '/graph?scope=x'))).toBe('VALIDATION_FAILED')
     expect(errorCode(await call('GET', '/graph?scope=topic'))).toBe('VALIDATION_FAILED')
+  })
+})
+
+describe('AI 기능 여부 (AI-off 계약)', () => {
+  it('기본은 분석·그래프를 켠 상태이고, 로그인 없이 받는다', async () => {
+    expect((await call('GET', '/capabilities', undefined, false)).data).toEqual({
+      analysisEnabled: true,
+      graphEnabled: true,
+      discoveriesEnabled: false,
+    })
+  })
+
+  it('--ai-off: 지금 BE처럼 모두 꺼지고, 저장해도 작업이 없고, 분석 요청은 503, 그래프 경로는 404', async () => {
+    await stop()
+    await start({ off: true })
+    expect((await call('GET', '/capabilities', undefined, false)).data).toEqual({
+      analysisEnabled: false,
+      graphEnabled: false,
+      discoveriesEnabled: false,
+    })
+    const n = await noteWith('**A**와 **B**')
+    expect((await call('GET', `/notes/${n.id}/analysis`)).data).toEqual({ job: null })
+    const r = await call('POST', `/notes/${n.id}/analysis`)
+    expect(r.status).toBe(503)
+    expect(r.data.error).toMatchObject({
+      code: 'AI_UNAVAILABLE',
+      details: { reason: 'NOT_DEPLOYED' },
+    })
+    expect((await call('GET', `/notes/${n.id}/graph`)).status).toBe(404)
+    expect((await call('GET', '/graph')).status).toBe(404)
+    expect(
+      errorCode(await call('POST', '/notes/00000000-0000-4000-8000-000000000999/analysis')),
+    ).toBe('NOT_FOUND')
   })
 })

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { GraphNode, Topic } from '../../api'
 import { Button } from '../../components/Button'
-import { useGraph, useTopics } from '../../data/queries'
+import { useCapabilities, useGraph, useTopics } from '../../data/queries'
 import { nodeColorKey, type TopicColorKey } from '../../lib/topicColors'
 import { GraphCanvas } from './GraphCanvas'
 import styles from './GraphView.module.css'
@@ -17,7 +17,9 @@ interface Props {
  * 노드를 누르면 근거 노트로 간다. 근거 노트가 여럿이면 오른쪽 패널에 목록을 보이고 거기서 고른다.
  */
 export function GraphView({ onOpenNote }: Props) {
-  const graph = useGraph()
+  const capabilities = useCapabilities()
+  const graphOff = capabilities?.graphEnabled === false
+  const graph = useGraph(capabilities?.graphEnabled === true)
   const topics = useTopics()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const topicList = useMemo(() => topics.data?.topics ?? [], [topics.data])
@@ -59,7 +61,12 @@ export function GraphView({ onOpenNote }: Props) {
             />
           ) : (
             <div className={styles.empty}>
-              {graph.isError ? (
+              {graphOff ? (
+                <p className={styles.hint}>
+                  그래프는 아직 사용할 수 없습니다. AI 분석이 켜지면 노트에서 찾은 개념이 여기에
+                  보입니다.
+                </p>
+              ) : graph.isError ? (
                 <div className={styles.emptyBlock} role="alert">
                   <p className={styles.hint}>그래프를 불러오지 못했습니다. {graph.error.message}</p>
                   <Button variant="secondary" onClick={() => graph.refetch()}>
