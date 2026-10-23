@@ -3,11 +3,20 @@ import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-mar
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, placeholder } from '@codemirror/view'
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react'
+import {
+  evidenceHighlight,
+  locateEvidence,
+  setEvidenceHighlight,
+  type EvidenceLocation,
+  type EvidenceSpanLike,
+} from './evidenceHighlight'
 import { livePreview } from './livePreview'
 import styles from './MarkdownEditor.module.css'
 
 export interface MarkdownEditorHandle {
   focus: () => void
+  /** 근거 문장을 강조하고 그 자리로 스크롤한다. null이면 강조를 지운다. 찾은 결과를 돌려준다. */
+  showEvidence: (evidence: EvidenceSpanLike | null) => EvidenceLocation['kind'] | null
 }
 
 interface Props {
@@ -36,6 +45,26 @@ export function MarkdownEditor(props: Props) {
       view.focus()
       view.dispatch({ selection: { anchor: 0 } })
     },
+    showEvidence: (evidence) => {
+      const view = viewRef.current
+      if (!view) return null
+      if (!evidence) {
+        view.dispatch({ effects: setEvidenceHighlight.of(null) })
+        return null
+      }
+      const at = locateEvidence(view.state.doc.toString(), evidence)
+      if (at.kind === 'missing') {
+        view.dispatch({ effects: setEvidenceHighlight.of(null) })
+      } else {
+        view.dispatch({
+          effects: [
+            setEvidenceHighlight.of({ from: at.from, to: at.to }),
+            EditorView.scrollIntoView(at.from, { y: 'center' }),
+          ],
+        })
+      }
+      return at.kind
+    },
   }))
 
   // 처음 한 번만 만든다. 원문을 바꿔야 하면(다른 곳의 내용 불러오기) 부모가 key를 바꿔 새로 만든다.
@@ -56,6 +85,7 @@ export function MarkdownEditor(props: Props) {
             if (u.docChanged) onChangeRef.current(u.state.doc.toString())
           }),
           livePreview,
+          evidenceHighlight,
         ],
       }),
     })

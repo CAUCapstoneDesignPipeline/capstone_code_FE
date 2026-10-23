@@ -1,11 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { isApiError } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
 import { keys, useNote, useNoteAnalysis } from '../../data/queries'
-import { NoteEditor, type LeaveGuard } from '../editor/NoteEditor'
-import { NoteGraphPanel } from '../graph/NoteGraphPanel'
+import { NoteEditor, type LeaveGuard, type NoteEditorHandle } from '../editor/NoteEditor'
+import { NoteGraphPanel, type ShowEvidence } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
 
 interface Props {
@@ -51,6 +51,12 @@ function LoadedNote({
   const note = useNote(noteId)
   // 편집기 상단 막대와 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
   const analysis = useNoteAnalysis(noteId)
+  // 패널에서 고른 근거를 편집기에 강조한다 (F-GRA-03)
+  const editorRef = useRef<NoteEditorHandle>(null)
+  const showEvidence = useCallback<ShowEvidence>(
+    (evidence) => editorRef.current?.showEvidence(evidence) ?? null,
+    [],
+  )
   const qc = useQueryClient()
   const toast = useToast()
   const missing = !note.data && isApiError(note.error, 'NOT_FOUND')
@@ -69,12 +75,13 @@ function LoadedNote({
     return (
       <div className={styles.withPanel}>
         <NoteEditor
+          ref={editorRef}
           note={note.data}
           registerLeaveGuard={registerLeaveGuard}
           onDeleted={onNoteGone}
           analysis={analysis.data}
         />
-        <NoteGraphPanel noteId={noteId} job={analysis.data} />
+        <NoteGraphPanel noteId={noteId} job={analysis.data} onShowEvidence={showEvidence} />
       </div>
     )
   }
