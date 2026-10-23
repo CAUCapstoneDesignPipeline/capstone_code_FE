@@ -16,13 +16,9 @@ export type NoteUpdate = Schemas['NoteUpdate']
 
 /**
  * AI 기능 사용 가능 여부 (GET /capabilities, AI-off 계약). 생성 타입은 지금 값인 false로 고정돼 있어
- * 나중에 켜질 것을 생각해 boolean으로 받는다.
+ * 키는 계약을 따르고 값은 나중에 켜질 것을 생각해 boolean으로 넓힌다.
  */
-export interface Capabilities {
-  analysisEnabled: boolean
-  graphEnabled: boolean
-  discoveriesEnabled: boolean
-}
+export type Capabilities = { [K in keyof Schemas['Capabilities']]: boolean }
 
 // 분석·그래프는 계약이 아직 draft다 (x-contract-status: draft).
 export type AnalysisJob = Schemas['AnalysisJob']

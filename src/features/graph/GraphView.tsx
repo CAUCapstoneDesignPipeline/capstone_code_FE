@@ -30,7 +30,8 @@ export function GraphView({ onOpenNote }: Props) {
     [loadedKeys, topics.isError],
   )
 
-  const nodes = graph.data?.nodes ?? []
+  // 그래프가 꺼지면 받아 둔 노드도 보이지 않는다 (범례·개념 목록 포함)
+  const nodes = graphOff ? [] : (graph.data?.nodes ?? [])
   const selected = nodes.find((n) => n.id === selectedId) ?? null
 
   function tapNode(nodeId: string | null) {
@@ -43,7 +44,7 @@ export function GraphView({ onOpenNote }: Props) {
     <div className={styles.view}>
       <header className={styles.topBar}>
         <h1 className={styles.title}>전체 그래프</h1>
-        {graph.data && (
+        {!graphOff && graph.data && (
           <span className={styles.caption}>
             개념 {graph.data.nodes.length} · 관계 {graph.data.edges.length}
           </span>
@@ -52,7 +53,8 @@ export function GraphView({ onOpenNote }: Props) {
 
       <div className={styles.body}>
         <div className={styles.stage}>
-          {graph.data && colorKeys && nodes.length > 0 ? (
+          {/* 그래프가 꺼지면 받아 둔 그래프가 있어도 그리지 않는다 */}
+          {!graphOff && graph.data && colorKeys && nodes.length > 0 ? (
             <GraphCanvas
               graph={graph.data}
               colorKeys={colorKeys}

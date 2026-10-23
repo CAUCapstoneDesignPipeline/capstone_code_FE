@@ -25,6 +25,7 @@ import {
   requestNoteAnalysis,
   updateTopic,
   type AnalysisJob,
+  type Capabilities,
   type Note,
   type NoteSummary,
   type Topic,
@@ -32,6 +33,7 @@ import {
   type TopicList,
 } from '../api'
 import { createAnalysisPoller, isAnalysisActive } from '../lib/analysisPoll'
+import { resolveCapabilities } from '../lib/capabilities'
 import { nextUntitledTitle } from '../lib/names'
 
 /**
@@ -52,8 +54,8 @@ export const keys = {
 }
 
 /**
- * AI 기능을 쓸 수 있는지 (AI-off 계약). 꺼져 있으면 분석 상태 폴링과 그래프 요청을 하지 않는다.
- * 불러오는 동안은 undefined. 못 불러오면(경로가 없는 옛 서버 등) 모두 꺼진 것으로 본다.
+ * AI 기능을 쓸 수 있는지 (AI-off 계약). 분석이 꺼져 있으면 분석 상태를 폴링하지 않고, 그래프가 꺼져 있으면 그래프를 요청하지 않는다.
+ * 받는 중이면 undefined (resolveCapabilities). App이 처음에 한 번 불러 두어 노트를 열 때 기다리지 않게 한다.
  */
 export function useCapabilities() {
   const query = useQuery({
@@ -61,11 +63,8 @@ export function useCapabilities() {
     queryFn: ({ signal }) => getCapabilities(signal),
     staleTime: 60_000,
   })
-  if (query.isError) return OFF
-  return query.data
+  return resolveCapabilities(query.data, query.isError)
 }
-
-const OFF = { analysisEnabled: false, graphEnabled: false, discoveriesEnabled: false } as const
 
 export function useTopics() {
   return useQuery({ queryKey: keys.topics, queryFn: ({ signal }) => listTopics(signal) })
@@ -116,17 +115,19 @@ export function useNote(noteId: string) {
  * 같은 노트에서 한 곳만 부른다 (부르는 곳마다 폴링 타이머가 따로 돈다).
  */
 export function useNoteAnalysis(noteId: string) {
-  const enabled = useCapabilities()?.analysisEnabled === true
+  // 조회는 AI-off에서도 된다 (지난 작업 기록). 폴링만 분석이 켜져 있을 때 한다.
+  const polling = useCapabilities()?.analysisEnabled === true
   const [nextPoll] = useState(() => createAnalysisPoller())
   // 편집기가 저장할 때마다 캐시의 version을 올린다 (useApplySavedNote).
   const savedVersion = useNote(noteId).data?.version
   return useQuery({
     queryKey: keys.noteAnalysis(noteId),
     queryFn: ({ signal }) => getNoteAnalysis(noteId, signal),
-    enabled,
     refetchInterval: (query) =>
       // 노트가 지워졌으면 멈춘다
-      isApiError(query.state.error, 'NOT_FOUND') ? false : nextPoll(query.state.data, savedVersion),
+      !polling || isApiError(query.state.error, 'NOT_FOUND')
+        ? false
+        : nextPoll(query.state.data, savedVersion),
   })
 }
 
@@ -160,7 +161,8 @@ export function useNoteGraph(noteId: string, enabled: boolean) {
 
 /**
  * 저장된 노트를 캐시에 반영한다. 사이드바 목록의 제목도 다시 불러오지 않고 바로 바꾼다.
- * 저장하면 BE가 분석 작업을 만드므로, 폴링 중이 아니면 분석 상태를 다시 받아 폴링을 시작한다.
+ * 분석이 켜져 있고 폴링 중이 아니면 분석 상태를 한 번 다시 받는다. BE가 저장 때 작업을 만들었으면 거기서 폴링이 시작되고,
+ * 아직 없으면 폴링이 새 작업을 기다린다 (createAnalysisPoller). AI-off면 받지 않는다.
  */
 export function useApplySavedNote() {
   const qc = useQueryClient()
@@ -176,8 +178,9 @@ export function useApplySavedNote() {
       )
       // 그래프의 근거 노트 제목. 그래프 화면이 닫혀 있으면 표시만 해 두고 열 때 받는다.
       void qc.invalidateQueries({ queryKey: keys.graph })
+      const capabilities = qc.getQueryData<Capabilities>(keys.capabilities)
       const job = qc.getQueryData<AnalysisJob | null>(keys.noteAnalysis(note.id))
-      if (!isAnalysisActive(job))
+      if (capabilities?.analysisEnabled && !isAnalysisActive(job))
         void qc.invalidateQueries({ queryKey: keys.noteAnalysis(note.id) })
     },
     [qc],

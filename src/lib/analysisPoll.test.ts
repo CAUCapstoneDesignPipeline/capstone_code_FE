@@ -63,10 +63,17 @@ describe('저장한 version보다 오래된 작업', () => {
     expect(next(done(1), 2)).toBe(false)
   })
 
-  it('분석한 적이 없는 노트(job null)는 저장해도 기다리지 않는다 (AI-off BE는 작업을 만들지 않는다)', () => {
+  it('분석한 적이 없는 노트는 열기만 해서는 기다리지 않고, 연 뒤에 저장하면 첫 작업을 기다린다', () => {
+    const next = createAnalysisPoller(() => 0)
+    expect(next(null, 5)).toBe(false) // 열 때 version 5
+    expect(next(null, 5)).toBe(false)
+    expect(next(null, 6)).toBe(POLL.fastMs) // 저장
+  })
+
+  it('새로 만든 빈 노트도 첫 저장 뒤에 첫 작업을 기다린다', () => {
     const next = createAnalysisPoller(() => 0)
     expect(next(null, 0)).toBe(false)
-    expect(next(null, 5)).toBe(false)
+    expect(next(null, 1)).toBe(POLL.fastMs)
   })
 
   it('작업을 아직 불러오지 않았으면 조회하지 않는다', () => {

@@ -39,7 +39,8 @@ export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
   return (
     <aside className={styles.panel} aria-label="개념·관계">
       <h2 className={styles.heading}>개념·관계</h2>
-      {current?.status === 'failed' && (
+      {/* AI-off면 지난 실패 기록이 있어도 다시 분석할 수 없으므로 알리지 않는다 */}
+      {capabilities?.analysisEnabled && current?.status === 'failed' && (
         <div className={styles.failed} role="alert">
           <p className={styles.hint}>
             분석하지 못했습니다. {current.errorMessage ?? ''}
