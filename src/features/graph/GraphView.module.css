@@ -24,6 +24,8 @@
   display: grid;
   flex: 1;
   grid-template-columns: minmax(0, 1fr) var(--layout-panel-width);
+  /* 행 높이를 화면에 고정한다 (개념 목록이 길어도 패널만 스크롤) */
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
 
