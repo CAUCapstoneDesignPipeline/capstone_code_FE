@@ -1,20 +1,25 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import type { AnalysisJob, ConceptInNote, EvidenceSpan, NoteGraph, Relation } from '../../api'
+import type { EvidenceLocation } from '../editor/evidenceHighlight'
 import { DashedBadge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { keys, useNoteGraph, useRequestAnalysis } from '../../data/queries'
 import { analysisMismatch, isAnalysisActive } from '../../lib/analysisPoll'
 import styles from './NoteGraphPanel.module.css'
 
+/** 편집기에 근거 문장을 강조한다. null이면 지운다. 찾은 결과(편집기가 없으면 null)를 돌려준다. */
+export type ShowEvidence = (evidence: EvidenceSpan | null) => EvidenceLocation['kind'] | null
+
 interface Props {
   noteId: string
   /** 폴링 중인 가장 최근 분석 작업 (불러오기 전이면 undefined) */
   job: AnalysisJob | null | undefined
+  onShowEvidence: ShowEvidence
 }
 
 /** 노트 옆 오른쪽 패널: 이 노트에서 나온 개념과 관계 (F-GRA-03) */
-export function NoteGraphPanel({ noteId, job }: Props) {
+export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
   const graph = useNoteGraph(noteId)
   const qc = useQueryClient()
   const retry = useRequestAnalysis(noteId)
@@ -46,7 +51,7 @@ export function NoteGraphPanel({ noteId, job }: Props) {
         </div>
       )}
       {graph.data ? (
-        <GraphContent graph={graph.data} job={current} />
+        <GraphContent graph={graph.data} job={current} onShowEvidence={onShowEvidence} />
       ) : graph.isError ? (
         <p className={styles.hint} role="alert">
           개념·관계를 불러오지 못했습니다. {graph.error.message}
@@ -58,9 +63,32 @@ export function NoteGraphPanel({ noteId, job }: Props) {
   )
 }
 
-function GraphContent({ graph, job }: { graph: NoteGraph; job: AnalysisJob | null | undefined }) {
+const LOCATION_HINT: Partial<Record<EvidenceLocation['kind'], string>> = {
+  moved: '분석한 뒤 본문이 바뀌어, 같은 문장을 찾아 표시했습니다.',
+  missing: '이 문장은 지금 본문에 없습니다. 분석한 뒤 고쳐졌습니다.',
+}
+
+function GraphContent({
+  graph,
+  job,
+  onShowEvidence,
+}: {
+  graph: NoteGraph
+  job: AnalysisJob | null | undefined
+  onShowEvidence: ShowEvidence
+}) {
   const [selectedConceptId, setConceptId] = useState<string | null>(null)
   const [relationId, setRelationId] = useState<string | null>(null)
+  /** 편집기에 강조한 근거와 찾은 결과 */
+  const [shown, setShown] = useState<{
+    evidenceId: string
+    result: EvidenceLocation['kind'] | null
+  } | null>(null)
+
+  function show(evidence: EvidenceSpan | null) {
+    const result = onShowEvidence(evidence)
+    setShown(evidence ? { evidenceId: evidence.id, result } : null)
+  }
 
   if (!job) return <p className={styles.hint}>아직 분석하지 않은 노트입니다.</p>
   if (graph.concepts.length === 0) {
@@ -82,6 +110,23 @@ function GraphContent({ graph, job }: { graph: NoteGraph; job: AnalysisJob | nul
     : graph.relations
   const selected = relations.find((r) => r.id === relationId)
 
+  /** 관계를 고르면 첫 근거를 편집기에 강조한다. 다시 누르면 닫고 강조를 지운다. */
+  function toggleRelation(relation: Relation) {
+    const closing = relation.id === selected?.id
+    setRelationId(closing ? null : relation.id)
+    show(closing ? null : (relation.evidence[0] ?? null))
+  }
+
+  /** 개념을 골라 고른 관계가 목록에서 빠지면 강조도 지운다. */
+  function toggleConcept(id: string) {
+    const next = id === conceptId ? null : id
+    setConceptId(next)
+    if (selected && next && selected.source.id !== next && selected.target.id !== next) {
+      setRelationId(null)
+      show(null)
+    }
+  }
+
   return (
     <div className={styles.content}>
       <section aria-labelledby="graph-concepts">
@@ -94,7 +139,7 @@ function GraphContent({ graph, job }: { graph: NoteGraph; job: AnalysisJob | nul
               <ConceptChip
                 concept={c}
                 selected={c.id === conceptId}
-                onClick={() => setConceptId(c.id === conceptId ? null : c.id)}
+                onClick={() => toggleConcept(c.id)}
               />
             </li>
           ))}
@@ -116,7 +161,7 @@ function GraphContent({ graph, job }: { graph: NoteGraph; job: AnalysisJob | nul
                 <RelationRow
                   relation={r}
                   selected={r.id === selected?.id}
-                  onClick={() => setRelationId(r.id === selected?.id ? null : r.id)}
+                  onClick={() => toggleRelation(r)}
                 />
               </li>
             ))}
@@ -129,15 +174,26 @@ function GraphContent({ graph, job }: { graph: NoteGraph; job: AnalysisJob | nul
           근거
         </h3>
         {selected ? (
-          <ul className={styles.list}>
-            {selected.evidence.map((e) => (
-              <li key={e.id}>
-                <EvidenceQuote evidence={e} />
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className={styles.list}>
+              {selected.evidence.map((e) => (
+                <li key={e.id}>
+                  <EvidenceQuote
+                    evidence={e}
+                    selected={e.id === shown?.evidenceId}
+                    onClick={() => show(e)}
+                  />
+                </li>
+              ))}
+            </ul>
+            {shown?.result && LOCATION_HINT[shown.result] && (
+              <p className={styles.hint} role="status">
+                {LOCATION_HINT[shown.result]}
+              </p>
+            )}
+          </>
         ) : (
-          <p className={styles.hint}>관계를 누르면 근거 문장이 보입니다.</p>
+          <p className={styles.hint}>관계를 누르면 근거 문장이 보이고 본문에 표시됩니다.</p>
         )}
       </section>
     </div>
@@ -202,16 +258,27 @@ function RelationRow({
   )
 }
 
-/** Figma EvidenceQuote: 노트 제목 + 주제 + 저장된 원문 문장 그대로. surface-emphasis + 왼쪽 ink 2px */
-function EvidenceQuote({ evidence }: { evidence: EvidenceSpan }) {
+/**
+ * Figma EvidenceQuote: 노트 제목 + 주제 + 저장된 원문 문장 그대로. surface-emphasis + 왼쪽 ink 2px.
+ * 누르면 편집기에서 그 문장을 강조하고 그 자리로 간다. 고른 근거는 surface-selected.
+ */
+function EvidenceQuote({
+  evidence,
+  selected,
+  onClick,
+}: {
+  evidence: EvidenceSpan
+  selected: boolean
+  onClick: () => void
+}) {
   const source = [evidence.topic?.name, evidence.noteTitle].filter(Boolean).join(' › ')
   return (
-    <figure className={styles.evidence}>
-      <blockquote className={styles.quote}>{evidence.quote}</blockquote>
-      <figcaption className={styles.caption}>
+    <button type="button" className={styles.evidence} aria-pressed={selected} onClick={onClick}>
+      <span className={styles.quote}>{evidence.quote}</span>
+      <span className={styles.caption}>
         {source}
         {evidence.status === 'lost' && ' · 근거 소실'}
-      </figcaption>
-    </figure>
+      </span>
+    </button>
   )
 }
