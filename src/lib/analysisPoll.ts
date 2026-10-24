@@ -24,7 +24,11 @@ export function isAnalysisActive(job: AnalysisJob | null | undefined): boolean {
  * 느려지는 시점은 같은 작업(또는 같은 기다림)을 처음 본 때부터 잰다. 다른 작업 id로 바뀌면 다시 잰다.
  */
 export function createAnalysisPoller(now = Date.now, random = Math.random) {
-  let current: { key: string; since: number } | null = null
+  /**
+   * jitter는 같은 작업(또는 같은 기다림)마다 한 번만 뽑는다. TanStack Query는 렌더할 때마다 간격을 다시 계산하고
+   * 값이 바뀌면 타이머를 처음부터 다시 걸기 때문에, 매번 뽑으면 다시 그릴 때마다(자동 저장 등) 조회가 밀린다.
+   */
+  let current: { key: string; since: number; jitter: number } | null = null
   return (job: AnalysisJob | null | undefined, savedVersion?: number): number | false => {
     const active = isAnalysisActive(job)
     const behind =
@@ -37,12 +41,12 @@ export function createAnalysisPoller(now = Date.now, random = Math.random) {
       return false
     }
     const key = active ? `job:${job!.id}` : `behind:${job?.id ?? 'none'}:${savedVersion}`
-    if (current?.key !== key) current = { key, since: now() }
+    if (current?.key !== key) {
+      current = { key, since: now(), jitter: Math.floor(random() * POLL.jitterMs) }
+    }
     const elapsed = now() - current.since
     if (behind && elapsed >= POLL.giveUpMs) return false
-    return elapsed < POLL.slowAfterMs
-      ? POLL.fastMs
-      : POLL.slowMs + Math.floor(random() * POLL.jitterMs)
+    return elapsed < POLL.slowAfterMs ? POLL.fastMs : POLL.slowMs + current.jitter
   }
 }
 

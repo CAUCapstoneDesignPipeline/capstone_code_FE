@@ -34,6 +34,26 @@ describe('분석 상태 폴링 간격', () => {
     expect(next(job('a', 'running'))).toBe(5500)
   })
 
+  it('jitter는 같은 작업에서 한 번만 뽑아, 다시 계산해도 간격이 같다 (타이머가 다시 걸리지 않게)', () => {
+    let t = 0
+    let r = 0.2
+    const next = createAnalysisPoller(
+      () => t,
+      () => r,
+    )
+    next(job('a', 'running'))
+    t = 31_000
+    expect(next(job('a', 'running'))).toBe(5200)
+    r = 0.9
+    t = 35_000
+    expect(next(job('a', 'running'))).toBe(5200)
+    // 다른 작업이면 새로 뽑는다
+    t = 70_000
+    next(job('b', 'running'))
+    t = 101_000
+    expect(next(job('b', 'running'))).toBe(5900)
+  })
+
   it('다른 작업으로 바뀌면 그 작업부터 다시 잰다', () => {
     let t = 0
     const next = createAnalysisPoller(() => t)
