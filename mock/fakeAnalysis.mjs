@@ -267,6 +267,11 @@ export function createAnalysisQueue(deps, options = {}) {
       return results.get(noteId) ?? { concepts: [], relations: [] }
     },
 
+    /** 결과가 있는 노트마다 [noteId, 결과] (전체 그래프용) */
+    allResults() {
+      return [...results.entries()]
+    },
+
     /** @param {string} noteId */
     forget(noteId) {
       const t = timers.get(noteId)

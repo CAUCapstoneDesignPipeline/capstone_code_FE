@@ -1,0 +1,8 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Icon/graph">
+<path id="Vector" d="M5.5 5.2L10.5 3.8M5 6.3L7 10.7M11.2 5L9.2 10.5" stroke="#26251E" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="4" cy="5.5" r="1.75" stroke="#26251E" stroke-width="1.5"/>
+<circle cx="12" cy="3.5" r="1.75" stroke="#26251E" stroke-width="1.5"/>
+<circle cx="8" cy="12.25" r="1.75" stroke="#26251E" stroke-width="1.5"/>
+</g>
+</svg>

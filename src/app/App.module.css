@@ -16,3 +16,20 @@
   overflow: hidden;
   background: var(--color-canvas);
 }
+
+/* 그래프 화면을 불러오는 중이거나 못 불러왔을 때 */
+.notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  height: 100%;
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-body-sm);
+}
+
+.notice p {
+  margin: 0;
+}

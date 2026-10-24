@@ -1,5 +1,5 @@
 import { request } from './client'
-import type { AnalysisJob, NoteGraph } from './types'
+import type { AnalysisJob, Graph, NoteGraph } from './types'
 
 const analysisPath = (noteId: string) => `/notes/${encodeURIComponent(noteId)}/analysis`
 
@@ -20,4 +20,9 @@ export async function getNoteAnalysis(
 /** 지금 version으로 분석을 요청한다 (draft). 대기·진행 중인 작업이 있으면 그 작업이 온다. */
 export function requestNoteAnalysis(noteId: string): Promise<AnalysisJob> {
   return request('POST', analysisPath(noteId))
+}
+
+/** 전체 그래프 (draft, F-VIZ-01). 노드의 notes는 계약 제안이다 (types.ts의 Graph). */
+export function getGraph(signal?: AbortSignal): Promise<Graph> {
+  return request('GET', '/graph', { query: { scope: 'all' }, signal })
 }

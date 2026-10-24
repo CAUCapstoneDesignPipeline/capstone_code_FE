@@ -351,6 +351,64 @@ export function createStore(analysisOptions) {
       return analysis.request(noteOr404(id))
     },
 
+    /**
+     * 그래프 보기 (draft, F-VIZ-01). scope=all·topic·note. 노트별 결과를 합쳐 개념은 노드, 관계는 간선으로 준다.
+     * 계약 제안(미확정): 노드에 근거 노트(notes: [{ id, title, topicId }])를 붙인다. 주제별 색과 노드 → 노트 이동에 쓴다.
+     * @param {URLSearchParams} params
+     */
+    getGraph(params) {
+      const scope = params.get('scope') ?? 'all'
+      if (!['all', 'topic', 'note'].includes(scope))
+        throw invalid('scope', 'invalid', 'scope가 올바르지 않습니다.')
+      /** @type {(note: Note) => boolean} */
+      let inScope = () => true
+      if (scope === 'topic') {
+        const topicId = params.get('topicId')
+        if (!topicId) throw invalid('topicId', 'invalid', 'topicId가 필요합니다.')
+        if (topicId !== 'none') topicOr404(topicId)
+        inScope = (n) => n.topicId === (topicId === 'none' ? null : topicId)
+      } else if (scope === 'note') {
+        const noteId = params.get('noteId')
+        if (!noteId) throw invalid('noteId', 'invalid', 'noteId가 필요합니다.')
+        noteOr404(noteId)
+        inScope = (n) => n.id === noteId
+      }
+
+      /** @type {Map<string, { id: string, label: string, notes: { id: string, title: string, topicId: string | null }[] }>} */
+      const nodes = new Map()
+      /** @type {Map<string, any>} */
+      const edges = new Map()
+      for (const [noteId, result] of analysis.allResults()) {
+        const note = notes.get(noteId)
+        if (!note || !inScope(note)) continue
+        const ref = { id: note.id, title: note.title, topicId: note.topicId }
+        for (const c of result.concepts) {
+          const node = nodes.get(c.id) ?? { id: c.id, label: c.label, notes: [] }
+          node.notes.push(ref)
+          nodes.set(c.id, node)
+        }
+        for (const r of result.relations) {
+          // 같은 관계가 여러 노트에서 나오면 하나의 간선이다. 노트 순서와 관계없이
+          // 확정이 추출보다, 근거가 남은 쪽이 근거 소실보다 앞선다.
+          const prev = edges.get(r.id)
+          const confirmed = prev?.origin === 'confirmed' || r.origin === 'confirmed'
+          edges.set(r.id, {
+            id: r.id,
+            sourceId: r.source.id,
+            targetId: r.target.id,
+            type: r.type,
+            origin: confirmed ? 'confirmed' : 'extracted',
+            status: prev?.status === 'active' || r.status === 'active' ? 'active' : 'evidence_lost',
+            asHypothesis: confirmed
+              ? (prev?.origin === 'confirmed' && prev.asHypothesis) ||
+                (r.origin === 'confirmed' && r.asHypothesis)
+              : false,
+          })
+        }
+      }
+      return { scope, nodes: [...nodes.values()], edges: [...edges.values()] }
+    },
+
     /** 노트별 개념·관계 (draft). 개념·관계는 마지막으로 성공한 분석의 결과다. @param {string} id */
     getNoteGraph(id) {
       noteOr404(id)
@@ -470,6 +528,8 @@ function route(store, auth, req, parts, params, body) {
     if (id && method === 'PATCH') return { status: 200, body: store.updateTopic(id, body) }
     if (id && method === 'DELETE') return (store.deleteTopic(id), { status: 204 })
   }
+  if (resource === 'graph' && !id && method === 'GET')
+    return { status: 200, body: store.getGraph(params) }
   if (resource === 'notes') {
     if (!id && method === 'GET') return { status: 200, body: store.listNotes(params) }
     if (!id && method === 'POST') return { status: 201, body: store.createNote(body) }
