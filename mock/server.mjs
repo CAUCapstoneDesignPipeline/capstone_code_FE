@@ -4,10 +4,11 @@
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
-// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis]
+// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off]
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
 //   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
 //   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번).
+//   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프 경로는 404.
 
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
@@ -496,10 +497,10 @@ function readCookie(header, name) {
 
 /**
  * @param {Store} store @param {Auth} auth @param {import('node:http').IncomingMessage} req
- * @param {string[]} parts @param {URLSearchParams} params @param {unknown} body
+ * @param {string[]} parts @param {URLSearchParams} params @param {unknown} body @param {boolean} aiOff
  * @returns {Reply}
  */
-function route(store, auth, req, parts, params, body) {
+function route(store, auth, req, parts, params, body, aiOff) {
   const method = req.method ?? 'GET'
   const [resource, id, sub, ...rest] = parts
   if (rest.length) throw notFound()
@@ -517,8 +518,30 @@ function route(store, auth, req, parts, params, body) {
     throw new HttpError(404, 'NOT_FOUND', `없는 경로입니다: ${method} /${parts.join('/')}`)
   }
 
+  // AI 기능 여부는 로그인 없이 준다 (AI-off 계약)
+  if (resource === 'capabilities' && !id && method === 'GET') {
+    const on = !aiOff
+    return {
+      status: 200,
+      body: { analysisEnabled: on, graphEnabled: on, discoveriesEnabled: false },
+    }
+  }
+
   // 그 밖의 경로는 모두 로그인이 필요하다.
   auth.requireUser(req.headers.authorization)
+
+  if (aiOff) {
+    // 지금 BE(AI-off)처럼: 분석 요청은 503, 그래프 경로는 없다(404). 노트가 없으면 먼저 404.
+    if (resource === 'notes' && id && sub === 'analysis' && method === 'POST') {
+      store.getNote(id)
+      throw new HttpError(503, 'AI_UNAVAILABLE', 'AI 분석은 아직 사용할 수 없습니다.', {
+        reason: 'NOT_DEPLOYED',
+      })
+    }
+    if (resource === 'graph' || (resource === 'notes' && sub === 'graph')) {
+      throw new HttpError(404, 'NOT_FOUND', '요청한 대상을 찾을 수 없습니다.')
+    }
+  }
 
   if (resource === 'topics' && id === 'order' && !sub && method === 'PUT')
     return { status: 200, body: store.reorderTopics(body) }
@@ -587,7 +610,7 @@ export function createMockServer({ delayMs = 0, log = false, analysis } = {}) {
     let reply
     try {
       const body = await readBody(req)
-      reply = route(store, auth, req, parts, url.searchParams, body)
+      reply = route(store, auth, req, parts, url.searchParams, body, analysis?.off === true)
     } catch (e) {
       if (e instanceof HttpError) {
         reply = {
@@ -629,10 +652,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     debounceMs: numberArg(argv, 'analysis-debounce', 5000),
     runMs: numberArg(argv, 'analysis-run', 1500),
     fail: argv.includes('--fail-analysis'),
+    off: argv.includes('--ai-off'),
   }
   createMockServer({ delayMs, log: true, analysis }).listen(port, '127.0.0.1', () => {
     console.log(`가짜 서버: http://localhost:${port}${delayMs ? ` (응답 지연 ${delayMs}ms)` : ''}`)
     if (analysis.fail) console.log('분석은 모두 실패한다 (--fail-analysis).')
+    if (analysis.off) console.log('AI-off: 지금 BE처럼 분석·그래프를 쓸 수 없다 (--ai-off).')
     console.log('데이터는 메모리에만 있다. 끄면 사라진다.')
   })
 }

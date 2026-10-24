@@ -3,7 +3,7 @@ import { Button } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useToast } from '../components/toastContext'
-import { useCreateUntitledNote } from '../data/queries'
+import { useCapabilities, useCreateUntitledNote } from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
 import { NotePane } from '../features/note/NotePane'
 import { Sidebar } from '../features/sidebar/Sidebar'
@@ -23,6 +23,8 @@ export function App() {
   /** 사이드바 트리에 새 주제 입력칸을 띄웠는지 (사이드바 아래 버튼·빈 화면 버튼 공통) */
   const [addingTopic, setAddingTopic] = useState(false)
   const createNote = useCreateUntitledNote()
+  // AI 기능 여부를 처음에 받아 둔다. 노트를 열 때 패널이 이것을 기다리지 않게 한다.
+  useCapabilities()
   const toast = useToast()
   const leaveGuard = useRef<LeaveGuard | null>(null)
   const registerLeaveGuard = useCallback((guard: LeaveGuard | null) => {
