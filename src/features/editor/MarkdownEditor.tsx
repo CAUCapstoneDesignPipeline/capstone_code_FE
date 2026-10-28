@@ -12,6 +12,8 @@ import {
 } from './evidenceHighlight'
 import { livePreview } from './livePreview'
 import styles from './MarkdownEditor.module.css'
+import { pasteMarkdown } from './pasteMarkdown'
+import { tablePreview } from './tablePreview'
 
 export interface MarkdownEditorHandle {
   focus: () => void
@@ -77,7 +79,8 @@ export function MarkdownEditor(props: Props) {
         extensions: [
           history(),
           keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
-          markdown({ base: markdownLanguage }),
+          // 주소 붙여넣기는 pasteMarkdown이 맡는다 (여러 줄을 고르면 링크로 만들지 않는 등)
+          markdown({ base: markdownLanguage, pasteURLAsLink: false }),
           EditorView.lineWrapping,
           placeholder(text),
           EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
@@ -85,6 +88,8 @@ export function MarkdownEditor(props: Props) {
             if (u.docChanged) onChangeRef.current(u.state.doc.toString())
           }),
           livePreview,
+          tablePreview,
+          pasteMarkdown,
           evidenceHighlight,
         ],
       }),
