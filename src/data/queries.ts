@@ -5,26 +5,31 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import {
   createNote,
   createTopic,
   deleteNote,
   deleteTopic,
   getNote,
+  getNoteAnalysis,
+  getNoteGraph,
   isApiError,
   listNotes,
   listTopics,
   moveNote,
   orderConflictCurrent,
   reorderTopics,
+  requestNoteAnalysis,
   updateTopic,
+  type AnalysisJob,
   type Note,
   type NoteSummary,
   type Topic,
   type TopicCreate,
   type TopicList,
 } from '../api'
+import { createAnalysisPoller, isAnalysisActive } from '../lib/analysisPoll'
 import { nextUntitledTitle } from '../lib/names'
 
 /**
@@ -38,6 +43,8 @@ export const keys = {
   search: (q: string) => ['notes', 'search', q] as const,
   notes: ['note'] as const,
   note: (noteId: string) => ['note', noteId] as const,
+  noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
+  noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
 }
 
 export function useTopics() {
@@ -83,7 +90,45 @@ export function useNote(noteId: string) {
   })
 }
 
-/** 저장된 노트를 캐시에 반영한다. 사이드바 목록의 제목도 다시 불러오지 않고 바로 바꾼다. */
+/**
+ * 노트의 가장 최근 분석 작업 (F-ANL-01). 대기·진행 중이거나, 저장한 version의 작업이 아직 안 보이는 동안 폴링한다.
+ * 숨겨진 탭에서는 멈추고(refetchIntervalInBackground 기본값) 돌아오면 바로 다시 받는다(refetchOnWindowFocus).
+ * 같은 노트에서 한 곳만 부른다 (부르는 곳마다 폴링 타이머가 따로 돈다).
+ */
+export function useNoteAnalysis(noteId: string) {
+  const [nextPoll] = useState(() => createAnalysisPoller())
+  // 편집기가 저장할 때마다 캐시의 version을 올린다 (useApplySavedNote).
+  const savedVersion = useNote(noteId).data?.version
+  return useQuery({
+    queryKey: keys.noteAnalysis(noteId),
+    queryFn: ({ signal }) => getNoteAnalysis(noteId, signal),
+    refetchInterval: (query) =>
+      // 노트가 지워졌으면 멈춘다
+      isApiError(query.state.error, 'NOT_FOUND') ? false : nextPoll(query.state.data, savedVersion),
+  })
+}
+
+/** 분석 다시 요청. 받은 작업으로 바로 바꿔 폴링을 다시 시작한다. */
+export function useRequestAnalysis(noteId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => requestNoteAnalysis(noteId),
+    onSuccess: (job) => qc.setQueryData(keys.noteAnalysis(noteId), job),
+  })
+}
+
+/** 노트 옆 패널의 개념·관계 (F-GRA-03) */
+export function useNoteGraph(noteId: string) {
+  return useQuery({
+    queryKey: keys.noteGraph(noteId),
+    queryFn: ({ signal }) => getNoteGraph(noteId, signal),
+  })
+}
+
+/**
+ * 저장된 노트를 캐시에 반영한다. 사이드바 목록의 제목도 다시 불러오지 않고 바로 바꾼다.
+ * 저장하면 BE가 분석 작업을 만드므로, 폴링 중이 아니면 분석 상태를 다시 받아 폴링을 시작한다.
+ */
 export function useApplySavedNote() {
   const qc = useQueryClient()
   return useCallback(
@@ -96,6 +141,9 @@ export function useApplySavedNote() {
             : n,
         ),
       )
+      const job = qc.getQueryData<AnalysisJob | null>(keys.noteAnalysis(note.id))
+      if (!isAnalysisActive(job))
+        void qc.invalidateQueries({ queryKey: keys.noteAnalysis(note.id) })
     },
     [qc],
   )
@@ -224,6 +272,8 @@ export function useMoveNote() {
       qc.setQueryData<Note>(keys.note(moved.id), (note) =>
         note ? { ...note, topicId: moved.topicId } : note,
       )
+      // version은 그대로지만 근거의 주제가 바뀌어 BE가 다시 분석한다.
+      void qc.invalidateQueries({ queryKey: keys.noteAnalysis(moved.id) })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },
@@ -236,6 +286,8 @@ export function useDeleteNote() {
     mutationFn: (noteId: string) => deleteNote(noteId),
     onSuccess: (_, noteId) => {
       qc.removeQueries({ queryKey: keys.note(noteId) })
+      qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
+      qc.removeQueries({ queryKey: keys.noteGraph(noteId) })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },

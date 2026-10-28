@@ -29,6 +29,8 @@ API 주소는 `.env.local`의 `VITE_API_BASE_URL`로 정한다.
 가짜 서버 두 가지:
 
 - `npm run mock`: `mock/server.mjs`. 데이터를 메모리에 기억하고 계약의 규칙(제목 중복, `/` 금지, version 충돌, 주제 삭제 충돌)을 따른다. 화면 흐름은 이것으로 확인한다. 끄면 데이터가 사라진다. `npm run mock -- --delay 500`으로 응답을 늦출 수 있다.
+  - 분석·개념·관계(draft)도 흉내 낸다. 본문에서 `**굵게**` 쓴 말이 개념이고, 한 문장 안의 개념끼리 관계가 된다. 저장하면 5초 뒤 분석을 시작해 1.5초 뒤 끝난다 (`--analysis-debounce 1000 --analysis-run 500`으로 바꾼다).
+  - `npm run mock -- --fail-analysis`: AI 서버가 꺼진 것처럼 분석이 모두 실패한다.
 - `npm run mock:prism`: Prism. 계약의 예시 응답만 돌려주고 데이터를 저장하지 않는다. 응답 모양만 확인할 때 쓰고, 오류 응답은 요청 헤더 `Prefer: code=409`처럼 상태 코드를 지정해 받아 본다.
 
 `mock`과 `dev`는 터미널을 나눠 띄운다. 한 터미널에서 Ctrl+Z로 멈추면 서버가 응답하지 않는다.
