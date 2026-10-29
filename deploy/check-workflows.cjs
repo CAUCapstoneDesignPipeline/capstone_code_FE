@@ -27,4 +27,33 @@ for (const file of fs.readdirSync(root)) {
     }
   }
 }
-console.log('Workflow publication gates, immutable actions and rerun artifact checks passed');
+const deploy = yaml.load(fs.readFileSync(root + 'gcp-deploy.yml', 'utf8'));
+assert.deepEqual(Object.keys(deploy.on), ['workflow_dispatch']);
+assert.match(deploy.jobs.deploy.if, /GCP_DEPLOY_ENABLED == 'true'/);
+assert.match(deploy.jobs.deploy.if, /refs\/heads\/main/);
+assert.match(deploy.jobs.deploy.uses, /^CAUCapstoneDesignPipeline\/capstone_code_BE\/\.github\/workflows\/gcp-deploy-reusable\.yml@[a-f0-9]{40}$/);
+assert.equal(deploy.jobs.deploy.with.deploy_tool_sha, deploy.jobs.deploy.uses.split('@')[1]);
+assert.equal(deploy.jobs.deploy.with.component, 'web');
+assert.equal(deploy.jobs.deploy.permissions['id-token'], 'write');
+const inputs = ['operation','component','source_sha','image_digest','manifest_path','expected_release','operation_id','deploy_tool_sha'];
+assert.deepEqual(Object.keys(deploy.jobs.deploy.with).sort(), inputs.sort());
+for(const input of Object.keys(deploy.on.workflow_dispatch.inputs)) {
+  assert.equal(deploy.on.workflow_dispatch.inputs[input].required, true);
+  assert.equal(deploy.jobs.deploy.with[input], '${{ inputs.' + input + ' }}');
+}
+assert.deepEqual(deploy.on.workflow_dispatch.inputs.operation.options, ['deploy','rollback']);
+// Optional local integration check against the actual immutable BE commit, never a branch tip.
+if (process.env.BE_REPO_PATH) {
+  const { execFileSync } = require('node:child_process');
+  const commit = deploy.jobs.deploy.with.deploy_tool_sha;
+  const source = execFileSync('git', ['-C',process.env.BE_REPO_PATH,'show',commit + ':.github/workflows/gcp-deploy-reusable.yml'], {encoding:'utf8'});
+  const reusable = yaml.load(source);
+  assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs).sort(), inputs.sort());
+  for(const input of inputs) {
+    assert.equal(reusable.on.workflow_call.inputs[input].type, 'string');
+    assert.equal(reusable.on.workflow_call.inputs[input].required, true);
+  }
+  assert.equal(reusable.jobs.deploy.environment, 'production');
+  assert.deepEqual(Object.keys(reusable.on.workflow_call.outputs).sort(), ['operation_id','release_id']);
+}
+console.log('Workflow publication gates, immutable actions, caller pin/interface and rerun artifact checks passed');
