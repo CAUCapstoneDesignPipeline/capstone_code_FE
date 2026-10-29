@@ -1,99 +1,124 @@
 #!/usr/bin/env python3
-"""Isolated disposable image checks; never use AWS, real OAuth, or existing databases."""
+"""Disposable amd64 image checks against synthetic HTTP fixtures, never real users."""
 import json
 import os
-import secrets
+from pathlib import Path
 import subprocess
 import time
 import urllib.request
 import urllib.error
 import uuid
 
-IMAGE=os.environ.get('TEST_IMAGE','capstone-ci:test')
-PREFIX='capstone-image-test-'+uuid.uuid4().hex[:12]
-created=[]
-network=False
+IMAGE = os.environ.get('TEST_IMAGE', 'capstone-ci:test')
+PREFIX = 'capstone-fe-image-' + uuid.uuid4().hex[:12]
+created = []
+network = False
 
-def docker(*args,env=None,input=None):
-    result=subprocess.run(['docker',*args],capture_output=True,text=True,env=env,input=input,timeout=180)
-    if result.returncode: raise RuntimeError('Image test Docker operation failed (output suppressed)')
+
+def docker(*args):
+    result = subprocess.run(['docker', *args], capture_output=True, text=True, timeout=180)
+    if result.returncode:
+        raise RuntimeError('Image test Docker operation failed (output suppressed)')
     return result.stdout.strip()
 
-def request(port,path,method='GET'):
-    try:
-        r=urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{port}'+path,method=method),timeout=3)
-        with r: return r.status,r.read(),dict(r.headers)
-    except urllib.error.HTTPError as e: return e.code,e.read(),dict(e.headers)
 
-def mapped(name,port):
-    return int(docker('port',name,str(port)+'/tcp').split(':')[-1])
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        return None
+
+
+def request(port, path, method='GET', data=None, headers=None):
+    req = urllib.request.Request(f'http://127.0.0.1:{port}' + path, method=method, data=data, headers=headers or {})
+    try:
+        with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
+            return response.status, response.read(), response.headers
+    except urllib.error.HTTPError as error:
+        return error.code, error.read(), error.headers
+
+
+def start_web(suffix, mode=None):
+    name = PREFIX + suffix
+    created.append(name)
+    extra = ['-e', 'CAPSTONE_WEB_MODE=' + mode] if mode else []
+    docker('run', '-d', '--name', name, '--network', PREFIX, '--platform', 'linux/amd64',
+           '--read-only', '--tmpfs', '/tmp:rw,nosuid,size=32m', '--cap-drop', 'ALL',
+           '--security-opt', 'no-new-privileges:true', '-p', '127.0.0.1::8080', *extra, IMAGE)
+    port = int(docker('port', name, '8080/tcp').split(':')[-1])
+    for _ in range(30):
+        try:
+            if request(port, '/healthz')[0] == 200:
+                return port
+        except (OSError, urllib.error.URLError):
+            pass
+        time.sleep(1)
+    raise RuntimeError('FE startup timeout')
+
+
+def proxy_checks(port):
+    status, body, headers = request(port, '/api/method', 'DELETE')
+    assert status == 405 and json.loads(body)['error']['code'] == 'METHOD_NOT_ALLOWED'
+    assert headers['Allow'] == 'GET, POST' and 'no-store' in headers['Cache-Control']
+    status, body, headers = request(port, '/api/capabilities')
+    assert status == 200 and json.loads(body) == {
+        'analysisEnabled': False, 'graphEnabled': False, 'discoveriesEnabled': False}
+    assert 'no-store' in headers['Cache-Control']
+    status, body, headers = request(port, '/api/notes/fixture/analysis', 'POST')
+    assert status == 503 and json.loads(body)['error']['details']['reason'] == 'NOT_DEPLOYED'
+    assert 'Retry-After' not in headers and 'no-store' in headers['Cache-Control']
+    status, body, headers = request(port, '/api/auth/refresh', 'POST')
+    assert status == 200 and json.loads(body)['accessToken'] == 'synthetic-not-a-token'
+    assert 'Path=/api/auth; HttpOnly; Secure; SameSite=Strict' in headers['Set-Cookie']
+    status, body, headers = request(port, '/api/auth/logout', 'POST')
+    assert status == 204 and body == b'' and 'Max-Age=0' in headers['Set-Cookie']
+    status, _, headers = request(port, '/api/auth/oauth2/google/callback?code=synthetic')
+    assert status == 302 and headers['Location'] == '/auth/callback?returnTo=%2Fnotes%2Ffixture'
+    status, body, headers = request(port, '/api/probe?keep=yes', 'POST', b'x' * (12 * 1024 * 1024),
+                                    {'Authorization': 'Bearer probe', 'Cookie': 'probe=one',
+                                     'Origin': 'https://capsnote.art', 'Content-Type': 'application/json'})
+    assert status == 403 and json.loads(body) == {
+        'url': '/api/probe?keep=yes', 'authorization': 'Bearer probe', 'cookie': 'probe=one',
+        'origin': 'https://capsnote.art', 'bodyBytes': 12 * 1024 * 1024}
+    assert headers['Set-Cookie'] == 'probe=ok; HttpOnly; Secure; SameSite=Strict'
+
 
 try:
-    metadata=json.loads(docker('image','inspect',IMAGE))[0]
-    assert metadata['Architecture']=='amd64' and metadata['Os']=='linux'
-    assert metadata['Config']['User'] not in ['', 'root','0','0:0']
-    docker('network','create',PREFIX);network=True
-    if False:
-        db=PREFIX+'-db';created.append(db)
-        password=secrets.token_urlsafe(36)
-        env=dict(os.environ,POSTGRES_PASSWORD=password)
-        docker('run','-d','--name',db,'--network',PREFIX,'--network-alias','db','-e','POSTGRES_PASSWORD','-e','POSTGRES_DB=capstone','--tmpfs','/var/lib/postgresql/data:rw,nosuid,size=256m','postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d',env=env)
-        for _ in range(60):
-            p=subprocess.run(['docker','exec',db,'pg_isready','-U','postgres'],capture_output=True)
-            if p.returncode==0: break
-            time.sleep(1)
-        else: raise RuntimeError('Disposable DB startup timeout')
-        name=PREFIX+'-be';created.append(name)
-        # Generated test secrets go through stdin to container tmpfs, never a host artifact or argument.
-        props='spring.datasource.url=jdbc:postgresql://db:5432/capstone\nspring.datasource.username=postgres\nspring.datasource.password='+password+'\ncapstone.auth.jwt.secret='+secrets.token_urlsafe(48)+'\ncapstone.auth.app-url=https://capsnote.art\ncapstone.auth.google.enabled=false\ncapstone.auth.dev-token.enabled=false\n'
-        docker('run','-d','--name',name,'--network',PREFIX,'--network-alias','be','--platform','linux/amd64','--read-only','--tmpfs','/tmp:rw,nosuid,size=128m','--cap-drop','ALL','--security-opt','no-new-privileges:true','-e','SPRING_PROFILES_ACTIVE=prod','-e','SPRING_CONFIG_ADDITIONAL_LOCATION=file:/tmp/be.properties','-p','127.0.0.1::8080','--entrypoint','/bin/sh',IMAGE,'-c','while test ! -f /tmp/start.marker; do sleep 1; done; exec java -jar /app/app.jar')
-        docker('exec','-i',name,'/bin/sh','-c','umask 077; cat > /tmp/be.properties; touch /tmp/start.marker',input=props)
-        port=mapped(name,8080)
-        for _ in range(90):
-            try:
-                status,body,_=request(port,'/actuator/health')
-                if status==200 and json.loads(body)['status']=='UP':break
-            except Exception:pass
-            time.sleep(2)
-        else:raise RuntimeError('BE database health timeout; application output suppressed')
-        assert request(port,'/api/v1/health')[0]==200
-        assert request(port,'/api/notes')[0]==401
-        assert request(port,'/api/auth/dev/token','POST')[0] in [404,403]
-        docker('exec',name,'java','-cp','/app/health','Healthcheck')
-        print(json.dumps({'amd64':True,'nonRoot':True,'flywayJpaDbHealth':True,'unauthenticatedNotes401':True,'productionDevTokenDisabled':True,'imageHealthcheck':True}))
+    metadata = json.loads(docker('image', 'inspect', IMAGE))[0]
+    assert metadata['Architecture'] == 'amd64' and metadata['Os'] == 'linux'
+    assert metadata['Config']['User'].split(':')[0] not in ['', 'root', '0']
+    docker('network', 'create', PREFIX)
+    network = True
+    port = start_web('-api')
+    status, body, headers = request(port, '/auth/callback')
+    assert status == 200 and b'api-only' in body and headers['Cache-Control'] == 'no-store'
+    for path in ['/actuator/health', '/swagger-ui.html', '/v3/api-docs', '/internal', '/ai', '/api/auth/dev/token']:
+        assert request(port, path)[0] == 404, path
+    assert request(port, '/api/notes')[0] == 502
+    helper = os.environ.get('PROXY_TEST_HELPER')
+    if not helper:
+        raise RuntimeError('PROXY_TEST_HELPER required for full image acceptance')
+    backend = PREFIX + '-echo'
+    created.append(backend)
+    code = Path(__file__).with_name('proxy-fixture.cjs').read_text()
+    docker('run', '-d', '--name', backend, '--network', PREFIX, '--network-alias', 'be',
+           '--platform', 'linux/amd64', '--entrypoint', 'node', helper, '-e', code)
+    for _ in range(30):
+        if request(port, '/api/capabilities')[0] == 200:
+            break
+        time.sleep(1)
     else:
-        name=PREFIX+'-web';created.append(name)
-        docker('run','-d','--name',name,'--network',PREFIX,'--platform','linux/amd64','--read-only','--tmpfs','/tmp:rw,nosuid,size=32m','--cap-drop','ALL','--security-opt','no-new-privileges:true','-p','127.0.0.1::8080',IMAGE)
-        port=mapped(name,8080)
-        for _ in range(30):
-            try:
-                if request(port,'/healthz')[0]==200:break
-            except Exception:pass
-            time.sleep(1)
-        else:raise RuntimeError('FE startup timeout')
-        status,body,headers=request(port,'/auth/callback')
-        assert status==200 and b'api-only' in body and headers.get('Cache-Control')=='no-store'
-        for path in ['/actuator/health','/swagger-ui.html','/v3/api-docs','/internal','/ai','/api/auth/dev/token']:
-            assert request(port,path)[0]==404,path
-        status,body,_=request(port,'/api/notes')
-        assert status==502 and b'api-only' not in body
-        if os.environ.get('PROXY_TEST_HELPER'):
-            backend=PREFIX+'-echo';created.append(backend)
-            code="require('node:http').createServer((q,s)=>{let chunks=[];q.on('data',c=>chunks.push(c));q.on('end',()=>{s.writeHead(403,{'Content-Type':'application/json','Set-Cookie':'probe=ok; HttpOnly; Secure; SameSite=Strict'});s.end(JSON.stringify({url:q.url,authorization:q.headers.authorization,cookie:q.headers.cookie,origin:q.headers.origin,bodyBytes:Buffer.concat(chunks).length}));});}).listen(8080)"
-            docker('run','-d','--name',backend,'--network',PREFIX,'--network-alias','be','--platform','linux/amd64','--entrypoint','node',os.environ['PROXY_TEST_HELPER'],'-e',code)
-            # Synthetic local HTTP markers, never real service credentials.
-            req=urllib.request.Request(f'http://127.0.0.1:{port}/api/probe?keep=yes',method='POST',data=b'x'*(12*1024*1024),headers={'Authorization':'Bearer probe','Cookie':'probe=one','Origin':'https://capsnote.art','Content-Type':'application/json'})
-            for _ in range(30):
-                try:
-                    urllib.request.urlopen(req,timeout=10)
-                except urllib.error.HTTPError as e:
-                    if e.code==403:
-                        result=json.loads(e.read());assert result=={'url':'/api/probe?keep=yes','authorization':'Bearer probe','cookie':'probe=one','origin':'https://capsnote.art','bodyBytes':12*1024*1024}
-                        assert e.headers['Set-Cookie']=='probe=ok; HttpOnly; Secure; SameSite=Strict'
-                        break
-                time.sleep(1)
-            else:raise RuntimeError('Proxy preservation/body size check failed')
-        print(json.dumps({'amd64':True,'nonRoot':True,'apiOnlyDefault':True,'spaRouting':True,'adminPathsBlocked':True,'apiDoesNotFallbackToHtml200':True,'proxyHeaderPrefixAnd12MiBBody':bool(os.environ.get('PROXY_TEST_HELPER'))}))
+        raise RuntimeError('Synthetic backend startup timeout')
+    proxy_checks(port)
+    notes_port = start_web('-notes', 'notes-web')
+    for path in ['/', '/auth/callback?returnTo=%2Fnotes%2Ffixture', '/notes/fixture']:
+        status, body, headers = request(notes_port, path)
+        assert status == 200 and b'/assets/' in body and b'api-only' not in body
+        assert headers['Cache-Control'] == 'no-store'
+    proxy_checks(notes_port)
+    print(json.dumps({'amd64': True, 'nonRoot': True, 'apiOnlyDefault': True, 'notesWebSpa': True,
+                      'apiStatusBodyAllowPreserved': True, 'noStore': True, 'refreshLogoutCookie': True,
+                      'oauthRedirect': True, 'aiOff503NoRetryAfter': True, 'syntheticOnly': True}))
 finally:
-    for name in reversed(created):subprocess.run(['docker','rm','-f','-v',name],capture_output=True)
-    if network:subprocess.run(['docker','network','rm',PREFIX],capture_output=True)
+    for name in reversed(created):
+        subprocess.run(['docker', 'rm', '-f', '-v', name], capture_output=True)
+    if network:
+        subprocess.run(['docker', 'network', 'rm', PREFIX], capture_output=True)
