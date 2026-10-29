@@ -54,6 +54,8 @@ if (process.env.BE_REPO_PATH) {
     assert.equal(reusable.on.workflow_call.inputs[input].required, true);
   }
   assert.equal(reusable.jobs.deploy.environment, 'production');
+  assert.ok(reusable.jobs.deploy.steps.some(step => step.with?.path === 'reviewed-release' && step.with?.ref === '${{ vars.GCP_RELEASE_MANIFEST_SHA }}'));
+  assert.ok(reusable.jobs.deploy.steps.some(step => step.with?.repository === 'CAUCapstoneDesignPipeline/capstone_code_BE' && step.with?.ref === '${{ inputs.deploy_tool_sha }}'));
   assert.deepEqual(Object.keys(reusable.on.workflow_call.outputs).sort(), ['operation_id','release_id']);
 }
 console.log('Workflow publication gates, immutable actions, caller pin/interface and rerun artifact checks passed');
