@@ -10,12 +10,12 @@
   background: var(--color-surface-card);
 }
 
-/* Panel/Header. 접기 버튼(28)이 Figma에 없어 제목 줄이 16보다 높다. 위쪽 여백을 줄여 제목 위치를 맞춘다. */
+/* Panel/Header: 제목 · (챗봇일 때) 추천으로 · 접기, 사이 8. 접기 버튼(28)이 Figma에 없어 제목 줄이 16보다 높다. 위쪽 여백을 줄여 제목 위치를 맞춘다. */
 .header {
   display: flex;
   flex: none;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-8);
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) calc(-1 * var(--space-4)) 0;
 }
 

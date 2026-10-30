@@ -1,11 +1,14 @@
 import { useState, type Ref } from 'react'
 import { Button, IconButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
+import { ChatView } from './ChatView'
 import styles from './RecommendPanel.module.css'
+import { SAMPLE_FIRST_MESSAGE, type ChatMessage } from './sampleChat'
 import {
   SAMPLE_RECOMMENDATION,
   type ExternalEvidence,
   type NoteEvidence,
+  type Recommendation,
 } from './sampleRecommendation'
 
 interface Props {
@@ -24,19 +27,36 @@ const RESPONSES = [
 
 type ResponseId = (typeof RESPONSES)[number]['id']
 
-/** Figma W3-02 RightPanel: 3단 레이아웃의 오른쪽 칸. 두 노트의 문장과 외부 지식을 이어 새 결론을 추천한다. */
+/**
+ * 3단 레이아웃의 오른쪽 칸. 새 지식을 추천하고(Figma W3-02), "이해가 안 됨"을 고르면
+ * 같은 패널에서 챗봇이 쉽게 풀어 준다(W3-03).
+ */
 export function RecommendPanel({ onCollapse, collapseRef }: Props) {
   const recommendation = SAMPLE_RECOMMENDATION
-  // 답을 보낼 API가 아직 없어 이 화면에서만 기억한다. "이해가 안 됨"은 챗봇(W3-03)으로 이어질 예정이다.
+  const [view, setView] = useState<'recommend' | 'chat'>('recommend')
+  // 답을 보낼 API가 아직 없어 이 화면에서만 기억한다.
   const [response, setResponse] = useState<ResponseId | null>(null)
-  const responseLabel = RESPONSES.find((r) => r.id === response)?.label
+  // 추천으로 돌아갔다 와도 대화를 이어 간다.
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+
+  function respond(id: ResponseId) {
+    setResponse(id)
+    if (id !== 'confused') return
+    if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
+    setView('chat')
+  }
 
   return (
     <aside className={styles.panel} aria-labelledby="recommend-panel-title">
       <header className={styles.header}>
         <h2 id="recommend-panel-title" className={styles.title}>
-          새로운 지식 추천
+          {view === 'recommend' ? '새로운 지식 추천' : '챗봇 · 쉽게 풀어보기'}
         </h2>
+        {view === 'chat' && (
+          <Button variant="text-link" onClick={() => setView('recommend')}>
+            추천으로
+          </Button>
+        )}
         <IconButton
           ref={collapseRef}
           icon="panel-right-close"
@@ -46,6 +66,32 @@ export function RecommendPanel({ onCollapse, collapseRef }: Props) {
         />
       </header>
 
+      {view === 'recommend' ? (
+        <RecommendView recommendation={recommendation} response={response} onRespond={respond} />
+      ) : (
+        <ChatView
+          recommendation={recommendation}
+          messages={messages}
+          onMessagesChange={setMessages}
+        />
+      )}
+    </aside>
+  )
+}
+
+/** Figma W3-02 Recommend/Body + Actions: 근거 A·B와 외부 지식을 이어 결론을 보이고 답을 받는다 */
+function RecommendView({
+  recommendation,
+  response,
+  onRespond,
+}: {
+  recommendation: Recommendation
+  response: ResponseId | null
+  onRespond: (id: ResponseId) => void
+}) {
+  const responseLabel = RESPONSES.find((r) => r.id === response)?.label
+  return (
+    <>
       <div className={styles.body}>
         <section className={styles.section} aria-labelledby="recommend-a">
           <h3 id="recommend-a" className={styles.label}>
@@ -84,7 +130,7 @@ export function RecommendPanel({ onCollapse, collapseRef }: Props) {
               variant={r.variant}
               className={styles.action}
               aria-pressed={response === r.id}
-              onClick={() => setResponse(r.id)}
+              onClick={() => onRespond(r.id)}
             >
               {r.label}
             </Button>
@@ -96,7 +142,7 @@ export function RecommendPanel({ onCollapse, collapseRef }: Props) {
           </p>
         )}
       </div>
-    </aside>
+    </>
   )
 }
 

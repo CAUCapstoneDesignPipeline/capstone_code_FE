@@ -1,0 +1,137 @@
+/* Figma W3-03: 컨텍스트 · 구분선 · 대화(남는 높이, 스크롤) · 입력(맨 아래). 항목 사이는 패널의 16 */
+.chat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-16);
+  min-height: 0;
+}
+
+/* Chat/Context: 사이 4 */
+.context {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.label {
+  margin: 0;
+  font: var(--text-ui-caption);
+  font-weight: 500;
+}
+
+.contextList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Context 항목: surface-emphasis, 여백 6·8, 사이 6 (6은 토큰이 없어 Figma 값 그대로) */
+.contextItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px var(--space-8);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-emphasis);
+  font: var(--text-ui-caption);
+}
+
+.contextKind {
+  flex: none;
+  font-weight: 500;
+}
+
+.contextSource {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.divider {
+  flex: none;
+  width: 100%;
+  margin: 0;
+  border: none;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+/* Chat/Messages: 말 사이 10 (토큰이 없어 Figma 값 그대로) */
+.messages {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant,
+.user {
+  display: flex;
+}
+
+.user {
+  justify-content: flex-end;
+}
+
+/* Message 말풍선(Bubble): 여백 10·12, 모서리 8, 13 Regular. 문단은 빈 줄로 나눈다 */
+.bubble {
+  margin: 0;
+  padding: 10px var(--space-12);
+  border-radius: 8px;
+  font: var(--text-ui-label);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 챗봇: 흰 바탕 + border-subtle, 패널 폭 전체 */
+.assistant .bubble {
+  flex: 1;
+  border: 1px solid var(--color-border-subtle);
+  background: #fff;
+}
+
+/* 나: surface-emphasis, 오른쪽, 폭 200까지 */
+.user .bubble {
+  max-width: 200px;
+  background: var(--color-surface-emphasis);
+}
+
+/* Chat/Input: 입력칸 + 보내기, 사이 6 */
+.input {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* TextInput: canvas, border-ghost, radius/card, 여백 4·8 */
+.field {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-4) var(--space-8);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font: var(--text-ui-body-sm);
+}
+
+.field:focus {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -1px;
+}
+
+.field::placeholder {
+  color: var(--color-ink-muted);
+}
