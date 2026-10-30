@@ -19,6 +19,7 @@ import { DeleteTopicDialog } from './DeleteTopicDialog'
 import type { NoteDrag } from './noteDrag'
 import { SearchResults } from './SearchResults'
 import styles from './Sidebar.module.css'
+import { ThemeToggle } from './ThemeToggle'
 import { TopicNameForm } from './TopicNameForm'
 import { TopicNode } from './TopicNode'
 
@@ -256,6 +257,10 @@ export function Sidebar(props: Props) {
         >
           새 노트
         </Button>
+      </div>
+
+      <div className={styles.footer}>
+        <ThemeToggle />
       </div>
 
       {deletingTopic && (

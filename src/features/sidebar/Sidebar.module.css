@@ -97,6 +97,13 @@
   padding: 0 var(--space-4);
 }
 
+/* 맨 아래 줄: 테마 바꾸기 (자리 임시) */
+.footer {
+  display: flex;
+  flex: none;
+  padding: 0 var(--space-4);
+}
+
 .muted {
   color: var(--color-ink-muted);
 }
