@@ -17,6 +17,13 @@
   font: var(--text-ui-body-sm-strong);
 }
 
+/* Figma W3-01 Sidebar/HeaderRight: 계정 · 접기, 사이 4 */
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
 .account {
   position: relative;
 }
@@ -284,4 +291,10 @@
   background: var(--color-surface-selected);
   color: var(--color-ink);
   font-weight: 700;
+}
+
+/* Figma W3-01 Sidebar/CollapseToggle: 28×28, 모서리 6, 아이콘 18. */
+.sidebarToggle {
+  --layout-icon: 18px;
+  border-radius: 6px;
 }

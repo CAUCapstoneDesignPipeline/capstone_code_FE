@@ -1,0 +1,41 @@
+/* Figma W3-01 RightPanel: 폭 300, surface-card, 왼쪽 border-subtle 1px, 여백 16, 항목 사이 16 */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-16);
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-card);
+}
+
+/* Panel/Header. 접기 버튼(28)이 Figma에 없어 제목 줄이 16보다 높다. 위쪽 여백을 줄여 제목 위치를 맞춘다. */
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+  margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) calc(-1 * var(--space-4)) 0;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--color-ink);
+  font: var(--text-ui-label-strong);
+}
+
+/* Panel/Hint */
+.hint {
+  margin: 0;
+  color: var(--color-ink);
+  font: var(--text-ui-caption);
+}
+
+/* 사이드바 접기 버튼(Figma W3-01 Sidebar/CollapseToggle)과 같은 모양 */
+.toggle {
+  --layout-icon: 18px;
+  border-radius: 6px;
+}

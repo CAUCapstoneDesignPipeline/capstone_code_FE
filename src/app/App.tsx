@@ -1,11 +1,13 @@
 import { lazy, Suspense, useCallback, useRef, useState } from 'react'
-import { Button } from '../components/Button'
+import { flushSync } from 'react-dom'
+import { Button, IconButton } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useToast } from '../components/toastContext'
 import { useCapabilities, useCreateUntitledNote } from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
 import { NotePane } from '../features/note/NotePane'
+import { RecommendPanel } from '../features/recommend/RecommendPanel'
 import { Sidebar } from '../features/sidebar/Sidebar'
 import styles from './App.module.css'
 
@@ -17,9 +19,35 @@ const GraphView = lazy(() =>
 /** 가운데 화면: 노트 편집기 또는 전체 그래프 */
 type Target = { kind: 'note'; noteId: string } | { kind: 'graph' }
 
+/** 접을 수 있는 양옆 칸: 왼쪽 사이드바, 오른쪽 추천·챗봇 패널 */
+type Side = 'sidebar' | 'panel'
+
+const COLLAPSED_STORAGE_KEYS: Record<Side, string> = {
+  sidebar: 'capstone.sidebar.collapsed',
+  panel: 'capstone.panel.collapsed',
+}
+
+/** 이 브라우저에서 마지막으로 접어 두었는지. 저장소를 쓸 수 없으면(사생활 보호 창 등) 펼친다. */
+function readCollapsed(side: Side): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_STORAGE_KEYS[side]) === 'true'
+  } catch {
+    return false
+  }
+}
+
 export function App() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
   const [graphOpen, setGraphOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState<Record<Side, boolean>>(() => ({
+    sidebar: readCollapsed('sidebar'),
+    panel: readCollapsed('panel'),
+  }))
+  // 접기·펴기 버튼. 누른 버튼이 사라지면 반대쪽 버튼으로 초점을 옮긴다.
+  const collapseSidebarRef = useRef<HTMLButtonElement>(null)
+  const expandSidebarRef = useRef<HTMLButtonElement>(null)
+  const collapsePanelRef = useRef<HTMLButtonElement>(null)
+  const expandPanelRef = useRef<HTMLButtonElement>(null)
   /** 사이드바 트리에 새 주제 입력칸을 띄웠는지 (사이드바 아래 버튼·빈 화면 버튼 공통) */
   const [addingTopic, setAddingTopic] = useState(false)
   const createNote = useCreateUntitledNote()
@@ -43,6 +71,25 @@ export function App() {
     }
   }
 
+  /** 사이드바나 오른쪽 패널을 접거나 편다. 누른 버튼이 사라지므로 초점을 반대쪽 버튼으로 옮긴다. */
+  function setSideCollapsed(side: Side, value: boolean) {
+    flushSync(() => setCollapsed((prev) => ({ ...prev, [side]: value })))
+    const focusTarget =
+      side === 'sidebar'
+        ? value
+          ? expandSidebarRef
+          : collapseSidebarRef
+        : value
+          ? expandPanelRef
+          : collapsePanelRef
+    focusTarget.current?.focus()
+    try {
+      localStorage.setItem(COLLAPSED_STORAGE_KEYS[side], String(value))
+    } catch {
+      // 저장하지 못해도 이번 화면에서는 그대로 둔다
+    }
+  }
+
   /** 다른 노트나 그래프로 간다. 열린 노트에 저장 안 된 내용이 있으면 먼저 묻는다. */
   function go(target: Target) {
     const here = graphOpen ? 'graph' : selectedNoteId
@@ -63,8 +110,17 @@ export function App() {
   }
 
   return (
-    <div className={styles.app}>
-      <aside className={styles.sidebar}>
+    <div
+      className={[
+        styles.app,
+        collapsed.sidebar && styles.sidebarCollapsed,
+        collapsed.panel && styles.panelCollapsed,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {/* 접어도 내리지 않고 숨긴다. 검색어·펼친 주제가 그대로 남는다. */}
+      <aside className={styles.sidebar} hidden={collapsed.sidebar}>
         <Sidebar
           selectedNoteId={selectedNoteId}
           graphOpen={graphOpen}
@@ -74,9 +130,29 @@ export function App() {
           onAddingTopicChange={setAddingTopic}
           onCreateNote={createNoteIn}
           creatingNote={createNote.isPending}
+          onCollapse={() => setSideCollapsed('sidebar', true)}
+          collapseRef={collapseSidebarRef}
         />
       </aside>
       <main className={styles.main}>
+        {collapsed.sidebar && (
+          <IconButton
+            ref={expandSidebarRef}
+            icon="panel-left-open"
+            label="사이드바 펼치기"
+            className={`${styles.expandButton} ${styles.expandSidebar}`}
+            onClick={() => setSideCollapsed('sidebar', false)}
+          />
+        )}
+        {collapsed.panel && (
+          <IconButton
+            ref={expandPanelRef}
+            icon="panel-right-open"
+            label="패널 펼치기"
+            className={`${styles.expandButton} ${styles.expandPanel}`}
+            onClick={() => setSideCollapsed('panel', false)}
+          />
+        )}
         {graphOpen ? (
           // 그래프 화면 파일을 못 받으면(오프라인, 새 배포로 옛 파일이 사라짐) 앱 전체 대신 이 자리만 알린다.
           <ErrorBoundary
@@ -103,6 +179,13 @@ export function App() {
           />
         )}
       </main>
+      {/* 노트를 열지 않았거나 그래프를 볼 때도 늘 보인다 */}
+      <div className={styles.panel} hidden={collapsed.panel}>
+        <RecommendPanel
+          onCollapse={() => setSideCollapsed('panel', true)}
+          collapseRef={collapsePanelRef}
+        />
+      </div>
 
       {leaving && (
         <ConfirmDialog

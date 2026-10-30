@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type Ref } from 'react'
 import type { Topic } from '../../api'
-import { Button } from '../../components/Button'
+import { Button, IconButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
 import { useToast } from '../../components/toastContext'
 import {
@@ -35,6 +35,10 @@ interface Props {
   /** 새 노트를 만든다. null이면 미분류 */
   onCreateNote: (topicId: string | null) => void
   creatingNote: boolean
+  /** 사이드바를 접는다 */
+  onCollapse: () => void
+  /** 접기 버튼. 사이드바를 다시 펼치면 여기로 초점을 돌려준다. */
+  collapseRef?: Ref<HTMLButtonElement>
 }
 
 /** 펼침 상태를 기억할 때 쓰는 키. 미분류는 'none' */
@@ -45,8 +49,15 @@ const SEARCH_DELAY_MS = 300
 
 /** Figma W1-05 Sidebar: 머리 · 검색 · "주제" · 트리 · 미분류 · (아래) 새 주제 · 새 노트 */
 export function Sidebar(props: Props) {
-  const { selectedNoteId, onSelectNote, addingTopic, onAddingTopicChange, graphOpen, onOpenGraph } =
-    props
+  const {
+    selectedNoteId,
+    onSelectNote,
+    addingTopic,
+    onAddingTopicChange,
+    graphOpen,
+    onOpenGraph,
+    collapseRef,
+  } = props
   const topics = useTopics()
   const createTopic = useCreateTopic()
   const swapOrder = useSwapTopicOrder()
@@ -134,7 +145,16 @@ export function Sidebar(props: Props) {
     <nav className={styles.sidebar} aria-label="주제와 노트">
       <div className={styles.header}>
         CAPSTONE
-        <AccountMenu />
+        <div className={styles.headerRight}>
+          <AccountMenu />
+          <IconButton
+            ref={collapseRef}
+            icon="panel-left-close"
+            label="사이드바 접기"
+            className={styles.sidebarToggle}
+            onClick={props.onCollapse}
+          />
+        </div>
       </div>
 
       <label className={styles.field}>
