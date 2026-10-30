@@ -3,8 +3,9 @@ import { useEffect } from 'react'
 import { isApiError } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
-import { keys, useNote } from '../../data/queries'
+import { keys, useNote, useNoteAnalysis } from '../../data/queries'
 import { NoteEditor, type LeaveGuard } from '../editor/NoteEditor'
+import { NoteGraphPanel } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
 
 interface Props {
@@ -48,6 +49,8 @@ function LoadedNote({
   onNoteGone,
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
+  // 편집기 상단 막대와 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
+  const analysis = useNoteAnalysis(noteId)
   const qc = useQueryClient()
   const toast = useToast()
   const missing = !note.data && isApiError(note.error, 'NOT_FOUND')
@@ -64,7 +67,15 @@ function LoadedNote({
   // 한 번 불러온 뒤에는 이후 오류가 나도 편집기를 유지한다 (편집 중인 내용을 지우지 않는다).
   if (note.data) {
     return (
-      <NoteEditor note={note.data} registerLeaveGuard={registerLeaveGuard} onDeleted={onNoteGone} />
+      <div className={styles.withPanel}>
+        <NoteEditor
+          note={note.data}
+          registerLeaveGuard={registerLeaveGuard}
+          onDeleted={onNoteGone}
+          analysis={analysis.data}
+        />
+        <NoteGraphPanel noteId={noteId} job={analysis.data} />
+      </div>
     )
   }
   return (

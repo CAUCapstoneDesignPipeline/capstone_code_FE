@@ -14,6 +14,14 @@ export type NoteSummary = Schemas['NoteSummary']
 export type NoteCreate = Schemas['NoteCreate']
 export type NoteUpdate = Schemas['NoteUpdate']
 
+// 분석·그래프는 계약이 아직 draft다 (x-contract-status: draft).
+export type AnalysisJob = Schemas['AnalysisJob']
+export type AnalysisStatus = AnalysisJob['status']
+export type NoteGraph = Schemas['NoteGraph']
+export type ConceptInNote = Schemas['ConceptInNote']
+export type Relation = Schemas['Relation']
+export type EvidenceSpan = Schemas['EvidenceSpan']
+
 export type AuthProvider = Schemas['AuthProvider']
 export type AuthProviderList = Schemas['AuthProviderList']
 export type Me = Schemas['Me']

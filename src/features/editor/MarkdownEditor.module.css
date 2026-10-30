@@ -62,6 +62,12 @@
   font: var(--text-content-body-strong);
 }
 
+/* 글이 없는 제목 줄의 안내 글 (Header 1~6) */
+.editor :global(.cm-lp-heading-placeholder) {
+  color: var(--color-ink-muted);
+  pointer-events: none;
+}
+
 /* 인라인 서식 */
 .editor :global(.cm-lp-strong) {
   font-weight: 700;
@@ -90,6 +96,27 @@
 .editor :global(.cm-lp-bullet) {
   display: inline-block;
   width: 0.5em;
+}
+
+/* 할 일: 체크박스, 끝낸 일은 흐리게 */
+.editor :global(.cm-lp-checkbox) {
+  width: 1em;
+  height: 1em;
+  margin: 0 var(--space-8) 0 0;
+  vertical-align: -0.125em;
+  accent-color: var(--color-ink);
+  cursor: pointer;
+}
+
+.editor :global(.cm-lp-task-done) {
+  color: var(--color-ink-muted);
+  text-decoration: line-through;
+}
+
+/* 구분선 `---` */
+.editor :global(.cm-lp-hr) {
+  background: linear-gradient(var(--color-border-subtle), var(--color-border-subtle)) center / 100%
+    1px no-repeat;
 }
 
 /* 인용 */

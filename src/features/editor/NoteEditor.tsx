@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { getNote, onSessionChange, updateNote, type Note } from '../../api'
+import { getNote, onSessionChange, updateNote, type AnalysisJob, type Note } from '../../api'
 import { Banner } from '../../components/Banner'
 import { Button, IconButton } from '../../components/Button'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -7,6 +7,7 @@ import { ContextMenu } from '../../components/ContextMenu'
 import { FieldError } from '../../components/FieldError'
 import { useToast } from '../../components/toastContext'
 import { useApplySavedNote, useDeleteNote, useNote } from '../../data/queries'
+import { AnalysisStatusIndicator } from './AnalysisStatusIndicator'
 import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
 import styles from './NoteEditor.module.css'
 import { NoteSaver, type SaveStatus } from './noteSaver'
@@ -30,9 +31,11 @@ interface Props {
   registerLeaveGuard?: (guard: LeaveGuard | null) => void
   /** 이 화면에서 노트를 삭제했을 때 */
   onDeleted: () => void
+  /** 가장 최근 분석 작업. 불러오기 전이거나 분석한 적이 없으면 표시하지 않는다. */
+  analysis?: AnalysisJob | null
 }
 
-export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
+export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis }: Props) {
   const applySavedNote = useApplySavedNote()
   const [saver] = useState(() => new NoteSaver(note, { save: updateNote, onSaved: applySavedNote }))
   const state = useSyncExternalStore(saver.subscribe, saver.getState)
@@ -129,6 +132,7 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted }: Props) {
           <span className={styles.breadcrumbTitle}>{savedTitle}</span>
         </nav>
         <div className={styles.actions}>
+          <AnalysisStatusIndicator job={analysis} />
           <SaveStatusIndicator status={state.status} />
           <IconButton
             ref={moreRef}
