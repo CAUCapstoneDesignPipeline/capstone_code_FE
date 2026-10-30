@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '../../components/Button'
 import { Icon, type IconName } from '../../components/Icon'
 import styles from './ChatView.module.css'
+import { ExternalSourceLink } from './ExternalSourceLink'
 import { sampleAnswer, type ChatMessage } from './sampleChat'
 import type { Recommendation } from './sampleRecommendation'
 
@@ -31,10 +32,24 @@ export function ChatView({ recommendation, messages, onMessagesChange }: Props) 
     setQuestion('')
   }
 
-  const context: { icon: IconName; kind: string; source: string }[] = [
-    { icon: 'note', kind: '근거 A', source: recommendation.a.noteTitle },
-    { icon: 'note', kind: '근거 B', source: recommendation.b.noteTitle },
-    { icon: 'external', kind: '외부 지식', source: recommendation.external.source },
+  const context: { icon: IconName; kind: string; source: ReactNode }[] = [
+    {
+      icon: 'note',
+      kind: '근거 A',
+      source: <span className={styles.contextSource}>{recommendation.a.noteTitle}</span>,
+    },
+    {
+      icon: 'note',
+      kind: '근거 B',
+      source: <span className={styles.contextSource}>{recommendation.b.noteTitle}</span>,
+    },
+    {
+      icon: 'external',
+      kind: '외부 지식',
+      source: (
+        <ExternalSourceLink url={recommendation.external.url} className={styles.contextSource} />
+      ),
+    },
   ]
 
   return (
@@ -48,7 +63,7 @@ export function ChatView({ recommendation, messages, onMessagesChange }: Props) 
             <li key={c.kind} className={styles.contextItem}>
               <Icon name={c.icon} />
               <span className={styles.contextKind}>{c.kind}</span>
-              <span className={styles.contextSource}>{c.source}</span>
+              {c.source}
             </li>
           ))}
         </ul>
