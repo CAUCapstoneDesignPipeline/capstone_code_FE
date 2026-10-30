@@ -965,6 +965,26 @@ export interface components {
             /** @constant */
             discoveriesEnabled?: false;
         };
+        AiUnavailableError: components["schemas"]["Error"] & {
+            error?: {
+                /** @constant */
+                code: "AI_UNAVAILABLE";
+                /** @constant */
+                message: "AI 분석은 아직 사용할 수 없습니다.";
+                details: {
+                    /** @enum {string} */
+                    reason: "NOT_DEPLOYED" | "MISCONFIGURED" | "CONFIGURATION" | "AUTHENTICATION" | "PROFILE" | "INVALID_RESPONSE" | "INPUT_LIMIT" | "TIMEOUT" | "UNAVAILABLE";
+                };
+            };
+        };
+        AiOffUnavailableError: components["schemas"]["AiUnavailableError"] & {
+            error?: {
+                details?: {
+                    /** @constant */
+                    reason?: "NOT_DEPLOYED";
+                };
+            };
+        };
         Error: {
             error: {
                 /**
@@ -1516,7 +1536,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description AI-off. 소유 확인 후 기능 차단, 작업 생성 없음. Retry-After 없음 */
+        /** @description 소유 확인 후 기능 차단, 새 작업 생성 없음. AI-off reason은NOT_DEPLOYED, AI-on 설정/readiness 실패는 제한된reason. Retry-After 없음 */
         AiUnavailable: {
             headers: {
                 [name: string]: unknown;
@@ -1533,18 +1553,7 @@ export interface components {
                  *       }
                  *     }
                  */
-                "application/json": components["schemas"]["Error"] & {
-                    error?: {
-                        /** @constant */
-                        code: "AI_UNAVAILABLE";
-                        /** @constant */
-                        message: "AI 분석은 아직 사용할 수 없습니다.";
-                        details: {
-                            /** @constant */
-                            reason: "NOT_DEPLOYED";
-                        };
-                    };
-                };
+                "application/json": components["schemas"]["AiUnavailableError"];
             };
         };
         /** @description 그 밖의 서버 오류 (문구 안) */
