@@ -23,7 +23,7 @@ export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
   const capabilities = useCapabilities()
   const graph = useNoteGraph(noteId, capabilities?.graphEnabled === true)
   const qc = useQueryClient()
-  const retry = useRequestAnalysis(noteId)
+  const retry = useRequestAnalysis(noteId, capabilities?.analysisEnabled === true)
 
   // 폴링한 작업과 그래프의 작업이 어긋나면 다시 받는다 (analysisMismatch).
   const shown = graph.data?.analysis
