@@ -207,7 +207,12 @@ export function GraphCanvas(props: Props) {
       if (e.target === cy || e.target.hasClass?.('group')) handlers.current.onTapEdge(null)
     })
     cyRef.current = cy
+    // Cytoscape는 창 크기만 지켜본다. 사이드바를 접고 펴서 칸만 커지거나 줄어도 다시 잰다.
+    const host = hostRef.current
+    const resizeObserver = new ResizeObserver(() => cy.resize())
+    if (host) resizeObserver.observe(host)
     return () => {
+      resizeObserver.disconnect()
       cy.destroy()
       cyRef.current = null
     }

@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useState, type Ref } from 'react'
+import { useRef, useState, type Ref } from 'react'
+import { flushSync } from 'react-dom'
 import type { NoteSummary, Recommendation, RecommendationEvidence } from '../../api'
-import { Button, IconButton } from '../../components/Button'
+import { Button, PanelToggleButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
 import { useToast } from '../../components/toastContext'
 import {
@@ -80,6 +81,14 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   // 누른 근거만 표시한다 (W3-12)
   const [shownEvidence, setShownEvidence] = useState<string | null>(null)
 
+  const titleRef = useRef<HTMLHeadingElement>(null)
+
+  /** 화면을 바꾼다. 누른 버튼이 사라지므로 초점을 새 화면의 제목에 두어 처음부터 읽게 한다. */
+  function switchView(next: 'recommend' | 'chat') {
+    flushSync(() => setView(next))
+    titleRef.current?.focus()
+  }
+
   /** 답하면 이 카드는 빠지고 같은 자리에 다음 카드가 온다. '이해가 안 됨'은 카드를 남기고 챗봇으로 */
   function respond(id: RecommendationAnswer) {
     if (!current) return
@@ -93,7 +102,7 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
     )
     if (id !== 'confused') return
     if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
-    setView('chat')
+    switchView('chat')
   }
 
   const chatting = view === 'chat' && current !== null
@@ -101,11 +110,11 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   return (
     <aside className={styles.panel} aria-labelledby="recommend-panel-title">
       <header className={styles.header}>
-        <h2 id="recommend-panel-title" className={styles.title}>
+        <h2 ref={titleRef} id="recommend-panel-title" className={styles.title} tabIndex={-1}>
           {chatting ? '챗봇 · 쉽게 풀어보기' : '새로운 지식 추천'}
         </h2>
         {chatting && (
-          <Button variant="text-link" onClick={() => setView('recommend')}>
+          <Button variant="text-link" onClick={() => switchView('recommend')}>
             추천으로
           </Button>
         )}
@@ -138,11 +147,10 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
             </button>
           </nav>
         )}
-        <IconButton
+        <PanelToggleButton
           ref={collapseRef}
           icon="panel-right-close"
           label="패널 접기"
-          className={styles.toggle}
           onClick={onCollapse}
         />
       </header>
