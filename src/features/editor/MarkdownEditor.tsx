@@ -12,6 +12,7 @@ import {
 } from './evidenceHighlight'
 import { livePreview } from './livePreview'
 import styles from './MarkdownEditor.module.css'
+import { mathPreview, mathSyntax } from './mathPreview'
 import { pasteMarkdown } from './pasteMarkdown'
 import { tablePreview } from './tablePreview'
 
@@ -80,7 +81,7 @@ export function MarkdownEditor(props: Props) {
           history(),
           keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
           // 주소 붙여넣기는 pasteMarkdown이 맡는다 (여러 줄을 고르면 링크로 만들지 않는 등)
-          markdown({ base: markdownLanguage, pasteURLAsLink: false }),
+          markdown({ base: markdownLanguage, extensions: [mathSyntax], pasteURLAsLink: false }),
           EditorView.lineWrapping,
           placeholder(text),
           EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
@@ -89,6 +90,7 @@ export function MarkdownEditor(props: Props) {
           }),
           livePreview,
           tablePreview,
+          mathPreview,
           pasteMarkdown,
           evidenceHighlight,
         ],

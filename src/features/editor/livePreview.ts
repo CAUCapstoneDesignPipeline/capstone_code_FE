@@ -6,6 +6,7 @@
 // - 줄 안 기호(`**`, `` ` ``, 링크)는 커서가 그 서식에 닿아 있을 때만 드러낸다. 같은 줄의 다른 서식은 그대로 둔다.
 // - 이미지(`![alt](url)`)는 그림으로 보인다. 커서가 닿으면 원문을 드러내고 그림은 그 뒤에 둔다.
 // - 링크는 ⌘/Ctrl+클릭으로 새 탭에서 연다 (그냥 클릭은 편집).
+// - 줄 안 수식(`$x^2$`)은 KaTeX로 그린다. 커서가 닿으면 원문을 드러낸다. 블록 수식은 mathPreview.ts에 있다.
 // 저장되는 것은 언제나 마크다운 원문이다. 여기서는 보이는 모양만 바꾼다.
 // 표는 여러 줄을 한 덩어리로 바꿔 그려야 해서 tablePreview.ts(StateField)에 따로 있다.
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
@@ -26,6 +27,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view'
 import type { SyntaxNode, Tree } from '@lezer/common'
+import { MathWidget, mathSource } from './mathPreview'
 
 /** 열어도 되는 링크 주소 */
 const LINK_PROTOCOLS = ['http:', 'https:', 'mailto:']
@@ -273,6 +275,11 @@ export function buildDecorations(
         return false
       }
 
+      if (name === 'InlineMath') {
+        decorateInlineMath(node.node)
+        return false
+      }
+
       // 표는 tablePreview가 표로 그리거나, 고정폭 원문으로 칸을 맞춰 보인다. 칸 안 기호를 숨기면 칸이 어긋난다
       if (name === 'Table') return false
 
@@ -389,6 +396,17 @@ export function buildDecorations(
     } else {
       decos.push(Decoration.replace({ widget }).range(image.from, image.to))
     }
+  }
+
+  /** 줄 안 수식: 커서가 닿으면 원문, 아니면 그린 수식. `$$…$$`은 큰 수식(디스플레이 스타일)으로 글 사이에 둔다 */
+  function decorateInlineMath(math: SyntaxNode) {
+    if (touches(math.from, math.to)) {
+      decos.push(mark('cm-lp-math-src').range(math.from, math.to))
+      return
+    }
+    const display = doc.sliceString(math.from, math.from + 2) === '$$'
+    const widget = new MathWidget(mathSource(state, math), display, false)
+    decos.push(Decoration.replace({ widget }).range(math.from, math.to))
   }
 
   /** 코드 블록: 모든 줄에 배경. 커서가 블록 밖이면 ``` 줄은 글자를 숨기고 여백으로만 남긴다 */
