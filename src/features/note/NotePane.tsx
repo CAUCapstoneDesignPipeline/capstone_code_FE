@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { isApiError } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
@@ -15,6 +16,8 @@ interface Props {
   onCreateTopic: () => void
   /** 연 노트가 없어졌을 때 (다른 곳에서 삭제됨, 이 화면에서 삭제함) */
   onNoteGone: () => void
+  /** 오른쪽 패널의 "개념·관계" 탭 자리. 노트를 연 동안 여기에 그래프 패널을 그린다. */
+  graphPanelSlot: HTMLElement | null
 }
 
 export function NotePane({ noteId, ...props }: Props) {
@@ -47,9 +50,10 @@ function LoadedNote({
   noteId,
   registerLeaveGuard,
   onNoteGone,
+  graphPanelSlot,
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
-  // 편집기 상단 막대와 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
+  // 편집기 상단 막대와 그래프 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
   const analysis = useNoteAnalysis(noteId)
   // 패널에서 고른 근거를 편집기에 강조한다 (F-GRA-03)
   const editorRef = useRef<NoteEditorHandle>(null)
@@ -73,7 +77,7 @@ function LoadedNote({
   // 한 번 불러온 뒤에는 이후 오류가 나도 편집기를 유지한다 (편집 중인 내용을 지우지 않는다).
   if (note.data) {
     return (
-      <div className={styles.withPanel}>
+      <>
         <NoteEditor
           ref={editorRef}
           note={note.data}
@@ -81,8 +85,13 @@ function LoadedNote({
           onDeleted={onNoteGone}
           analysis={analysis.data}
         />
-        <NoteGraphPanel noteId={noteId} job={analysis.data} onShowEvidence={showEvidence} />
-      </div>
+        {/* 편집기·분석 연결은 여기 두고, 그리는 자리만 오른쪽 패널의 탭이다 */}
+        {graphPanelSlot &&
+          createPortal(
+            <NoteGraphPanel noteId={noteId} job={analysis.data} onShowEvidence={showEvidence} />,
+            graphPanelSlot,
+          )}
+      </>
     )
   }
   return (

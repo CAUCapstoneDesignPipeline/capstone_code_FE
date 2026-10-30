@@ -1,20 +1,65 @@
 .app {
+  /* 접은 칸은 폭 0. 칸마다 자리를 정해 두어 하나를 숨겨도 다른 칸이 밀리지 않는다. */
+  --sidebar-column: var(--layout-sidebar-width);
+  --panel-column: var(--layout-panel-width);
+
   display: grid;
-  grid-template-columns: var(--layout-sidebar-width) 1fr;
+  grid-template-columns: var(--sidebar-column) minmax(0, 1fr) var(--panel-column);
+  /* 행 높이를 화면에 고정한다. 없으면 긴 노트만큼 행이 늘어나 편집기·패널이 각자 스크롤하지 않고 화면 전체가 밀린다. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
 }
 
+/* 접으면 가운데가 그 폭까지 쓴다. 가운데 상단 막대들은 펴기 버튼(28) + 사이 8만큼 그쪽 끝을 비운다. */
+.sidebarCollapsed {
+  --sidebar-column: 0px;
+  --sidebar-expand-space: 36px;
+}
+
+/* 패널을 접었거나 그래프 화면이라 숨겼을 때 */
+.panelHidden {
+  --panel-column: 0px;
+}
+
+/* 펴기 버튼이 있을 때만 (그래프 화면에는 없다) */
+.panelExpandable {
+  --panel-expand-space: 36px;
+}
+
 .sidebar {
+  grid-column: 1;
   min-height: 0;
   border-right: 1px solid var(--color-border-subtle);
   background: var(--color-surface-card);
 }
 
+.panel {
+  grid-column: 3;
+  min-height: 0;
+}
+
 .main {
+  grid-column: 2;
   min-width: 0;
   min-height: 0;
+  position: relative;
   overflow: hidden;
   background: var(--color-canvas);
+}
+
+/* 펴기 버튼: 상단 막대(44) 가운데, 끝에서 12 */
+.expandButton {
+  position: absolute;
+  top: var(--space-8);
+  z-index: 1;
+}
+
+.expandSidebar {
+  left: var(--space-12);
+}
+
+.expandPanel {
+  right: var(--space-12);
 }
 
 /* 그래프 화면을 불러오는 중이거나 못 불러왔을 때 */

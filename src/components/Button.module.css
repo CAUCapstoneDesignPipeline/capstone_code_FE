@@ -79,3 +79,9 @@
 .iconButton:disabled {
   color: var(--color-ink-muted);
 }
+
+/* PanelToggleButton: 모서리 6은 토큰이 없어 Figma 값 그대로 */
+.panelToggle {
+  --layout-icon: 18px;
+  border-radius: 6px;
+}

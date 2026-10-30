@@ -18,7 +18,7 @@ interface Props {
   onShowEvidence: ShowEvidence
 }
 
-/** 노트 옆 오른쪽 패널: 이 노트에서 나온 개념과 관계 (F-GRA-03) */
+/** 오른쪽 패널 "개념·관계" 탭: 이 노트에서 나온 개념과 관계 (F-GRA-03) */
 export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
   const capabilities = useCapabilities()
   const graph = useNoteGraph(noteId, capabilities?.graphEnabled === true)
@@ -37,8 +37,7 @@ export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
 
   const current = job === undefined ? shown : job
   return (
-    <aside className={styles.panel} aria-label="개념·관계">
-      <h2 className={styles.heading}>개념·관계</h2>
+    <div className={styles.panel}>
       {/* AI-off면 지난 실패 기록이 있어도 다시 분석할 수 없으므로 알리지 않는다 */}
       {capabilities?.analysisEnabled && current?.status === 'failed' && (
         <div className={styles.failed} role="alert">
@@ -68,7 +67,7 @@ export function NoteGraphPanel({ noteId, job, onShowEvidence }: Props) {
       ) : (
         <p className={styles.hint}>불러오는 중…</p>
       )}
-    </aside>
+    </div>
   )
 }
 

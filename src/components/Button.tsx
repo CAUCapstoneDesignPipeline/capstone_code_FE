@@ -52,3 +52,10 @@ export function IconButton({
     </button>
   )
 }
+
+/** Figma W3-01 Sidebar/CollapseToggle: 칸을 접고 펴는 28×28 버튼. 모서리 6, 아이콘 18 */
+export function PanelToggleButton({ className, ...rest }: IconButtonProps) {
+  return (
+    <IconButton className={[styles.panelToggle, className].filter(Boolean).join(' ')} {...rest} />
+  )
+}

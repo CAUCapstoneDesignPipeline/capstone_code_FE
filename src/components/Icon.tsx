@@ -7,12 +7,17 @@ import chevronDown from '../assets/icons/chevron-down.svg'
 import chevronRight from '../assets/icons/chevron-right.svg'
 import close from '../assets/icons/close.svg'
 import dot from '../assets/icons/dot.svg'
+import external from '../assets/icons/external.svg'
 import graph from '../assets/icons/graph.svg'
 import info from '../assets/icons/info.svg'
 import loader from '../assets/icons/loader.svg'
 import logout from '../assets/icons/logout.svg'
 import more from '../assets/icons/more.svg'
 import note from '../assets/icons/note.svg'
+import panelLeftClose from '../assets/icons/panel-left-close.svg'
+import panelLeftOpen from '../assets/icons/panel-left-open.svg'
+import panelRightClose from '../assets/icons/panel-right-close.svg'
+import panelRightOpen from '../assets/icons/panel-right-open.svg'
 import pencil from '../assets/icons/pencil.svg'
 import plus from '../assets/icons/plus.svg'
 import provider from '../assets/icons/provider.svg'
@@ -35,12 +40,17 @@ const ICONS = {
   'chevron-right': chevronRight,
   close,
   dot,
+  external,
   graph,
   info,
   loader,
   logout,
   more,
   note,
+  'panel-left-close': panelLeftClose,
+  'panel-left-open': panelLeftOpen,
+  'panel-right-close': panelRightClose,
+  'panel-right-open': panelRightOpen,
   pencil,
   plus,
   provider,
