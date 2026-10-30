@@ -1,3 +1,4 @@
+import menuStyles from '../../components/ContextMenu.module.css'
 import { Icon } from '../../components/Icon'
 import { useToast } from '../../components/toastContext'
 import { useMoveNote, useNote, useTopics } from '../../data/queries'
@@ -45,7 +46,7 @@ export function TopicDropdown({ noteId }: { noteId: string }) {
           onClick={() => choose(topicId, name)}
         >
           <Icon name={topicId === null ? 'unassigned' : 'topic'} />
-          <span className={styles.optionLabel}>{name}</span>
+          <span className={menuStyles.itemLabel}>{name}</span>
           {selected && <Icon name="check" />}
         </button>
       </li>
