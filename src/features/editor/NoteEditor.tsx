@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type Ref,
+} from 'react'
 import { getNote, onSessionChange, updateNote, type AnalysisJob, type Note } from '../../api'
 import { Banner } from '../../components/Banner'
 import { Button, IconButton } from '../../components/Button'
@@ -13,6 +21,9 @@ import styles from './NoteEditor.module.css'
 import { NoteSaver, type SaveStatus } from './noteSaver'
 import { SaveStatusIndicator } from './SaveStatusIndicator'
 import { TopicDropdown } from './TopicDropdown'
+
+/** 패널이 편집기에 근거 문장을 보일 때 쓴다 */
+export type NoteEditorHandle = Pick<MarkdownEditorHandle, 'showEvidence'>
 
 /** 떠나기 전에 부른다. 떠나면 사라질 내용이 있으면 그 이유, 없으면 null */
 export type LeaveGuard = () => string | null
@@ -33,9 +44,10 @@ interface Props {
   onDeleted: () => void
   /** 가장 최근 분석 작업. 불러오기 전이거나 분석한 적이 없으면 표시하지 않는다. */
   analysis?: AnalysisJob | null
+  ref?: Ref<NoteEditorHandle>
 }
 
-export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis }: Props) {
+export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref }: Props) {
   const applySavedNote = useApplySavedNote()
   const [saver] = useState(() => new NoteSaver(note, { save: updateNote, onSaved: applySavedNote }))
   const state = useSyncExternalStore(saver.subscribe, saver.getState)
@@ -45,6 +57,9 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis }: Pr
   // 본문 편집기는 자기 원문을 스스로 들고 있다. 다른 곳의 내용을 불러오면 key를 바꿔 새로 만든다.
   const [bodyDoc, setBodyDoc] = useState({ key: 0, text: note.body })
   const bodyRef = useRef<MarkdownEditorHandle>(null)
+  useImperativeHandle(ref, () => ({
+    showEvidence: (evidence) => bodyRef.current?.showEvidence(evidence) ?? null,
+  }))
   const [loadError, setLoadError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])

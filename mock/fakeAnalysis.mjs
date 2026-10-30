@@ -141,7 +141,7 @@ export function extractNoteGraph(registry, note, topic) {
 /**
  * @typedef {{ id: string, noteId: string, noteVersion: number, status: 'pending' | 'running' | 'succeeded' | 'failed',
  *   errorMessage: string | null, createdAt: string, startedAt: string | null, finishedAt: string | null }} AnalysisJob
- * @typedef {{ debounceMs?: number, maxDebounceMs?: number, runMs?: number, fail?: boolean }} AnalysisOptions
+ * @typedef {{ debounceMs?: number, maxDebounceMs?: number, runMs?: number, fail?: boolean, off?: boolean }} AnalysisOptions
  */
 
 const AI_DOWN_MESSAGE = 'AI 서버에 연결하지 못했습니다.'
@@ -153,13 +153,20 @@ const AI_DOWN_MESSAGE = 'AI 서버에 연결하지 못했습니다.'
  * - 실행 전·후에 revision이 바뀌었으면 그 작업은 failed로 끝내고(내부 SUPERSEDED) 최신 입력으로 pending을 새로 만든다.
  *   새 작업도 마지막 변경 후 debounceMs를 기다린다.
  * - fail이면 AI 서버가 꺼진 것처럼 실패한다.
+ * - off(AI-off)면 작업을 만들지 않는다. 지금 BE와 같다.
  * 결과(개념·관계)는 마지막으로 성공한 작업의 것을 둔다.
  * @param {{ registry: ConceptRegistry, getNote: (id: string) => NoteLike | undefined,
  *   topicOf: (note: NoteLike) => { id: string | null, name: string }, now: () => string }} deps
  * @param {AnalysisOptions} [options]
  */
 export function createAnalysisQueue(deps, options = {}) {
-  const { debounceMs = 5000, maxDebounceMs = 30_000, runMs = 1500, fail = false } = options
+  const {
+    debounceMs = 5000,
+    maxDebounceMs = 30_000,
+    runMs = 1500,
+    fail = false,
+    off = false,
+  } = options
   const { registry, getNote, topicOf, now } = deps
   /** 노트별 가장 최근 작업 @type {Map<string, AnalysisJob>} */
   const latest = new Map()
@@ -240,6 +247,7 @@ export function createAnalysisQueue(deps, options = {}) {
   return {
     /** 분석 입력이 바뀌었을 때: 본문 저장(본문이 있는 새 노트 포함), 주제 이동 @param {NoteLike} note */
     inputChanged(note) {
+      if (off) return // AI-off: 작업을 만들지 않는다
       inputs.set(note.id, { revision: revisionOf(note.id) + 1, changedAt: Date.now() })
       const job = latest.get(note.id)
       if (job?.status === 'running') return // 끝날 때 revision을 보고 이어 간다
@@ -265,6 +273,11 @@ export function createAnalysisQueue(deps, options = {}) {
     /** @param {string} noteId */
     result(noteId) {
       return results.get(noteId) ?? { concepts: [], relations: [] }
+    },
+
+    /** 결과가 있는 노트마다 [noteId, 결과] (전체 그래프용) */
+    allResults() {
+      return [...results.entries()]
     },
 
     /** @param {string} noteId */

@@ -12,6 +12,8 @@ import {
   deleteNote,
   deleteTopic,
   getNote,
+  getCapabilities,
+  getGraph,
   getNoteAnalysis,
   getNoteGraph,
   isApiError,
@@ -23,6 +25,7 @@ import {
   requestNoteAnalysis,
   updateTopic,
   type AnalysisJob,
+  type Capabilities,
   type Note,
   type NoteSummary,
   type Topic,
@@ -30,6 +33,7 @@ import {
   type TopicList,
 } from '../api'
 import { createAnalysisPoller, isAnalysisActive } from '../lib/analysisPoll'
+import { resolveCapabilities } from '../lib/capabilities'
 import { nextUntitledTitle } from '../lib/names'
 
 /**
@@ -45,6 +49,21 @@ export const keys = {
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
+  graph: ['graph'] as const,
+  capabilities: ['capabilities'] as const,
+}
+
+/**
+ * AI 기능을 쓸 수 있는지 (AI-off 계약). 분석이 꺼져 있으면 분석 상태를 폴링하지 않고, 그래프가 꺼져 있으면 그래프를 요청하지 않는다.
+ * 받는 중이면 undefined (resolveCapabilities). App이 처음에 한 번 불러 두어 노트를 열 때 기다리지 않게 한다.
+ */
+export function useCapabilities() {
+  const query = useQuery({
+    queryKey: keys.capabilities,
+    queryFn: ({ signal }) => getCapabilities(signal),
+    staleTime: 60_000,
+  })
+  return resolveCapabilities(query.data, query.isError)
 }
 
 export function useTopics() {
@@ -96,6 +115,8 @@ export function useNote(noteId: string) {
  * 같은 노트에서 한 곳만 부른다 (부르는 곳마다 폴링 타이머가 따로 돈다).
  */
 export function useNoteAnalysis(noteId: string) {
+  // 조회는 AI-off에서도 된다 (지난 작업 기록). 폴링만 분석이 켜져 있을 때 한다.
+  const polling = useCapabilities()?.analysisEnabled === true
   const [nextPoll] = useState(() => createAnalysisPoller())
   // 편집기가 저장할 때마다 캐시의 version을 올린다 (useApplySavedNote).
   const savedVersion = useNote(noteId).data?.version
@@ -104,7 +125,9 @@ export function useNoteAnalysis(noteId: string) {
     queryFn: ({ signal }) => getNoteAnalysis(noteId, signal),
     refetchInterval: (query) =>
       // 노트가 지워졌으면 멈춘다
-      isApiError(query.state.error, 'NOT_FOUND') ? false : nextPoll(query.state.data, savedVersion),
+      !polling || isApiError(query.state.error, 'NOT_FOUND')
+        ? false
+        : nextPoll(query.state.data, savedVersion),
   })
 }
 
@@ -114,20 +137,32 @@ export function useRequestAnalysis(noteId: string) {
   return useMutation({
     mutationFn: () => requestNoteAnalysis(noteId),
     onSuccess: (job) => qc.setQueryData(keys.noteAnalysis(noteId), job),
+    // AI가 꺼졌으면 기능 여부를 다시 받아 화면을 AI-off로 바꾼다
+    onError: (e) => {
+      if (isApiError(e, 'AI_UNAVAILABLE'))
+        void qc.invalidateQueries({ queryKey: keys.capabilities })
+    },
   })
 }
 
+/** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
+export function useGraph(enabled: boolean) {
+  return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal), enabled })
+}
+
 /** 노트 옆 패널의 개념·관계 (F-GRA-03) */
-export function useNoteGraph(noteId: string) {
+export function useNoteGraph(noteId: string, enabled: boolean) {
   return useQuery({
     queryKey: keys.noteGraph(noteId),
     queryFn: ({ signal }) => getNoteGraph(noteId, signal),
+    enabled,
   })
 }
 
 /**
  * 저장된 노트를 캐시에 반영한다. 사이드바 목록의 제목도 다시 불러오지 않고 바로 바꾼다.
- * 저장하면 BE가 분석 작업을 만드므로, 폴링 중이 아니면 분석 상태를 다시 받아 폴링을 시작한다.
+ * 분석이 켜져 있고 폴링 중이 아니면 분석 상태를 한 번 다시 받는다. BE가 저장 때 작업을 만들었으면 거기서 폴링이 시작되고,
+ * 아직 없으면 폴링이 새 작업을 기다린다 (createAnalysisPoller). AI-off면 받지 않는다.
  */
 export function useApplySavedNote() {
   const qc = useQueryClient()
@@ -141,8 +176,11 @@ export function useApplySavedNote() {
             : n,
         ),
       )
+      // 그래프의 근거 노트 제목. 그래프 화면이 닫혀 있으면 표시만 해 두고 열 때 받는다.
+      void qc.invalidateQueries({ queryKey: keys.graph })
+      const capabilities = qc.getQueryData<Capabilities>(keys.capabilities)
       const job = qc.getQueryData<AnalysisJob | null>(keys.noteAnalysis(note.id))
-      if (!isAnalysisActive(job))
+      if (capabilities?.analysisEnabled && !isAnalysisActive(job))
         void qc.invalidateQueries({ queryKey: keys.noteAnalysis(note.id) })
     },
     [qc],
@@ -250,6 +288,8 @@ export function useDeleteTopic() {
       qc.removeQueries({ queryKey: keys.notesIn(topicId) })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
+      // 근거 노트의 주제가 미분류로 바뀐다
+      void qc.invalidateQueries({ queryKey: keys.graph })
     },
   })
 }
@@ -274,6 +314,7 @@ export function useMoveNote() {
       )
       // version은 그대로지만 근거의 주제가 바뀌어 BE가 다시 분석한다.
       void qc.invalidateQueries({ queryKey: keys.noteAnalysis(moved.id) })
+      void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },
@@ -288,6 +329,7 @@ export function useDeleteNote() {
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
       qc.removeQueries({ queryKey: keys.noteGraph(noteId) })
+      void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
     },

@@ -4,7 +4,10 @@
 //   숨긴 기호는 한 덩어리(atomic)라 커서가 건너뛰고, 글 맨 앞에서 Backspace를 누르면 통째로 지워져 본문이 된다.
 // - 글이 없는 제목 줄(`## `)에는 `Header 2` 같은 안내 글을 보이고, 거기서 Backspace를 누르면 줄을 지운다.
 // - 줄 안 기호(`**`, `` ` ``, 링크)는 커서가 그 서식에 닿아 있을 때만 드러낸다. 같은 줄의 다른 서식은 그대로 둔다.
+// - 이미지(`![alt](url)`)는 그림으로 보인다. 커서가 닿으면 원문을 드러내고 그림은 그 뒤에 둔다.
+// - 링크는 ⌘/Ctrl+클릭으로 새 탭에서 연다 (그냥 클릭은 편집).
 // 저장되는 것은 언제나 마크다운 원문이다. 여기서는 보이는 모양만 바꾼다.
+// 표는 여러 줄을 한 덩어리로 바꿔 그려야 해서 tablePreview.ts(StateField)에 따로 있다.
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import {
   Prec,
@@ -22,6 +25,31 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view'
+import type { SyntaxNode, Tree } from '@lezer/common'
+
+/** 열어도 되는 링크 주소 */
+const LINK_PROTOCOLS = ['http:', 'https:', 'mailto:']
+/** 불러와 보여도 되는 이미지 주소 */
+const IMAGE_PROTOCOLS = ['http:', 'https:']
+
+/**
+ * 마크다운 링크 주소를 허용한 프로토콜의 절대 주소로. 아니면 null (javascript: 등을 막는다)
+ * 마크다운이 링크로 보는 `<주소>`(괄호 감싼 주소)·`www.…`·`이름@도메인`도 연다.
+ */
+export function safeUrl(raw: string, protocols: readonly string[]): string | null {
+  let target = raw.trim().replace(/^<([\s\S]*)>$/, '$1')
+  if (/^www\./i.test(target)) target = `https://${target}`
+  else if (/^[^\s@/:<>]+@[^\s@/:<>]+\.[^\s@/:<>]+$/.test(target)) target = `mailto:${target}`
+  try {
+    const url = new URL(target)
+    return protocols.includes(url.protocol) ? url.href : null
+  } catch {
+    return null
+  }
+}
+
+const MOD_KEY =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl'
 
 class BulletWidget extends WidgetType {
   eq() {
@@ -98,6 +126,44 @@ class HeadingPlaceholderWidget extends WidgetType {
   }
 }
 
+/**
+ * 이미지 `![alt](url)`. 그림을 못 불러오면 alt 글을 보인다.
+ * 누르면 편집기가 커서를 옮기도록(ignoreEvent false) 해서, 커서가 닿으면 원문이 드러난다.
+ */
+class ImageWidget extends WidgetType {
+  readonly src: string
+  readonly alt: string
+  constructor(src: string, alt: string) {
+    super()
+    this.src = src
+    this.alt = alt
+  }
+  eq(other: ImageWidget) {
+    return other.src === this.src && other.alt === this.alt
+  }
+  toDOM(view: EditorView) {
+    const wrap = document.createElement('span')
+    wrap.className = 'cm-lp-image'
+    const img = document.createElement('img')
+    img.src = this.src
+    img.alt = this.alt
+    img.loading = 'lazy'
+    img.referrerPolicy = 'no-referrer'
+    // 그림이 들어오면 줄 높이가 바뀌므로 편집기에 다시 재게 한다
+    img.addEventListener('load', () => view.requestMeasure())
+    img.addEventListener('error', () => {
+      wrap.classList.add('cm-lp-image-broken')
+      wrap.textContent = this.alt || '이미지를 불러오지 못했습니다'
+      view.requestMeasure()
+    })
+    wrap.append(img)
+    return wrap
+  }
+  ignoreEvent() {
+    return false
+  }
+}
+
 /** `## `처럼 기호와 공백만 있고 글이 없는 제목 줄 */
 const EMPTY_HEADING = /^ {0,3}#{1,6}[ \t]+$/
 
@@ -115,6 +181,19 @@ const INLINE_MARKS: Record<string, string> = {
   Strikethrough: 'cm-lp-strike',
   InlineCode: 'cm-lp-code',
   Link: 'cm-lp-link',
+  Autolink: 'cm-lp-link',
+}
+
+/** URL 노드가 이 안에 있으면 따로 다룬다. 그 밖의 URL은 GFM 맨 주소(`https://…`)다 */
+const URL_OWNERS = new Set(['Link', 'Image', 'Autolink', 'LinkReference'])
+
+/** 링크 서식. 마우스를 올리면 주소와 여는 법을 보인다 */
+function linkMark(url: string | null) {
+  if (!url) return mark('cm-lp-link')
+  return Decoration.mark({
+    class: 'cm-lp-link',
+    attributes: { title: `${url}\n${MOD_KEY}+클릭으로 열기` },
+  })
 }
 
 /** 커서·선택이 걸친 줄 번호 */
@@ -165,11 +244,23 @@ export function buildDecorations(
       const name = node.name
       const parentNode = node.node.parent
 
-      const heading = /^ATXHeading([1-6])$/.exec(name)
+      const heading = /^(ATX|Setext)Heading([1-6])$/.exec(name)
       if (heading) {
-        const level = Number(heading[1])
+        const level = Number(heading[2])
+        const headingLine = line(`cm-lp-h${Math.min(level, 4)}`)
+        if (heading[1] === 'Setext') {
+          // 글이 여러 줄일 수 있다. 밑줄(`===`·`---`) 줄은 HeaderMark에서 다룬다
+          const underline = node.node.getChild('HeaderMark')
+          const textEnd = underline ? doc.lineAt(underline.from).from - 1 : node.to
+          for (let pos = node.from; pos <= textEnd;) {
+            const l = doc.lineAt(pos)
+            decos.push(headingLine.range(l.from))
+            pos = l.to + 1
+          }
+          return
+        }
         const l = doc.lineAt(node.from)
-        decos.push(line(`cm-lp-h${Math.min(level, 4)}`).range(l.from))
+        decos.push(headingLine.range(l.from))
         if (EMPTY_HEADING.test(l.text)) {
           const placeholder = new HeadingPlaceholderWidget(level)
           decos.push(Decoration.widget({ widget: placeholder, side: 1 }).range(l.to))
@@ -177,14 +268,50 @@ export function buildDecorations(
         return
       }
 
+      if (name === 'Image') {
+        decorateImage(node.node)
+        return false
+      }
+
+      // 표는 tablePreview가 표로 그리거나, 고정폭 원문으로 칸을 맞춰 보인다. 칸 안 기호를 숨기면 칸이 어긋난다
+      if (name === 'Table') return false
+
+      if (name === 'Escape') {
+        // `\*`의 \는 커서가 닿을 때만
+        if (!touches(node.from, node.to)) decos.push(hide.range(node.from, node.from + 1))
+        return
+      }
+
+      if (name === 'URL' && !(parentNode && URL_OWNERS.has(parentNode.name))) {
+        const url = doc.sliceString(node.from, node.to)
+        decos.push(linkMark(safeUrl(url, LINK_PROTOCOLS)).range(node.from, node.to))
+        return
+      }
+
       if (name in INLINE_MARKS) {
-        if (node.from < node.to) decos.push(mark(INLINE_MARKS[name]).range(node.from, node.to))
+        if (node.from < node.to) {
+          const deco =
+            name === 'Link' || name === 'Autolink'
+              ? linkMark(linkTarget(state, node.node))
+              : mark(INLINE_MARKS[name])
+          decos.push(deco.range(node.from, node.to))
+        }
         return
       }
 
       switch (name) {
         case 'HeaderMark': {
           const l = doc.lineAt(node.from)
+          if (parentNode?.name.startsWith('SetextHeading')) {
+            // 밑줄 줄: 커서가 있으면 흐리게 드러내고, 없으면 줄째 접는다
+            if (active.has(l.number)) {
+              decos.push(line('cm-lp-setext-mark').range(l.from))
+            } else {
+              decos.push(line('cm-lp-setext-hidden').range(l.from))
+              if (l.from < l.to) decos.push(hide.range(l.from, l.to))
+            }
+            return
+          }
           if (doc.sliceString(l.from, node.from).trim() === '') {
             replaceBlockMark(node.from, node.to)
           } else if (!active.has(l.number)) {
@@ -199,10 +326,12 @@ export function buildDecorations(
         case 'StrikethroughMark':
         case 'CodeMark':
         case 'LinkMark':
+        case 'LinkLabel':
         case 'URL':
         case 'LinkTitle':
-          // 커서가 닿은 서식 하나만 기호를 드러낸다
+          // 커서가 닿은 서식 하나만 기호를 드러낸다. `<주소>`는 주소가 곧 글이라 <>만 숨긴다
           if (parentNode && parentNode.name in INLINE_MARKS) {
+            if (name === 'URL' && parentNode.name === 'Autolink') return
             if (!touches(parentNode.from, parentNode.to)) decos.push(hide.range(node.from, node.to))
           }
           return
@@ -243,6 +372,25 @@ export function buildDecorations(
     },
   })
 
+  /**
+   * 이미지: 커서가 닿지 않으면 원문을 그림으로 바꾼다. 닿으면 원문을 흐리게 드러내고 그림은 바로 뒤에 둔다
+   * (편집하는 동안 그림이 사라졌다 나타나며 줄이 출렁이지 않게). 주소가 http(s)가 아니면 원문만 둔다.
+   */
+  function decorateImage(image: SyntaxNode) {
+    const urlNode = image.getChild('URL')
+    const src = urlNode && safeUrl(doc.sliceString(urlNode.from, urlNode.to), IMAGE_PROTOCOLS)
+    if (!src) return
+    const closeBracket = image.getChildren('LinkMark')[1]
+    const alt = closeBracket ? doc.sliceString(image.from + 2, closeBracket.from) : ''
+    const widget = new ImageWidget(src, alt)
+    if (touches(image.from, image.to)) {
+      decos.push(mark('cm-lp-image-src').range(image.from, image.to))
+      decos.push(Decoration.widget({ widget, side: 1 }).range(image.to))
+    } else {
+      decos.push(Decoration.replace({ widget }).range(image.from, image.to))
+    }
+  }
+
   /** 코드 블록: 모든 줄에 배경. 커서가 블록 밖이면 ``` 줄은 글자를 숨기고 여백으로만 남긴다 */
   function decorateFencedCode(start: number, end: number) {
     const first = doc.lineAt(start)
@@ -278,6 +426,89 @@ export function buildDecorations(
 
   return Decoration.set(decos, true)
 }
+
+/** 링크 참조 이름 비교용 (대소문자·공백 차이를 무시한다) */
+const normalizeLabel = (label: string) =>
+  label
+    .replace(/^\[|\]$/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+
+/** 링크 참조 정의는 이 안에 없으므로 들어가지 않는다 */
+const NO_REFERENCES =
+  /^(Paragraph|FencedCode|CodeBlock|HTMLBlock|Table|ATXHeading\d|SetextHeading\d)$/
+
+/** 구문 트리마다 한 번만 모은 `[이름]: 주소` 정의 (커서만 움직이면 트리가 같아 다시 모으지 않는다) */
+const referenceCache = new WeakMap<Tree, Map<string, string>>()
+
+function referenceUrl(state: EditorState, label: string): string | null {
+  const tree = syntaxTree(state)
+  let refs = referenceCache.get(tree)
+  if (!refs) {
+    const found = new Map<string, string>()
+    tree.iterate({
+      enter(node) {
+        if (NO_REFERENCES.test(node.name)) return false
+        if (node.name !== 'LinkReference') return
+        const name = node.node.getChild('LinkLabel')
+        const url = node.node.getChild('URL')
+        // 같은 이름이 여럿이면 처음 것 (CommonMark)
+        const key = name && normalizeLabel(state.sliceDoc(name.from, name.to))
+        if (key && url && !found.has(key)) found.set(key, state.sliceDoc(url.from, url.to))
+        return false
+      },
+    })
+    refs = found
+    referenceCache.set(tree, refs)
+  }
+  return refs.get(normalizeLabel(label)) ?? null
+}
+
+/** Link·Autolink 노드가 가리키는 주소 원문. `[글][1]`·`[글][]`·`[글]` 참조 링크도 정의를 찾아 푼다 */
+function linkTarget(state: EditorState, link: SyntaxNode): string | null {
+  const url = link.getChild('URL')
+  if (url) return state.sliceDoc(url.from, url.to)
+  if (link.name !== 'Link') return null
+  const label = link.getChild('LinkLabel')
+  if (label && label.to - label.from > 2)
+    return referenceUrl(state, state.sliceDoc(label.from, label.to))
+  // `[글][]`·`[글]`: 글 자체가 이름
+  const close = link.getChildren('LinkMark')[1]
+  return close ? referenceUrl(state, state.sliceDoc(link.from + 1, close.from)) : null
+}
+
+/** pos에 있는 링크(링크·<주소>·맨 주소)의 열어도 되는 주소. 없으면 null */
+export function linkAt(state: EditorState, pos: number): string | null {
+  const tree = syntaxTree(state)
+  for (const side of [1, -1] as const) {
+    for (let n: SyntaxNode | null = tree.resolveInner(pos, side); n; n = n.parent) {
+      if (n.name === 'Link' || n.name === 'Autolink') {
+        const target = linkTarget(state, n)
+        return target && safeUrl(target, LINK_PROTOCOLS)
+      }
+      if (n.name === 'URL' && !(n.parent && URL_OWNERS.has(n.parent.name))) {
+        return safeUrl(state.sliceDoc(n.from, n.to), LINK_PROTOCOLS)
+      }
+    }
+  }
+  return null
+}
+
+/** ⌘/Ctrl+클릭한 곳이 링크면 새 탭에서 연다. 링크가 아니면 편집기 기본 동작(커서 추가)에 맡긴다 */
+const openLinkOnModClick = EditorView.domEventHandlers({
+  mousedown(event, view) {
+    // Mac의 Ctrl+클릭은 우클릭 메뉴라서 ⌘만 본다
+    if (event.button !== 0 || !(MOD_KEY === '⌘' ? event.metaKey : event.ctrlKey)) return false
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+    if (pos == null) return false
+    const href = linkAt(view.state, pos)
+    if (!href) return false
+    event.preventDefault()
+    window.open(href, '_blank', 'noopener,noreferrer')
+    return true
+  },
+})
 
 /** 숨기거나 바꿔 그린 범위만 골라낸다. 커서는 이 안에 들어가지 않고, Backspace·Delete는 통째로 지운다 */
 export function atomicRanges(decorations: DecorationSet): DecorationSet {
@@ -359,4 +590,5 @@ export const livePreview = [
   // markdownKeymap의 Backspace(기호 지우기)보다 먼저
   Prec.high(keymap.of([{ key: 'Backspace', run: deleteEmptyHeadingLine }])),
   EditorView.atomicRanges.of((view) => view.plugin(livePreviewPlugin)?.atomic ?? Decoration.none),
+  openLinkOnModClick,
 ]

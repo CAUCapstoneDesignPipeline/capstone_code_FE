@@ -10,7 +10,7 @@ let token: string
  * 저장 후 자동 분석은 테스트 안에서 시작되지 않을 만큼 늦추고(중간 상태를 확인할 수 있게),
  * 분석은 analyzeNow(명시적 요청)로 바로 돌린다.
  */
-async function start(analysis: { fail?: boolean } = {}) {
+async function start(analysis: { fail?: boolean; off?: boolean } = {}) {
   server = createMockServer({ analysis: { debounceMs: 10_000, runMs: 20, ...analysis } })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -363,5 +363,82 @@ describe('노트별 개념·관계 (draft)', () => {
     expect(a.concepts[0].mentions).toHaveLength(2)
     expect(a.relations).toEqual([])
     expect(b).toEqual(a)
+  })
+})
+
+describe('그래프 보기 (draft)', () => {
+  it('노트별 결과를 합치고, 같은 개념은 하나의 노드에 근거 노트를 모은다 (계약 제안: nodes[].notes)', async () => {
+    const net = (await call('POST', '/topics', { name: '네트워크' })).data
+    const db = (await call('POST', '/topics', { name: 'DB' })).data
+    const a = (await call('POST', '/notes', { title: '재시도', topicId: net.id })).data
+    await call('PUT', `/notes/${a.id}`, {
+      title: '재시도',
+      body: '**재전송**은 **중복 실행**이 되면 위험하다.',
+      version: 0,
+    })
+    const b = (await call('POST', '/notes', { title: '멱등성', topicId: db.id })).data
+    await call('PUT', `/notes/${b.id}`, {
+      title: '멱등성',
+      body: '**중복 실행**은 **중복 행**을 만들 때문.',
+      version: 0,
+    })
+    await analyzeNow(a.id)
+    await analyzeNow(b.id)
+
+    const g = (await call('GET', '/graph')).data
+    expect(g.scope).toBe('all')
+    expect(g.nodes.map((n: { label: string }) => n.label).sort()).toEqual(
+      ['재전송', '중복 실행', '중복 행'].sort(),
+    )
+    const bridge = g.nodes.find((n: { label: string }) => n.label === '중복 실행')
+    expect(bridge.notes).toEqual([
+      { id: a.id, title: '재시도', topicId: net.id },
+      { id: b.id, title: '멱등성', topicId: db.id },
+    ])
+    expect(g.edges).toHaveLength(2)
+    expect(g.edges[0]).toMatchObject({ origin: 'extracted', status: 'active', asHypothesis: false })
+
+    const topic = (await call('GET', `/graph?scope=topic&topicId=${db.id}`)).data
+    expect(topic.nodes).toHaveLength(2)
+    expect(topic.edges).toHaveLength(1)
+    expect((await call('GET', `/graph?scope=note&noteId=${a.id}`)).data.nodes).toHaveLength(2)
+  })
+
+  it('scope가 틀리거나 필요한 id가 없으면 400', async () => {
+    expect(errorCode(await call('GET', '/graph?scope=x'))).toBe('VALIDATION_FAILED')
+    expect(errorCode(await call('GET', '/graph?scope=topic'))).toBe('VALIDATION_FAILED')
+  })
+})
+
+describe('AI 기능 여부 (AI-off 계약)', () => {
+  it('기본은 분석·그래프를 켠 상태이고, 로그인 없이 받는다', async () => {
+    expect((await call('GET', '/capabilities', undefined, false)).data).toEqual({
+      analysisEnabled: true,
+      graphEnabled: true,
+      discoveriesEnabled: false,
+    })
+  })
+
+  it('--ai-off: 지금 BE처럼 모두 꺼지고, 저장해도 작업이 없고, 분석 요청은 503, 그래프 경로는 404', async () => {
+    await stop()
+    await start({ off: true })
+    expect((await call('GET', '/capabilities', undefined, false)).data).toEqual({
+      analysisEnabled: false,
+      graphEnabled: false,
+      discoveriesEnabled: false,
+    })
+    const n = await noteWith('**A**와 **B**')
+    expect((await call('GET', `/notes/${n.id}/analysis`)).data).toEqual({ job: null })
+    const r = await call('POST', `/notes/${n.id}/analysis`)
+    expect(r.status).toBe(503)
+    expect(r.data.error).toMatchObject({
+      code: 'AI_UNAVAILABLE',
+      details: { reason: 'NOT_DEPLOYED' },
+    })
+    expect((await call('GET', `/notes/${n.id}/graph`)).status).toBe(404)
+    expect((await call('GET', '/graph')).status).toBe(404)
+    expect(
+      errorCode(await call('POST', '/notes/00000000-0000-4000-8000-000000000999/analysis')),
+    ).toBe('NOT_FOUND')
   })
 })

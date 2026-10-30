@@ -163,3 +163,77 @@
   font-size: 0;
   line-height: var(--space-12);
 }
+
+/* Setext 제목 밑줄(=== ---): 커서가 있으면 흐리게, 없으면 줄째 접는다 */
+.editor :global(.cm-lp-setext-mark) {
+  color: var(--color-ink-muted);
+}
+
+.editor :global(.cm-lp-setext-hidden) {
+  height: 0;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+}
+
+/* 이미지: 폭에 맞춰 줄이고, 못 불러오면 alt 글을 흐리게 */
+.editor :global(.cm-lp-image) {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+.editor :global(.cm-lp-image img) {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--radius-card);
+}
+
+.editor :global(.cm-lp-image-broken) {
+  color: var(--color-ink-muted);
+  font-style: italic;
+}
+
+/* 커서가 닿아 원문이 드러난 이미지 */
+.editor :global(.cm-lp-image-src) {
+  color: var(--color-ink-muted);
+}
+
+/* 표 */
+.editor :global(.cm-lp-table-wrap) {
+  overflow-x: auto;
+  padding: var(--space-4) 0;
+}
+
+.editor :global(.cm-lp-table) {
+  border-collapse: collapse;
+}
+
+.editor :global(.cm-lp-table th),
+.editor :global(.cm-lp-table td) {
+  padding: var(--space-4) var(--space-12);
+  border: 1px solid var(--color-border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.editor :global(.cm-lp-table th) {
+  background: var(--color-surface-card);
+  font-weight: 700;
+}
+
+.editor :global(.cm-lp-table .cm-lp-del) {
+  text-decoration: line-through;
+}
+
+/* 커서가 표 안이라 원문이 드러났을 때: 고정폭으로 칸을 맞춰 보이게 */
+.editor :global(.cm-lp-table-src) {
+  font: var(--text-code-block);
+}
+
+/* 근거 문장 강조 (F-GRA-03): 표시만 한다. 오류색 없이 surface-selected + ink 밑줄 */
+.editor :global(.cm-evidence) {
+  border-radius: 2px;
+  background: var(--color-surface-selected);
+  box-shadow: inset 0 -2px 0 var(--color-ink);
+}
