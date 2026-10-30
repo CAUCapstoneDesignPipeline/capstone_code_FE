@@ -143,11 +143,27 @@
 .evidence {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-4);
+  width: 100%;
   margin: 0;
   padding: var(--space-8) var(--space-12);
+  border: none;
   border-left: 2px solid var(--color-ink);
+  border-radius: 0;
   background: var(--color-surface-emphasis);
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.evidence:hover,
+.evidence[aria-pressed='true'] {
+  background: var(--color-surface-selected);
+}
+
+.evidence:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
 }
 
 .quote {

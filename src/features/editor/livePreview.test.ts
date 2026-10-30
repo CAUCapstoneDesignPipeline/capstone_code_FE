@@ -1,7 +1,13 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
-import { atomicRanges, buildDecorations, deleteEmptyHeadingLine } from './livePreview'
+import {
+  atomicRanges,
+  buildDecorations,
+  deleteEmptyHeadingLine,
+  linkAt,
+  safeUrl,
+} from './livePreview'
 
 /** 문서와 커서 위치(줄 번호, 1부터)로 장식을 만들고 알아보기 쉬운 모양으로 돌려준다 */
 function decorate(doc: string, cursorLine: number, focused = true) {
@@ -216,5 +222,144 @@ describe('빈 제목 줄', () => {
 
   it('코드 블록 안의 # 줄은 제목이 아니므로 지우지 않는다', () => {
     expect(backspace('```\n# \n```', 6).handled).toBe(false)
+  })
+})
+
+describe('Setext 제목', () => {
+  it('글 줄에 제목 크기를 입히고, 커서가 없으면 밑줄 줄을 접는다', () => {
+    const d = decorate('큰 제목\n===\n\n작은 제목\n---\n\n끝', 7)
+    expect(d.lines[1]).toBe('cm-lp-h1')
+    expect(d.lines[2]).toBe('cm-lp-setext-hidden')
+    expect(d.lines[4]).toBe('cm-lp-h2')
+    expect(d.lines[5]).toBe('cm-lp-setext-hidden')
+    expect(d.hidden).toEqual(['===', '---'])
+  })
+
+  it('커서가 밑줄 줄에 있으면 흐리게 드러낸다', () => {
+    const d = decorate('큰 제목\n===', 2)
+    expect(d.lines[2]).toBe('cm-lp-setext-mark')
+    expect(d.hidden).toEqual([])
+  })
+
+  it('여러 줄 글이면 줄마다 제목 크기를 입힌다', () => {
+    const d = decorate('첫 줄\n둘째 줄\n===\n\n끝', 5)
+    expect(d.lines[1]).toBe('cm-lp-h1')
+    expect(d.lines[2]).toBe('cm-lp-h1')
+  })
+})
+
+/** 이미지 위젯을 [위치, 바꿔 그린 원문(끼워 넣은 위젯이면 ''), src] 로 */
+function images(doc: string, cursor: number) {
+  const base = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] })
+  const state = base.update({ selection: EditorSelection.cursor(cursor) }).state
+  const out: [number, string, string][] = []
+  buildDecorations(state).between(0, doc.length, (from, to, deco) => {
+    const widget = deco.spec.widget as { src?: string } | undefined
+    if (widget?.src) out.push([from, doc.slice(from, to), widget.src])
+  })
+  return out
+}
+
+describe('이미지', () => {
+  const doc = '![고양이](https://example.com/cat.png)\n끝'
+  const src = 'https://example.com/cat.png'
+
+  it('커서가 없으면 원문을 그림으로 바꾼다', () => {
+    expect(images(doc, doc.length)).toEqual([[0, doc.split('\n')[0], src]])
+  })
+
+  it('커서가 닿으면 원문을 두고 그림을 바로 뒤에 끼운다', () => {
+    const imageEnd = doc.indexOf('\n')
+    expect(images(doc, 3)).toEqual([[imageEnd, '', src]])
+    expect(decorate(doc, 1).marks).toContainEqual(['cm-lp-image-src', doc.slice(0, imageEnd)])
+  })
+
+  it('http(s)가 아닌 주소는 그림으로 그리지 않는다', () => {
+    expect(images('![x](javascript:alert(1))\n끝', 20)).toEqual([])
+    expect(images('![x](./local.png)\n끝', 18)).toEqual([])
+  })
+})
+
+describe('링크', () => {
+  it('<주소>와 맨 주소도 링크 모양을 입히고, <> 는 숨긴다', () => {
+    const d = decorate('<https://a.com> 과 https://b.com\n끝', 2)
+    // 겹치는 장식은 층이 나뉘어 순서가 위치순이 아니다
+    expect(d.marks).toHaveLength(2)
+    expect(d.marks).toEqual(
+      expect.arrayContaining([
+        ['cm-lp-link', '<https://a.com>'],
+        ['cm-lp-link', 'https://b.com'],
+      ]),
+    )
+    expect(d.hidden).toEqual(['<', '>'])
+  })
+
+  it('참조 링크는 [1] 이름까지 숨긴다', () => {
+    const d = decorate('[글][1]\n\n[1]: https://c.com', 3)
+    expect(d.hidden).toEqual(['[', ']', '[1]'])
+  })
+})
+
+describe('linkAt', () => {
+  const at = (doc: string, pos: number) =>
+    linkAt(EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] }), pos)
+
+  it('링크 글 위면 그 주소', () => {
+    expect(at('보기: [문서](https://example.com/a) 끝', 6)).toBe('https://example.com/a')
+  })
+
+  it('<주소>와 맨 주소', () => {
+    expect(at('<https://a.com>', 5)).toBe('https://a.com/')
+    expect(at('여기 https://b.com/x 참고', 8)).toBe('https://b.com/x')
+  })
+
+  it('참조 링크는 정의에서 주소를 찾는다 (이름 대소문자 무시)', () => {
+    const doc = '[글][Ref] 와 [Ref]\n\n[ref]: https://c.com'
+    expect(at(doc, 1)).toBe('https://c.com/')
+    expect(at(doc, doc.indexOf('[Ref]', 6) + 2)).toBe('https://c.com/')
+  })
+
+  it('링크가 아니거나 열면 안 되는 주소는 null', () => {
+    expect(at('그냥 글', 1)).toBeNull()
+    expect(at('[나쁜](javascript:alert(1))', 2)).toBeNull()
+  })
+})
+
+describe('safeUrl', () => {
+  const allow = ['http:', 'https:', 'mailto:']
+  it('<주소>·www.·이메일도 열 수 있는 주소로', () => {
+    expect(safeUrl('<https://x.com/a b>', allow)).toBe('https://x.com/a%20b')
+    expect(safeUrl('www.example.com', allow)).toBe('https://www.example.com/')
+    expect(safeUrl('foo@bar.com', allow)).toBe('mailto:foo@bar.com')
+  })
+  it('허용하지 않은 프로토콜·상대 주소는 null', () => {
+    expect(safeUrl('javascript:alert(1)', allow)).toBeNull()
+    expect(safeUrl('./a.png', allow)).toBeNull()
+  })
+})
+
+describe('리뷰 반영', () => {
+  const at = (doc: string, pos: number) =>
+    linkAt(EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] }), pos)
+
+  it('<이메일>과 www. 맨 주소도 ⌘+클릭으로 연다', () => {
+    expect(at('<foo@bar.com>', 3)).toBe('mailto:foo@bar.com')
+    expect(at('여기 www.example.com 참고', 6)).toBe('https://www.example.com/')
+  })
+
+  it('목록 안의 참조 정의도 찾는다', () => {
+    const doc = '[글][1]\n\n- 항목\n\n  [1]: https://c.com'
+    expect(at(doc, 1)).toBe('https://c.com/')
+  })
+
+  it('이스케이프 \\ 는 커서가 닿지 않으면 숨긴다', () => {
+    expect(decorate('\\*별표 아님\n끝', 2).hidden).toEqual(['\\'])
+    expect(decorate('\\*별표 아님\n끝', 1).hidden).toEqual([])
+  })
+
+  it('표 안의 서식 기호는 숨기지 않는다 (원문 칸 맞춤)', () => {
+    const d = decorate('| **a** | [x](https://y.com) |\n|---|---|\n\n끝', 4)
+    expect(d.hidden).toEqual([])
+    expect(d.marks).toEqual([])
   })
 })

@@ -1,11 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
-import { capabilityEnabled, isApiError } from '../../api'
+import { useCallback, useEffect, useRef } from 'react'
+import { isApiError } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
 import { keys, useCapabilities, useNote, useNoteAnalysis } from '../../data/queries'
-import { NoteEditor, type LeaveGuard } from '../editor/NoteEditor'
-import { NoteGraphPanel } from '../graph/NoteGraphPanel'
+import { NoteEditor, type LeaveGuard, type NoteEditorHandle } from '../editor/NoteEditor'
+import { NoteGraphPanel, type ShowEvidence } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
 
 interface Props {
@@ -49,17 +49,17 @@ function LoadedNote({
   onNoteGone,
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
-  const capabilities = useCapabilities()
-  const analysisEnabled =
-    capabilities.isSuccess &&
-    !capabilities.isFetching &&
-    capabilityEnabled(capabilities.data?.analysisEnabled)
-  const graphEnabled =
-    capabilities.isSuccess &&
-    !capabilities.isFetching &&
-    capabilityEnabled(capabilities.data?.graphEnabled)
   // 편집기 상단 막대와 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
+  const capabilities = useCapabilities()
+  const analysisEnabled = capabilities?.analysisEnabled === true
+  const graphEnabled = capabilities?.graphEnabled === true
   const analysis = useNoteAnalysis(noteId, analysisEnabled)
+  // 패널에서 고른 근거를 편집기에 강조한다 (F-GRA-03)
+  const editorRef = useRef<NoteEditorHandle>(null)
+  const showEvidence = useCallback<ShowEvidence>(
+    (evidence) => editorRef.current?.showEvidence(evidence) ?? null,
+    [],
+  )
   const qc = useQueryClient()
   const toast = useToast()
   const missing = !note.data && isApiError(note.error, 'NOT_FOUND')
@@ -78,6 +78,7 @@ function LoadedNote({
     return (
       <div className={graphEnabled ? styles.withPanel : styles.pane}>
         <NoteEditor
+          ref={editorRef}
           note={note.data}
           registerLeaveGuard={registerLeaveGuard}
           onDeleted={onNoteGone}
@@ -87,7 +88,7 @@ function LoadedNote({
           <NoteGraphPanel
             noteId={noteId}
             job={analysisEnabled ? analysis.data : undefined}
-            analysisEnabled={analysisEnabled}
+            onShowEvidence={showEvidence}
           />
         )}
       </div>

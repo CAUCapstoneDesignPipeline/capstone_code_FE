@@ -4,10 +4,11 @@
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
-// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis]
+// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off]
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
 //   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
 //   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번).
+//   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프 경로는 404.
 
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
@@ -351,6 +352,64 @@ export function createStore(analysisOptions) {
       return analysis.request(noteOr404(id))
     },
 
+    /**
+     * 그래프 보기 (draft, F-VIZ-01). scope=all·topic·note. 노트별 결과를 합쳐 개념은 노드, 관계는 간선으로 준다.
+     * 계약 제안(미확정): 노드에 근거 노트(notes: [{ id, title, topicId }])를 붙인다. 주제별 색과 노드 → 노트 이동에 쓴다.
+     * @param {URLSearchParams} params
+     */
+    getGraph(params) {
+      const scope = params.get('scope') ?? 'all'
+      if (!['all', 'topic', 'note'].includes(scope))
+        throw invalid('scope', 'invalid', 'scope가 올바르지 않습니다.')
+      /** @type {(note: Note) => boolean} */
+      let inScope = () => true
+      if (scope === 'topic') {
+        const topicId = params.get('topicId')
+        if (!topicId) throw invalid('topicId', 'invalid', 'topicId가 필요합니다.')
+        if (topicId !== 'none') topicOr404(topicId)
+        inScope = (n) => n.topicId === (topicId === 'none' ? null : topicId)
+      } else if (scope === 'note') {
+        const noteId = params.get('noteId')
+        if (!noteId) throw invalid('noteId', 'invalid', 'noteId가 필요합니다.')
+        noteOr404(noteId)
+        inScope = (n) => n.id === noteId
+      }
+
+      /** @type {Map<string, { id: string, label: string, notes: { id: string, title: string, topicId: string | null }[] }>} */
+      const nodes = new Map()
+      /** @type {Map<string, any>} */
+      const edges = new Map()
+      for (const [noteId, result] of analysis.allResults()) {
+        const note = notes.get(noteId)
+        if (!note || !inScope(note)) continue
+        const ref = { id: note.id, title: note.title, topicId: note.topicId }
+        for (const c of result.concepts) {
+          const node = nodes.get(c.id) ?? { id: c.id, label: c.label, notes: [] }
+          node.notes.push(ref)
+          nodes.set(c.id, node)
+        }
+        for (const r of result.relations) {
+          // 같은 관계가 여러 노트에서 나오면 하나의 간선이다. 노트 순서와 관계없이
+          // 확정이 추출보다, 근거가 남은 쪽이 근거 소실보다 앞선다.
+          const prev = edges.get(r.id)
+          const confirmed = prev?.origin === 'confirmed' || r.origin === 'confirmed'
+          edges.set(r.id, {
+            id: r.id,
+            sourceId: r.source.id,
+            targetId: r.target.id,
+            type: r.type,
+            origin: confirmed ? 'confirmed' : 'extracted',
+            status: prev?.status === 'active' || r.status === 'active' ? 'active' : 'evidence_lost',
+            asHypothesis: confirmed
+              ? (prev?.origin === 'confirmed' && prev.asHypothesis) ||
+                (r.origin === 'confirmed' && r.asHypothesis)
+              : false,
+          })
+        }
+      }
+      return { scope, nodes: [...nodes.values()], edges: [...edges.values()] }
+    },
+
     /** 노트별 개념·관계 (draft). 개념·관계는 마지막으로 성공한 분석의 결과다. @param {string} id */
     getNoteGraph(id) {
       noteOr404(id)
@@ -438,10 +497,10 @@ function readCookie(header, name) {
 
 /**
  * @param {Store} store @param {Auth} auth @param {import('node:http').IncomingMessage} req
- * @param {string[]} parts @param {URLSearchParams} params @param {unknown} body
+ * @param {string[]} parts @param {URLSearchParams} params @param {unknown} body @param {boolean} aiOff
  * @returns {Reply}
  */
-function route(store, auth, req, parts, params, body) {
+function route(store, auth, req, parts, params, body, aiOff) {
   const method = req.method ?? 'GET'
   const [resource, id, sub, ...rest] = parts
   if (rest.length) throw notFound()
@@ -459,8 +518,30 @@ function route(store, auth, req, parts, params, body) {
     throw new HttpError(404, 'NOT_FOUND', `없는 경로입니다: ${method} /${parts.join('/')}`)
   }
 
+  // AI 기능 여부는 로그인 없이 준다 (AI-off 계약)
+  if (resource === 'capabilities' && !id && method === 'GET') {
+    const on = !aiOff
+    return {
+      status: 200,
+      body: { analysisEnabled: on, graphEnabled: on, discoveriesEnabled: false },
+    }
+  }
+
   // 그 밖의 경로는 모두 로그인이 필요하다.
   auth.requireUser(req.headers.authorization)
+
+  if (aiOff) {
+    // 지금 BE(AI-off)처럼: 분석 요청은 503, 그래프 경로는 없다(404). 노트가 없으면 먼저 404.
+    if (resource === 'notes' && id && sub === 'analysis' && method === 'POST') {
+      store.getNote(id)
+      throw new HttpError(503, 'AI_UNAVAILABLE', 'AI 분석은 아직 사용할 수 없습니다.', {
+        reason: 'NOT_DEPLOYED',
+      })
+    }
+    if (resource === 'graph' || (resource === 'notes' && sub === 'graph')) {
+      throw new HttpError(404, 'NOT_FOUND', '요청한 대상을 찾을 수 없습니다.')
+    }
+  }
 
   if (resource === 'topics' && id === 'order' && !sub && method === 'PUT')
     return { status: 200, body: store.reorderTopics(body) }
@@ -470,6 +551,8 @@ function route(store, auth, req, parts, params, body) {
     if (id && method === 'PATCH') return { status: 200, body: store.updateTopic(id, body) }
     if (id && method === 'DELETE') return (store.deleteTopic(id), { status: 204 })
   }
+  if (resource === 'graph' && !id && method === 'GET')
+    return { status: 200, body: store.getGraph(params) }
   if (resource === 'notes') {
     if (!id && method === 'GET') return { status: 200, body: store.listNotes(params) }
     if (!id && method === 'POST') return { status: 201, body: store.createNote(body) }
@@ -527,7 +610,7 @@ export function createMockServer({ delayMs = 0, log = false, analysis } = {}) {
     let reply
     try {
       const body = await readBody(req)
-      reply = route(store, auth, req, parts, url.searchParams, body)
+      reply = route(store, auth, req, parts, url.searchParams, body, analysis?.off === true)
     } catch (e) {
       if (e instanceof HttpError) {
         reply = {
@@ -569,10 +652,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     debounceMs: numberArg(argv, 'analysis-debounce', 5000),
     runMs: numberArg(argv, 'analysis-run', 1500),
     fail: argv.includes('--fail-analysis'),
+    off: argv.includes('--ai-off'),
   }
   createMockServer({ delayMs, log: true, analysis }).listen(port, '127.0.0.1', () => {
     console.log(`가짜 서버: http://localhost:${port}${delayMs ? ` (응답 지연 ${delayMs}ms)` : ''}`)
     if (analysis.fail) console.log('분석은 모두 실패한다 (--fail-analysis).')
+    if (analysis.off) console.log('AI-off: 지금 BE처럼 분석·그래프를 쓸 수 없다 (--ai-off).')
     console.log('데이터는 메모리에만 있다. 끄면 사라진다.')
   })
 }
