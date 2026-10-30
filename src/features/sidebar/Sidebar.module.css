@@ -292,9 +292,3 @@
   color: var(--color-ink);
   font-weight: 700;
 }
-
-/* Figma W3-01 Sidebar/CollapseToggle: 28×28, 모서리 6, 아이콘 18. */
-.sidebarToggle {
-  --layout-icon: 18px;
-  border-radius: 6px;
-}

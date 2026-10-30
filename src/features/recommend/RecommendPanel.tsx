@@ -1,5 +1,6 @@
-import { useState, type Ref } from 'react'
-import { Button, IconButton } from '../../components/Button'
+import { useRef, useState, type Ref } from 'react'
+import { flushSync } from 'react-dom'
+import { Button, PanelToggleButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
 import { ChatView } from './ChatView'
 import styles from './RecommendPanel.module.css'
@@ -38,30 +39,36 @@ export function RecommendPanel({ onCollapse, collapseRef }: Props) {
   const [response, setResponse] = useState<ResponseId | null>(null)
   // 추천으로 돌아갔다 와도 대화를 이어 간다.
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const titleRef = useRef<HTMLHeadingElement>(null)
+
+  /** 화면을 바꾼다. 누른 버튼이 사라지므로 초점을 새 화면의 제목에 두어 처음부터 읽게 한다. */
+  function switchView(next: 'recommend' | 'chat') {
+    flushSync(() => setView(next))
+    titleRef.current?.focus()
+  }
 
   function respond(id: ResponseId) {
     setResponse(id)
     if (id !== 'confused') return
     if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
-    setView('chat')
+    switchView('chat')
   }
 
   return (
     <aside className={styles.panel} aria-labelledby="recommend-panel-title">
       <header className={styles.header}>
-        <h2 id="recommend-panel-title" className={styles.title}>
+        <h2 ref={titleRef} id="recommend-panel-title" className={styles.title} tabIndex={-1}>
           {view === 'recommend' ? '새로운 지식 추천' : '챗봇 · 쉽게 풀어보기'}
         </h2>
         {view === 'chat' && (
-          <Button variant="text-link" onClick={() => setView('recommend')}>
+          <Button variant="text-link" onClick={() => switchView('recommend')}>
             추천으로
           </Button>
         )}
-        <IconButton
+        <PanelToggleButton
           ref={collapseRef}
           icon="panel-right-close"
           label="패널 접기"
-          className={styles.toggle}
           onClick={onCollapse}
         />
       </header>

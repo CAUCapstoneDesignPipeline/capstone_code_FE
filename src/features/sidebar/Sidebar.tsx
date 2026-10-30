@@ -1,6 +1,6 @@
 import { useMemo, useState, type Ref } from 'react'
 import type { Topic } from '../../api'
-import { Button, IconButton } from '../../components/Button'
+import { Button, PanelToggleButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
 import { useToast } from '../../components/toastContext'
 import {
@@ -147,11 +147,10 @@ export function Sidebar(props: Props) {
         CAPSTONE
         <div className={styles.headerRight}>
           <AccountMenu />
-          <IconButton
+          <PanelToggleButton
             ref={collapseRef}
             icon="panel-left-close"
             label="사이드바 접기"
-            className={styles.sidebarToggle}
             onClick={props.onCollapse}
           />
         </div>

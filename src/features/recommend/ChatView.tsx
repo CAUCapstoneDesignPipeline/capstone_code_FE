@@ -15,19 +15,23 @@ interface Props {
 /** Figma W3-03 챗봇 · 쉽게 풀어보기: 컨텍스트 · 대화 · 입력 */
 export function ChatView({ recommendation, messages, onMessagesChange }: Props) {
   const [question, setQuestion] = useState('')
-  const listRef = useRef<HTMLOListElement>(null)
+  const logRef = useRef<HTMLDivElement>(null)
   const turn = messages.filter((m) => m.role === 'user').length
 
-  // 새 말이 오면 맨 아래로 내린다
+  // 말이 늘거나 바뀌면 맨 아래로 내린다
   useEffect(() => {
-    const list = listRef.current
-    if (list) list.scrollTop = list.scrollHeight
-  }, [messages.length])
+    const log = logRef.current
+    if (log) log.scrollTop = log.scrollHeight
+  }, [messages])
 
   function send() {
     const text = question.trim()
     if (!text) return
-    onMessagesChange([...messages, { role: 'user', text }, sampleAnswer(turn)])
+    onMessagesChange([
+      ...messages,
+      { id: crypto.randomUUID(), role: 'user', text },
+      sampleAnswer(turn),
+    ])
     setQuestion('')
   }
 
@@ -56,13 +60,15 @@ export function ChatView({ recommendation, messages, onMessagesChange }: Props) 
 
       <hr className={styles.divider} />
 
-      <ol ref={listRef} className={styles.messages} role="log" aria-label="대화">
-        {messages.map((m, i) => (
-          <li key={i} className={m.role === 'user' ? styles.user : styles.assistant}>
-            <p className={styles.bubble}>{m.text}</p>
-          </li>
-        ))}
-      </ol>
+      <div ref={logRef} className={styles.log} role="log" aria-label="대화">
+        <ol className={styles.messages}>
+          {messages.map((m) => (
+            <li key={m.id} className={m.role === 'user' ? styles.user : styles.assistant}>
+              <p className={styles.bubble}>{m.text}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
 
       <form
         className={styles.input}
@@ -76,12 +82,14 @@ export function ChatView({ recommendation, messages, onMessagesChange }: Props) 
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => {
-            // 한글을 조합하는 중의 Enter는 글자를 확정할 뿐 보내지 않는다
-            if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault()
+            // 한글을 조합하는 중의 Enter는 글자를 확정할 뿐 보내지 않는다.
+            // Safari는 조합을 끝낸 뒤 isComposing 없이 keyCode 229로 Enter를 한 번 더 보낸다.
+            if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) {
+              e.preventDefault()
+            }
           }}
           placeholder="궁금한 점을 입력하세요"
           aria-label="질문"
-          autoFocus
         />
         <Button type="submit" disabled={!question.trim()}>
           보내기

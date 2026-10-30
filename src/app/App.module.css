@@ -16,8 +16,13 @@
   --sidebar-expand-space: 36px;
 }
 
-.panelCollapsed {
+/* 패널을 접었거나 그래프 화면이라 숨겼을 때 */
+.panelHidden {
   --panel-column: 0px;
+}
+
+/* 펴기 버튼이 있을 때만 (그래프 화면에는 없다) */
+.panelExpandable {
   --panel-expand-space: 36px;
 }
 
@@ -42,13 +47,11 @@
   background: var(--color-canvas);
 }
 
-/* 펴기 버튼: 접기 버튼(Figma W3-01 Sidebar/CollapseToggle)과 같은 모양. 상단 막대(44) 가운데, 끝에서 12 */
+/* 펴기 버튼: 상단 막대(44) 가운데, 끝에서 12 */
 .expandButton {
-  --layout-icon: 18px;
   position: absolute;
   top: var(--space-8);
   z-index: 1;
-  border-radius: 6px;
 }
 
 .expandSidebar {
