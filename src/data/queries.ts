@@ -12,6 +12,8 @@ import {
   deleteNote,
   deleteTopic,
   getNote,
+  getCapabilities,
+  ApiError,
   getNoteAnalysis,
   getNoteGraph,
   isApiError,
@@ -37,6 +39,7 @@ import { nextUntitledTitle } from '../lib/names'
  * topicId가 null이면 미분류.
  */
 export const keys = {
+  capabilities: ['capabilities'] as const,
   topics: ['topics'] as const,
   noteLists: ['notes'] as const,
   notesIn: (topicId: string | null) => ['notes', 'in', topicId ?? 'none'] as const,
@@ -45,6 +48,15 @@ export const keys = {
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
+}
+
+export function useCapabilities() {
+  return useQuery({
+    queryKey: keys.capabilities,
+    queryFn: ({ signal }) => getCapabilities(signal),
+    staleTime: 30_000,
+    retry: false,
+  })
 }
 
 export function useTopics() {
@@ -95,32 +107,41 @@ export function useNote(noteId: string) {
  * 숨겨진 탭에서는 멈추고(refetchIntervalInBackground 기본값) 돌아오면 바로 다시 받는다(refetchOnWindowFocus).
  * 같은 노트에서 한 곳만 부른다 (부르는 곳마다 폴링 타이머가 따로 돈다).
  */
-export function useNoteAnalysis(noteId: string) {
+export function useNoteAnalysis(noteId: string, enabled = false) {
   const [nextPoll] = useState(() => createAnalysisPoller())
   // 편집기가 저장할 때마다 캐시의 version을 올린다 (useApplySavedNote).
   const savedVersion = useNote(noteId).data?.version
   return useQuery({
     queryKey: keys.noteAnalysis(noteId),
+    enabled,
     queryFn: ({ signal }) => getNoteAnalysis(noteId, signal),
     refetchInterval: (query) =>
-      // 노트가 지워졌으면 멈춘다
-      isApiError(query.state.error, 'NOT_FOUND') ? false : nextPoll(query.state.data, savedVersion),
+      // capability가 꺼졌거나 서버가 분석을 제공하지 않으면 캐시된 작업도 더 조회하지 않는다.
+      !enabled ||
+      isApiError(query.state.error, 'NOT_FOUND') ||
+      isApiError(query.state.error, 'AI_UNAVAILABLE')
+        ? false
+        : nextPoll(query.state.data, savedVersion),
   })
 }
 
 /** 분석 다시 요청. 받은 작업으로 바로 바꿔 폴링을 다시 시작한다. */
-export function useRequestAnalysis(noteId: string) {
+export function useRequestAnalysis(noteId: string, enabled = false) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => requestNoteAnalysis(noteId),
+    mutationFn: () => {
+      if (!enabled) throw new ApiError('AI_UNAVAILABLE', '분석 기능을 사용할 수 없습니다.', 503)
+      return requestNoteAnalysis(noteId)
+    },
     onSuccess: (job) => qc.setQueryData(keys.noteAnalysis(noteId), job),
   })
 }
 
 /** 노트 옆 패널의 개념·관계 (F-GRA-03) */
-export function useNoteGraph(noteId: string) {
+export function useNoteGraph(noteId: string, enabled = false) {
   return useQuery({
     queryKey: keys.noteGraph(noteId),
+    enabled,
     queryFn: ({ signal }) => getNoteGraph(noteId, signal),
   })
 }

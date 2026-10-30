@@ -1,9 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { isApiError } from '../../api'
+import { capabilityEnabled, isApiError } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
-import { keys, useNote, useNoteAnalysis } from '../../data/queries'
+import { keys, useCapabilities, useNote, useNoteAnalysis } from '../../data/queries'
 import { NoteEditor, type LeaveGuard } from '../editor/NoteEditor'
 import { NoteGraphPanel } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
@@ -49,8 +49,17 @@ function LoadedNote({
   onNoteGone,
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
+  const capabilities = useCapabilities()
+  const analysisEnabled =
+    capabilities.isSuccess &&
+    !capabilities.isFetching &&
+    capabilityEnabled(capabilities.data?.analysisEnabled)
+  const graphEnabled =
+    capabilities.isSuccess &&
+    !capabilities.isFetching &&
+    capabilityEnabled(capabilities.data?.graphEnabled)
   // 편집기 상단 막대와 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
-  const analysis = useNoteAnalysis(noteId)
+  const analysis = useNoteAnalysis(noteId, analysisEnabled)
   const qc = useQueryClient()
   const toast = useToast()
   const missing = !note.data && isApiError(note.error, 'NOT_FOUND')
@@ -67,14 +76,20 @@ function LoadedNote({
   // 한 번 불러온 뒤에는 이후 오류가 나도 편집기를 유지한다 (편집 중인 내용을 지우지 않는다).
   if (note.data) {
     return (
-      <div className={styles.withPanel}>
+      <div className={graphEnabled ? styles.withPanel : styles.pane}>
         <NoteEditor
           note={note.data}
           registerLeaveGuard={registerLeaveGuard}
           onDeleted={onNoteGone}
-          analysis={analysis.data}
+          analysis={analysisEnabled ? analysis.data : undefined}
         />
-        <NoteGraphPanel noteId={noteId} job={analysis.data} />
+        {graphEnabled && (
+          <NoteGraphPanel
+            noteId={noteId}
+            job={analysisEnabled ? analysis.data : undefined}
+            analysisEnabled={analysisEnabled}
+          />
+        )}
       </div>
     )
   }

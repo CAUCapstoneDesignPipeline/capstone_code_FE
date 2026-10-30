@@ -8,16 +8,17 @@ import { analysisMismatch, isAnalysisActive } from '../../lib/analysisPoll'
 import styles from './NoteGraphPanel.module.css'
 
 interface Props {
+  analysisEnabled: boolean
   noteId: string
   /** 폴링 중인 가장 최근 분석 작업 (불러오기 전이면 undefined) */
   job: AnalysisJob | null | undefined
 }
 
 /** 노트 옆 오른쪽 패널: 이 노트에서 나온 개념과 관계 (F-GRA-03) */
-export function NoteGraphPanel({ noteId, job }: Props) {
-  const graph = useNoteGraph(noteId)
+export function NoteGraphPanel({ noteId, job, analysisEnabled }: Props) {
+  const graph = useNoteGraph(noteId, true)
   const qc = useQueryClient()
-  const retry = useRequestAnalysis(noteId)
+  const retry = useRequestAnalysis(noteId, analysisEnabled)
 
   // 폴링한 작업과 그래프의 작업이 어긋나면 다시 받는다 (analysisMismatch).
   const shown = graph.data?.analysis
@@ -33,7 +34,7 @@ export function NoteGraphPanel({ noteId, job }: Props) {
   return (
     <aside className={styles.panel} aria-label="개념·관계">
       <h2 className={styles.heading}>개념·관계</h2>
-      {current?.status === 'failed' && (
+      {analysisEnabled && current?.status === 'failed' && (
         <div className={styles.failed} role="alert">
           <p className={styles.hint}>
             분석하지 못했습니다. {current.errorMessage ?? ''}
