@@ -1,7 +1,8 @@
 import cytoscape, { type Core, type NodeSingular } from 'cytoscape'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Graph } from '../../api'
-import { nodeColorKey, type TopicColorKey } from '../../lib/topicColors'
+import { useTheme, type Theme } from '../../lib/theme'
+import { nodeColorKey, TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import styles from './GraphView.module.css'
 
 interface Props {
@@ -20,10 +21,11 @@ let probe: HTMLSpanElement | null = null
 
 /**
  * CSS 토큰을 Cytoscape가 읽는 rgb()/rgba() 값으로 바꾼다 (Cytoscape는 var()와 "rgb(r g b / a)"를 못 읽는다).
- * 토큰은 화면이 떠 있는 동안 바뀌지 않으므로 한 번 읽은 값을 계속 쓴다.
+ * 토큰 값은 테마에 따라서만 바뀌므로 테마별로 한 번 읽은 값을 계속 쓴다. theme은 지금 <html data-theme>과 같아야 한다.
  */
-function resolveColor(token: string): string {
-  const cached = resolved.get(token)
+function resolveColor(token: string, theme: Theme): string {
+  const key = `${theme}:${token}`
+  const cached = resolved.get(key)
   if (cached) return cached
   if (!probe) {
     probe = document.createElement('span')
@@ -32,14 +34,21 @@ function resolveColor(token: string): string {
   }
   probe.style.color = `var(--${token})`
   const color = getComputedStyle(probe).color
-  resolved.set(token, color)
+  resolved.set(key, color)
   return color
 }
 
-function graphStyle(): cytoscape.StylesheetJson {
-  const ink = resolveColor('color-ink')
-  const inkMuted = resolveColor('color-ink-muted')
-  const canvas = resolveColor('color-canvas')
+/** 노드는 data(colorKey)만 갖고, 색은 스타일시트가 테마에 맞춰 칠한다 (테마가 바뀌면 스타일만 다시 넣는다) */
+const NODE_COLOR_KEYS: TopicColorKey[] = [
+  ...Array.from({ length: TOPIC_SLOTS }, (_, i) => `topic-${i + 1}` as const),
+  'topic-other',
+  'topic-none',
+]
+
+function graphStyle(theme: Theme): cytoscape.StylesheetJson {
+  const ink = resolveColor('color-ink', theme)
+  const inkMuted = resolveColor('color-ink-muted', theme)
+  const canvas = resolveColor('color-canvas', theme)
   const font = getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim()
   return [
     {
@@ -47,7 +56,6 @@ function graphStyle(): cytoscape.StylesheetJson {
       style: {
         width: 14,
         height: 14,
-        'background-color': 'data(color)',
         label: 'data(label)',
         color: ink,
         'font-family': font || 'sans-serif',
@@ -59,6 +67,10 @@ function graphStyle(): cytoscape.StylesheetJson {
         'text-background-padding': '1px',
       },
     },
+    ...NODE_COLOR_KEYS.map((key) => ({
+      selector: `node[colorKey = "${key}"]`,
+      style: { 'background-color': resolveColor(`color-${key}`, theme) },
+    })),
     // 여러 주제에 걸친 개념: 색 대신 ink 테두리 (색 칸을 쓰지 않는다)
     {
       selector: 'node.mixed',
@@ -103,6 +115,7 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
   const hostRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   const onTapRef = useRef(onTapNode)
+  const { theme } = useTheme()
   useLayoutEffect(() => {
     onTapRef.current = onTapNode
   })
@@ -110,7 +123,6 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
   useEffect(() => {
     const cy = cytoscape({
       container: hostRef.current,
-      style: graphStyle(),
       minZoom: 0.2,
       maxZoom: 3,
     })
@@ -124,6 +136,11 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
       cyRef.current = null
     }
   }, [])
+
+  // 처음 그릴 때와 테마가 바뀔 때 스타일을 넣는다 (노드 색도 스타일시트에 있다)
+  useEffect(() => {
+    cyRef.current?.style(graphStyle(theme))
+  }, [theme])
 
   useEffect(() => {
     const cy = cyRef.current
@@ -140,11 +157,7 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
       for (const n of graph.nodes) {
         const key = nodeColorKey(n, colorKeys)
         // 여러 주제는 클래스로 칠한다 (색 토큰이 없다)
-        const data = {
-          id: n.id,
-          label: n.label,
-          color: key === 'topic-mixed' ? null : resolveColor(`color-${key}`),
-        }
+        const data = { id: n.id, label: n.label, colorKey: key }
         const classes = key === 'topic-mixed' ? 'mixed' : ''
         const existing = cy.getElementById(n.id)
         if (existing.nonempty()) existing.data(data).classes(classes)

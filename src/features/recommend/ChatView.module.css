@@ -94,11 +94,11 @@
   white-space: pre-wrap;
 }
 
-/* 챗봇: 흰 바탕 + border-subtle, 패널 폭 전체 */
+/* 챗봇: 흰 바탕(surface-raised) + border-subtle, 패널 폭 전체 */
 .assistant .bubble {
   flex: 1;
   border: 1px solid var(--color-border-subtle);
-  background: #fff;
+  background: var(--color-surface-raised);
 }
 
 /* 나: surface-emphasis, 오른쪽, 폭 200까지 */

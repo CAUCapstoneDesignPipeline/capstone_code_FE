@@ -96,7 +96,7 @@
   font: var(--text-ui-body-sm);
 }
 
-/* Recommend/Conclusion: 흰 바탕, border-subtle, 모서리 8, 여백 12, 사이 4 (흰색·모서리 8은 토큰이 없어 Figma 값 그대로) */
+/* Recommend/Conclusion: 흰 바탕(surface-raised), border-subtle, 모서리 8, 여백 12, 사이 4 (모서리 8은 토큰이 없어 Figma 값 그대로) */
 .conclusion {
   display: flex;
   flex-direction: column;
@@ -104,7 +104,7 @@
   padding: var(--space-12);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-surface-raised);
 }
 
 .conclusionText {
