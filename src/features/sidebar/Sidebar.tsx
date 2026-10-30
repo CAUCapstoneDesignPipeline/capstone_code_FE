@@ -47,7 +47,7 @@ const nodeKey = (topicId: string | null) => topicId ?? 'none'
 const SEARCH_MAX = 100
 const SEARCH_DELAY_MS = 300
 
-/** Figma W1-05 Sidebar: 머리 · 검색 · "주제" · 트리 · 미분류 · (아래) 새 주제 · 새 노트 */
+/** Figma W1-05 Sidebar: 머리 · 검색 · "주제" · 트리 · 미분류 · (아래) 가져오기 · 새 주제 · 새 노트 */
 export function Sidebar(props: Props) {
   const {
     selectedNoteId,
@@ -231,6 +231,13 @@ export function Sidebar(props: Props) {
             )}
           </>
         )}
+      </div>
+
+      {/* Figma W3-01 Sidebar/Import. 가져오기 API가 아직 없어 버튼만 둔다 */}
+      <div className={styles.import}>
+        <Button variant="secondary" icon="download" className={styles.importButton}>
+          가져오기
+        </Button>
       </div>
 
       <div className={styles.actions}>
