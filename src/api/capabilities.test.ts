@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { capabilityEnabled, getCapabilities, setSession } from '.'
+import type { components } from './schema.gen'
 
 const fetchMock = vi.fn()
 beforeEach(() => {
@@ -25,7 +26,11 @@ it('reads the public AI-off capability without sending the session token', async
       providers: ['google'],
     },
   })
-  const body = { analysisEnabled: false, graphEnabled: false, discoveriesEnabled: false }
+  const body = {
+    analysisEnabled: false,
+    graphEnabled: false,
+    discoveriesEnabled: false,
+  } satisfies components['schemas']['AiOffCapabilities']
   fetchMock.mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
   const result = await getCapabilities()
   expect(result).toEqual(body)
@@ -35,6 +40,21 @@ it('reads the public AI-off capability without sending the session token', async
   expect(options.headers.Authorization).toBeUndefined()
   expect(capabilityEnabled(result.analysisEnabled)).toBe(false)
 })
+
+it.each([
+  { analysisEnabled: true, graphEnabled: true, discoveriesEnabled: true },
+  { analysisEnabled: true, graphEnabled: false, discoveriesEnabled: false },
+] satisfies components['schemas']['Capabilities'][])(
+  'preserves adopted capability booleans: %j',
+  async (body) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
+    const result = await getCapabilities()
+    expect(result).toEqual(body)
+    expect(capabilityEnabled(result.analysisEnabled)).toBe(body.analysisEnabled)
+    expect(capabilityEnabled(result.graphEnabled)).toBe(body.graphEnabled)
+    expect(capabilityEnabled(result.discoveriesEnabled)).toBe(body.discoveriesEnabled)
+  },
+)
 
 it('does not refresh authentication after a capability endpoint failure', async () => {
   fetchMock.mockResolvedValue(
