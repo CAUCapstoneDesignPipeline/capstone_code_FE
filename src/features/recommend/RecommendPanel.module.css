@@ -32,6 +32,54 @@
   outline: none;
 }
 
+/*
+ * 탭: 추천 | 개념·관계. 노트를 열었을 때만 보인다 (Figma에 없어 사이드바 트리의 고른 줄과 같은 모양으로 정했다).
+ */
+.tabs {
+  display: flex;
+  flex: none;
+  gap: var(--space-4);
+  margin-top: calc(-1 * var(--space-8));
+}
+
+.tab {
+  flex: 1;
+  height: var(--layout-row-height);
+  padding: 0 var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label-strong);
+}
+
+.tab:hover {
+  background: var(--color-surface-emphasis);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--color-surface-selected);
+  color: var(--color-ink);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -2px;
+}
+
+/* 탭 내용: 남는 높이를 쓴다. 챗봇은 이 안에서 대화만 스크롤한다 */
+.tabPanel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-16);
+  min-height: 0;
+}
+
+.tabPanel[hidden] {
+  display: none;
+}
+
 /* Recommend/Body: 항목 사이 8 */
 .body {
   display: flex;

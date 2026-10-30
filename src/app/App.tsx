@@ -22,6 +22,8 @@ type Target = { kind: 'note'; noteId: string } | { kind: 'graph' }
 export function App() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
   const [graphOpen, setGraphOpen] = useState(false)
+  /** 오른쪽 패널의 "개념·관계" 탭 자리. 열린 노트(NotePane)가 여기에 그래프 패널을 그린다. */
+  const [graphPanelSlot, setGraphPanelSlot] = useState<HTMLDivElement | null>(null)
   const {
     collapsed: sidebarCollapsed,
     setCollapsed: setSidebarCollapsed,
@@ -146,12 +148,18 @@ export function App() {
             onCreateNote={() => createNoteIn(null)}
             onCreateTopic={() => setAddingTopic(true)}
             onNoteGone={clearSelection}
+            graphPanelSlot={graphPanelSlot}
           />
         )}
       </main>
       {/* 노트를 열지 않아도 보인다. 숨겨도 내리지 않아 챗봇 대화가 남는다. */}
       <div className={styles.panel} hidden={panelHidden}>
-        <RecommendPanel onCollapse={() => setPanelCollapsed(true)} collapseRef={collapsePanelRef} />
+        <RecommendPanel
+          noteOpen={selectedNoteId !== null && !graphOpen}
+          graphPanelSlotRef={setGraphPanelSlot}
+          onCollapse={() => setPanelCollapsed(true)}
+          collapseRef={collapsePanelRef}
+        />
       </div>
 
       {leaving && (
