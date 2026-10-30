@@ -2,6 +2,7 @@ import { useState, type Ref } from 'react'
 import { Button, IconButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
 import { ChatView } from './ChatView'
+import { ExternalSourceLink } from './ExternalSourceLink'
 import styles from './RecommendPanel.module.css'
 import { SAMPLE_FIRST_MESSAGE, type ChatMessage } from './sampleChat'
 import {
@@ -147,7 +148,7 @@ function RecommendView({
 }
 
 /**
- * Figma EvidenceQuote: 출처(노트 제목 · 주제, 또는 외부 주소) + 저장된 원문 문장 그대로.
+ * Figma EvidenceQuote: 출처(노트 제목 · 주제, 또는 외부 주소 링크) + 저장된 원문 문장 그대로.
  * surface-emphasis + 왼쪽 ink 2px. 누르면 노트를 열고 문장을 강조할 예정이다 (지금은 예시라 열 노트가 없다).
  */
 function EvidenceQuote({ evidence }: { evidence: NoteEvidence | ExternalEvidence }) {
@@ -165,7 +166,7 @@ function EvidenceQuote({ evidence }: { evidence: NoteEvidence | ExternalEvidence
         ) : (
           <>
             <Icon name="external" />
-            <span className={styles.sourceName}>{evidence.source}</span>
+            <ExternalSourceLink url={evidence.url} className={styles.sourceName} />
           </>
         )}
       </figcaption>
