@@ -1,6 +1,12 @@
-import type { Ref } from 'react'
-import { IconButton } from '../../components/Button'
+import { useState, type Ref } from 'react'
+import { Button, IconButton } from '../../components/Button'
+import { Icon } from '../../components/Icon'
 import styles from './RecommendPanel.module.css'
+import {
+  SAMPLE_RECOMMENDATION,
+  type ExternalEvidence,
+  type NoteEvidence,
+} from './sampleRecommendation'
 
 interface Props {
   /** 패널을 접는다 */
@@ -9,13 +15,27 @@ interface Props {
   collapseRef?: Ref<HTMLButtonElement>
 }
 
-/** Figma W3-01 RightPanel: 3단 레이아웃의 오른쪽 칸. 추천 카드와 챗봇 대화를 이 패널 하나에 이어서 보여 준다. */
+/** 추천을 읽고 고르는 답 (Figma W3-02 Recommend/Actions) */
+const RESPONSES = [
+  { id: 'understood', label: '이해함', variant: 'primary' },
+  { id: 'known', label: '알고 있던 내용', variant: 'secondary' },
+  { id: 'confused', label: '이해가 안 됨', variant: 'secondary' },
+] as const
+
+type ResponseId = (typeof RESPONSES)[number]['id']
+
+/** Figma W3-02 RightPanel: 3단 레이아웃의 오른쪽 칸. 두 노트의 문장과 외부 지식을 이어 새 결론을 추천한다. */
 export function RecommendPanel({ onCollapse, collapseRef }: Props) {
+  const recommendation = SAMPLE_RECOMMENDATION
+  // 답을 보낼 API가 아직 없어 이 화면에서만 기억한다. "이해가 안 됨"은 챗봇(W3-03)으로 이어질 예정이다.
+  const [response, setResponse] = useState<ResponseId | null>(null)
+  const responseLabel = RESPONSES.find((r) => r.id === response)?.label
+
   return (
     <aside className={styles.panel} aria-labelledby="recommend-panel-title">
       <header className={styles.header}>
         <h2 id="recommend-panel-title" className={styles.title}>
-          새로운 지식 추천 &amp; 챗봇
+          새로운 지식 추천
         </h2>
         <IconButton
           ref={collapseRef}
@@ -25,11 +45,85 @@ export function RecommendPanel({ onCollapse, collapseRef }: Props) {
           onClick={onCollapse}
         />
       </header>
-      {/* 추천 카드(W3-02)와 챗봇(W3-03)은 다음 단계에서 채운다 */}
-      <p className={styles.hint}>
-        추천 카드(A의 문장 + B의 문장 + 외부 지식 → 결론)와 챗봇 대화가 이 패널 하나에 이어서
-        표시된다.
-      </p>
+
+      <div className={styles.body}>
+        <section className={styles.section} aria-labelledby="recommend-a">
+          <h3 id="recommend-a" className={styles.label}>
+            근거 A
+          </h3>
+          <EvidenceQuote evidence={recommendation.a} />
+        </section>
+        <section className={styles.section} aria-labelledby="recommend-b">
+          <h3 id="recommend-b" className={styles.label}>
+            근거 B
+          </h3>
+          <EvidenceQuote evidence={recommendation.b} />
+        </section>
+        <section className={styles.section} aria-labelledby="recommend-external">
+          <h3 id="recommend-external" className={styles.label}>
+            외부 지식
+          </h3>
+          <EvidenceQuote evidence={recommendation.external} />
+        </section>
+        <span className={styles.arrow} aria-hidden>
+          ↓
+        </span>
+        <section className={styles.conclusion} aria-labelledby="recommend-conclusion">
+          <h3 id="recommend-conclusion" className={styles.label}>
+            결론
+          </h3>
+          <p className={styles.conclusionText}>{recommendation.conclusion}</p>
+        </section>
+      </div>
+
+      <div className={styles.footer}>
+        <div className={styles.actions} role="group" aria-label="이 추천에 대한 답">
+          {RESPONSES.map((r) => (
+            <Button
+              key={r.id}
+              variant={r.variant}
+              className={styles.action}
+              aria-pressed={response === r.id}
+              onClick={() => setResponse(r.id)}
+            >
+              {r.label}
+            </Button>
+          ))}
+        </div>
+        {responseLabel && (
+          <p className={styles.recorded} role="status">
+            답을 남겼습니다: {responseLabel}
+          </p>
+        )}
+      </div>
     </aside>
+  )
+}
+
+/**
+ * Figma EvidenceQuote: 출처(노트 제목 · 주제, 또는 외부 주소) + 저장된 원문 문장 그대로.
+ * surface-emphasis + 왼쪽 ink 2px. 누르면 노트를 열고 문장을 강조할 예정이다 (지금은 예시라 열 노트가 없다).
+ */
+function EvidenceQuote({ evidence }: { evidence: NoteEvidence | ExternalEvidence }) {
+  return (
+    <figure className={styles.evidence}>
+      <figcaption className={styles.source}>
+        {evidence.kind === 'note' ? (
+          <>
+            <Icon name="note" />
+            <span className={styles.sourceName}>{evidence.noteTitle}</span>
+            {evidence.topicName && (
+              <span className={styles.sourceTopic}>· {evidence.topicName}</span>
+            )}
+          </>
+        ) : (
+          <>
+            <Icon name="external" />
+            <span className={styles.sourceName}>{evidence.source}</span>
+          </>
+        )}
+      </figcaption>
+      <blockquote className={styles.quote}>{evidence.quote}</blockquote>
+    </figure>
   )
 }

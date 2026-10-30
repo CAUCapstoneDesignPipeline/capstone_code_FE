@@ -1,4 +1,4 @@
-/* Figma W3-01 RightPanel: 폭 300, surface-card, 왼쪽 border-subtle 1px, 여백 16, 항목 사이 16 */
+/* Figma W3-02 RightPanel: 폭 300, surface-card, 왼쪽 border-subtle 1px, 여백 16, 항목 사이 16 */
 .panel {
   display: flex;
   flex-direction: column;
@@ -27,15 +27,116 @@
   font: var(--text-ui-label-strong);
 }
 
-/* Panel/Hint */
-.hint {
-  margin: 0;
-  color: var(--color-ink);
-  font: var(--text-ui-caption);
-}
-
 /* 사이드바 접기 버튼(Figma W3-01 Sidebar/CollapseToggle)과 같은 모양 */
 .toggle {
   --layout-icon: 18px;
   border-radius: 6px;
+}
+
+/* Recommend/Body: 항목 사이 8 */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+/* Label/A·B·External·Conclusion: 12 Medium */
+.label {
+  margin: 0;
+  color: var(--color-ink);
+  font: var(--text-ui-caption);
+  font-weight: 500;
+}
+
+/* EvidenceQuote: surface-emphasis, 왼쪽 ink 2px, 여백 8·12, 사이 4 */
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 2px solid var(--color-ink);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-emphasis);
+}
+
+.source {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.sourceName {
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-ui-label-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceTopic {
+  flex: none;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.quote {
+  margin: 0;
+  font: var(--text-ui-body-sm);
+}
+
+.arrow {
+  font: var(--text-ui-body-sm);
+}
+
+/* Recommend/Conclusion: 흰 바탕, border-subtle, 모서리 8, 여백 12, 사이 4 (흰색·모서리 8은 토큰이 없어 Figma 값 그대로) */
+.conclusion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-12);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.conclusionText {
+  margin: 0;
+  font: var(--text-ui-label);
+}
+
+/* 답 버튼은 패널 맨 아래에 붙인다 (Figma Spacer) */
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-top: auto;
+}
+
+/* Recommend/Actions: 버튼 셋이 폭을 나눈다, 사이 4 */
+.actions {
+  display: flex;
+  gap: var(--space-4);
+}
+
+/* Figma 버튼 글자는 13 (Button compact는 14) */
+.action {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+  padding-inline: var(--space-4);
+  font-size: 13px;
+}
+
+.recorded {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
 }

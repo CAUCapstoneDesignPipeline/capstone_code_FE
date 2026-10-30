@@ -7,6 +7,7 @@ import chevronDown from '../assets/icons/chevron-down.svg'
 import chevronRight from '../assets/icons/chevron-right.svg'
 import close from '../assets/icons/close.svg'
 import dot from '../assets/icons/dot.svg'
+import external from '../assets/icons/external.svg'
 import graph from '../assets/icons/graph.svg'
 import info from '../assets/icons/info.svg'
 import loader from '../assets/icons/loader.svg'
@@ -39,6 +40,7 @@ const ICONS = {
   'chevron-right': chevronRight,
   close,
   dot,
+  external,
   graph,
   info,
   loader,
