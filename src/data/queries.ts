@@ -227,9 +227,25 @@ export function useCreateUntitledNote() {
   })
 }
 
+/** 주제(null이면 미분류)에 있는 노트 제목들. 캐시가 있어도 서버에서 새로 받는다 (가져올 때 번호 붙이기). */
+export function useFetchTitlesIn() {
+  const qc = useQueryClient()
+  return useCallback(
+    async (topicId: string | null) => {
+      const notes = await qc.fetchQuery({
+        queryKey: keys.notesIn(topicId),
+        queryFn: ({ signal }) => listNotes({ topicId }, signal),
+        staleTime: 0,
+      })
+      return new Set(notes.map((n) => n.title))
+    },
+    [qc],
+  )
+}
+
 /**
- * 가져온 Markdown 파일 하나로 노트를 만든다 (가져오기 대화 상자). 제목은 앱이 정한 그대로 보내고,
- * 겹치면 NOTE_TITLE_TAKEN을 그대로 돌려준다 (새 노트처럼 번호를 붙여 다시 시도하지 않는다).
+ * 가져온 파일 하나로 노트를 만든다 (가져오기). 제목은 앱이 정한 그대로 보내고,
+ * 겹치면 NOTE_TITLE_TAKEN을 그대로 돌려준다 (번호 붙이기는 가져오기 쪽이 한다).
  */
 export function useImportNote() {
   const qc = useQueryClient()

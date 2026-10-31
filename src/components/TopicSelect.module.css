@@ -1,0 +1,85 @@
+/* Figma DropdownTrigger + Dropdown (주제 선택 상자). 편집기 빵부스러기와 가져오기 대화 상자에서 쓴다. */
+.dropdownRoot {
+  position: relative;
+  flex: none;
+}
+
+.dropdownTrigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-body-sm);
+}
+
+.dropdownTrigger:hover:not(:disabled),
+.dropdownTrigger[aria-expanded='true'] {
+  background: var(--color-surface-selected);
+}
+
+.dropdownTrigger:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: 10;
+  width: 220px;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-card);
+}
+
+.dropdownHeader {
+  margin: 0;
+  padding: var(--space-4) var(--space-8);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.optionList {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  height: var(--layout-row-height);
+  padding: 0 var(--space-8);
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-ink);
+  font: var(--text-ui-body-sm);
+  text-align: left;
+}
+
+.option:hover,
+.option[aria-selected='true'] {
+  background: var(--color-surface-selected);
+}
+
+.dropdownDivider {
+  padding: var(--space-4) 0;
+}
+
+.dropdownDivider::before {
+  content: '';
+  display: block;
+  height: 1px;
+  background: var(--color-border-subtle);
+}
