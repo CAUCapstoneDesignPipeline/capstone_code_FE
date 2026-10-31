@@ -27,6 +27,7 @@ import {
   type AnalysisJob,
   type Capabilities,
   type Note,
+  type NoteCreate,
   type NoteSummary,
   type Topic,
   type TopicCreate,
@@ -218,6 +219,22 @@ export function useCreateUntitledNote() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (topicId: string | null) => createUntitledNote(qc, topicId),
+    onSuccess: (note) => {
+      qc.setQueryData(keys.note(note.id), note)
+      void qc.invalidateQueries({ queryKey: keys.noteLists })
+      void qc.invalidateQueries({ queryKey: keys.topics })
+    },
+  })
+}
+
+/**
+ * 가져온 Markdown 파일 하나로 노트를 만든다 (가져오기 대화 상자). 제목은 앱이 정한 그대로 보내고,
+ * 겹치면 NOTE_TITLE_TAKEN을 그대로 돌려준다 (새 노트처럼 번호를 붙여 다시 시도하지 않는다).
+ */
+export function useImportNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: NoteCreate) => createNote(input),
     onSuccess: (note) => {
       qc.setQueryData(keys.note(note.id), note)
       void qc.invalidateQueries({ queryKey: keys.noteLists })

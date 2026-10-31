@@ -10,6 +10,7 @@ import {
   useSwapTopicOrder,
   useTopics,
 } from '../../data/queries'
+import { ImportDialog } from '../import/ImportDialog'
 import { moveNoteErrorMessage } from '../../lib/errorMessages'
 import { withRo } from '../../lib/korean'
 import { normalizeName } from '../../lib/names'
@@ -68,6 +69,7 @@ export function Sidebar(props: Props) {
   const currentNoteId = graphOpen ? null : selectedNoteId
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [deletingTopic, setDeletingTopic] = useState<Topic | null>(null)
+  const [importing, setImporting] = useState(false)
   const [query, setQuery] = useState('')
   const q = normalizeName(useDebouncedValue(query, SEARCH_DELAY_MS))
   const searching = query.trim() !== ''
@@ -233,9 +235,14 @@ export function Sidebar(props: Props) {
         )}
       </div>
 
-      {/* Figma W3-01 Sidebar/Import. 가져오기 API가 아직 없어 버튼만 둔다 */}
+      {/* Figma W3-01 Sidebar/Import. Markdown 여러 파일 가져오기 (P01·U03) */}
       <div className={styles.import}>
-        <Button variant="secondary" icon="import" className={styles.importButton}>
+        <Button
+          variant="secondary"
+          icon="import"
+          className={styles.importButton}
+          onClick={() => setImporting(true)}
+        >
           가져오기
         </Button>
       </div>
@@ -267,6 +274,14 @@ export function Sidebar(props: Props) {
 
       {deletingTopic && (
         <DeleteTopicDialog topic={deletingTopic} onClose={() => setDeletingTopic(null)} />
+      )}
+      {importing && (
+        <ImportDialog
+          // 열린 노트의 주제에 가져온다. 열린 노트가 없으면 미분류 ("새 노트"와 같다)
+          defaultTopicId={selectedTopicId ?? null}
+          onOpenNote={onSelectNote}
+          onClose={() => setImporting(false)}
+        />
       )}
     </nav>
   )
