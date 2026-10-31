@@ -235,7 +235,7 @@ export function Sidebar(props: Props) {
 
       {/* Figma W3-01 Sidebar/Import. 가져오기 API가 아직 없어 버튼만 둔다 */}
       <div className={styles.import}>
-        <Button variant="secondary" icon="download" className={styles.importButton}>
+        <Button variant="secondary" icon="import" className={styles.importButton}>
           가져오기
         </Button>
       </div>
