@@ -5,11 +5,17 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useToast } from '../components/toastContext'
 import type { RecommendationEvidence } from '../api'
-import { useCapabilities, useCreateUntitledNote } from '../data/queries'
+import {
+  useCapabilities,
+  useCreateUntitledNote,
+  useRecommendationAnswers,
+  useRecommendations,
+} from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
 import { NotePane, type EvidenceRequest } from '../features/note/NotePane'
 import { RecommendPanel } from '../features/recommend/RecommendPanel'
 import { Sidebar } from '../features/sidebar/Sidebar'
+import { remainingRecommendations } from '../lib/recommendations'
 import styles from './App.module.css'
 
 // 그래프 화면은 Cytoscape가 커서(약 400KB) 열 때 따로 불러온다.
@@ -67,6 +73,20 @@ export function App() {
   const [evidenceRequest, setEvidenceRequest] = useState<EvidenceRequest | null>(null)
   /** 오른쪽 패널이 추천을 보이는 노트. 보통은 연 노트지만, 근거로 이동하면 바꾸지 않는다 (카드가 패널에 그대로 남는다) */
   const [panelNoteId, setPanelNoteId] = useState<string | null>(null)
+
+  // W3-14b: 패널이 접힌 동안 새 추천이 오면 펴기 버튼에 답하지 않은 추천 수 배지. 펴면 본 것으로 하고 배지를 지운다.
+  // 패널이 저절로 열리지는 않는다.
+  const panelJob = useRecommendations(graphOpen ? null : panelNoteId)
+  const { answers } = useRecommendationAnswers()
+  const finishedJob = panelJob.data?.status === 'completed' ? panelJob.data : null
+  const [seenJobId, setSeenJobId] = useState<string | null>(null)
+  if (!collapsed.panel && !graphOpen && finishedJob && finishedJob.id !== seenJobId) {
+    setSeenJobId(finishedJob.id)
+  }
+  const newRecommendations =
+    collapsed.panel && finishedJob && finishedJob.id !== seenJobId
+      ? remainingRecommendations(finishedJob.recommendations, answers).length
+      : 0
 
   function show(target: Target) {
     if (target.kind === 'graph') {
@@ -161,10 +181,19 @@ export function App() {
           <IconButton
             ref={expandPanelRef}
             icon="panel-right-open"
-            label="패널 펼치기"
+            label={
+              newRecommendations > 0
+                ? `패널 펼치기 · 새 추천 ${newRecommendations}개`
+                : '패널 펼치기'
+            }
             className={`${styles.expandButton} ${styles.expandPanel}`}
             onClick={() => setSideCollapsed('panel', false)}
           />
+        )}
+        {collapsed.panel && !graphOpen && newRecommendations > 0 && (
+          <span className={styles.expandBadge} aria-hidden>
+            {newRecommendations}
+          </span>
         )}
         {graphOpen ? (
           // 그래프 화면 파일을 못 받으면(오프라인, 새 배포로 옛 파일이 사라짐) 앱 전체 대신 이 자리만 알린다.
