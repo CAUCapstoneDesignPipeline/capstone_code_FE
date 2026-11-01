@@ -74,9 +74,12 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   /** 답하면 이 카드는 빠지고 같은 자리에 다음 카드가 온다. '이해가 안 됨'은 카드를 남기고 챗봇으로 */
   function respond(id: RecommendationAnswer) {
     if (!current) return
-    answer(current.id, id)
     const message = ANSWER_TOAST[id]
-    if (message) toast('info', message)
+    answer(current.id, id).then(
+      () => message && toast('info', message),
+      // 보내지 못하면 카드가 다시 보인다
+      () => toast('error', '답을 보내지 못했습니다. 다시 시도하세요.'),
+    )
     if (id !== 'confused') return
     if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
     setView('chat')

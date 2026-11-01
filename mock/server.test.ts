@@ -452,6 +452,22 @@ describe('추천 (v0.4.0-draft)', () => {
     expect(r.externalKnowledge.sourceUrl).toMatch(/^https:/)
   })
 
+  it('추천 카드에 답하면 204, 잘못된 답은 400, 없는 추천은 404', async () => {
+    const a = (await call('POST', '/notes', { title: 'A', body: '**공유**한다.' })).data
+    await call('POST', '/notes', { title: 'B', body: '**공유**된다.' })
+    const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
+    const [r] = (await settledRecommendation(created.data.id)).recommendations
+    expect(
+      (await call('POST', `/recommendations/${r.id}/feedback`, { action: 'known' })).status,
+    ).toBe(204)
+    expect(
+      errorCode(await call('POST', `/recommendations/${r.id}/feedback`, { action: 'nope' })),
+    ).toBe('VALIDATION_FAILED')
+    expect((await call('POST', '/recommendations/nope/feedback', { action: 'known' })).status).toBe(
+      404,
+    )
+  })
+
   it('이어질 노트가 없으면 completed + 빈 배열, 없는 작업·노트는 404', async () => {
     const a = (await call('POST', '/notes', { title: '혼자', body: '**외톨이**' })).data
     const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)

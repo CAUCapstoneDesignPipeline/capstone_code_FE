@@ -23,6 +23,7 @@ import {
   orderConflictCurrent,
   reorderTopics,
   requestRecommendationJob,
+  sendRecommendationFeedback,
   updateTopic,
   type AnalysisJob,
   type Capabilities,
@@ -175,7 +176,8 @@ export function useRecommendations(noteId: string | null) {
 
 /**
  * 추천 카드에 남긴 답 (W3-10·11). 패널과 접힌 패널의 배지(W3-14b)가 함께 쓰도록 캐시에 둔다.
- * 새로 고치면 사라진다 (보낸 답은 서버가 기억한다).
+ * 답은 화면에 바로 반영하고 POST /recommendations/{id}/feedback으로 보낸다(BE에 아직 없어 가짜 서버만).
+ * 보내지 못하면 답을 되돌리고(카드가 다시 보인다) 오류를 던진다. 새로 고치면 캐시는 사라진다.
  */
 export function useRecommendationAnswers() {
   const qc = useQueryClient()
@@ -187,11 +189,30 @@ export function useRecommendationAnswers() {
     gcTime: Infinity,
   })
   const answer = useCallback(
-    (recommendationId: string, action: RecommendationAnswer) => {
+    async (recommendationId: string, action: RecommendationAnswer) => {
+      const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
+        keys.recommendationAnswers,
+      )?.[recommendationId]
       qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => ({
         ...prev,
         [recommendationId]: action,
       }))
+      try {
+        await sendRecommendationFeedback(recommendationId, action)
+      } catch (e) {
+        qc.setQueryData<Record<string, RecommendationAnswer>>(
+          keys.recommendationAnswers,
+          (prev) => {
+            // 그 사이 다른 답을 골랐으면 그대로 둔다
+            if (prev?.[recommendationId] !== action) return prev
+            const next = { ...prev }
+            if (before === undefined) delete next[recommendationId]
+            else next[recommendationId] = before
+            return next
+          },
+        )
+        throw e
+      }
     },
     [qc],
   )

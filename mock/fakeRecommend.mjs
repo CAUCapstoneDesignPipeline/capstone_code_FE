@@ -95,6 +95,8 @@ export function createRecommendationQueue(deps, options = {}) {
   const jobs = new Map()
   /** @type {Map<string, string>} 노트 → 끝나지 않은 작업 */
   const active = new Map()
+  /** @type {Map<string, string | null>} 추천 id → 받은 답 (아직 없으면 null) */
+  const feedback = new Map()
 
   return {
     /** @param {NoteLike} note */
@@ -114,14 +116,27 @@ export function createRecommendationQueue(deps, options = {}) {
       setTimeout(() => {
         active.delete(note.id)
         const current = deps.getNote(note.id)
+        const recommendations = current ? buildRecommendations(current, deps.allNotes()) : []
+        for (const r of recommendations) feedback.set(r.id, null)
         jobs.set(job.id, {
           ...job,
           status: 'completed',
-          recommendations: current ? buildRecommendations(current, deps.allNotes()) : [],
+          recommendations,
           completedAt: deps.now(),
         })
       }, runMs).unref?.()
       return { ...job }
+    },
+
+    /**
+     * 추천 카드의 답. 없는 추천이면 false. 같은 추천에 다시 보내면 마지막 답으로 바꾼다
+     * (재전송 처리는 계약에서 TBD). 그래프 반영·거절 기록은 흉내 내지 않는다.
+     * @param {string} recommendationId @param {string} action
+     */
+    feedback(recommendationId, action) {
+      if (!feedback.has(recommendationId)) return false
+      feedback.set(recommendationId, action)
+      return true
     },
 
     /** @param {string} jobId */

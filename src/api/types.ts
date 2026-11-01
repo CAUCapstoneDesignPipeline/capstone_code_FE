@@ -37,6 +37,7 @@ export type RecommendationJob = Schemas['RecommendationJob']
 export type Recommendation = Schemas['Recommendation']
 export type RecommendationEvidence = Schemas['RecommendationEvidence']
 export type ExternalKnowledge = Schemas['ExternalKnowledge']
+export type RecommendationFeedback = Schemas['RecommendationFeedback']
 
 export type AuthProvider = Schemas['AuthProvider']
 export type AuthProviderList = Schemas['AuthProviderList']
