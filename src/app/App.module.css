@@ -21,6 +21,11 @@
   --panel-expand-space: 36px;
 }
 
+/* 그래프 화면: 오른쪽 패널을 숨기고 펴기 버튼도 두지 않는다 (W3-13) */
+.panelHidden {
+  --panel-column: 0px;
+}
+
 .sidebar {
   grid-column: 1;
   min-height: 0;

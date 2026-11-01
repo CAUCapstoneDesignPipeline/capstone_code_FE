@@ -1,20 +1,34 @@
 import cytoscape, { type Core, type NodeSingular } from 'cytoscape'
+import fcose from 'cytoscape-fcose'
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import type { Graph } from '../../api'
+import type { Graph, Topic } from '../../api'
 import { useTheme, type Theme } from '../../lib/theme'
 import { nodeColorKey, TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import styles from './GraphView.module.css'
+import { edgeKey, groupId, initialPositions, topicLabel, topicsInGraph } from './pageGraph'
+
+cytoscape.use(fcose)
 
 interface Props {
   graph: Graph
+  topics: readonly Topic[]
   colorKeys: ReadonlyMap<string, TopicColorKey>
-  selectedId: string | null
-  onTapNode: (nodeId: string | null) => void
+  /** 고른 선 (edgeKey). 없으면 null */
+  selectedEdge: string | null
+  onTapNode: (noteId: string) => void
+  /** 선을 누르면 그 선, 빈 곳을 누르면 null */
+  onTapEdge: (key: string | null) => void
 }
 
-const MAX_FIT_ZOOM = 1.25
-/** 새 노드를 이웃 옆에 둘 때의 거리 */
-const NEW_NODE_GAP = 60
+const MAX_FIT_ZOOM = 1
+/** 새 페이지를 이웃 옆에 둘 때의 거리 */
+const NEW_NODE_GAP = 80
+const NODE_HEIGHT = 30
+const NODE_FONT_SIZE = 13
+const GROUP_FONT_SIZE = 12
+/** 페이지 알약: 왼쪽 여백 12 + 점 8 + 간격 8 + 글자 + 오른쪽 여백 12 */
+const NODE_CHROME = 40
+const DOT = 8
 
 const resolved = new Map<string, string>()
 let probe: HTMLSpanElement | null = null
@@ -38,8 +52,33 @@ function resolveColor(token: string, theme: Theme): string {
   return color
 }
 
-/** 노드는 data(colorKey)만 갖고, 색은 스타일시트가 테마에 맞춰 칠한다 (테마가 바뀌면 스타일만 다시 넣는다) */
-const NODE_COLOR_KEYS: TopicColorKey[] = [
+/**
+ * Cytoscape는 rgba()의 투명도를 색에 반영하지 않는다. 색과 투명도를 나눠 *-opacity 속성으로 준다.
+ * "rgba(38, 37, 30, 0.2)" → { color: "rgb(38, 37, 30)", opacity: 0.2 }
+ */
+function splitAlpha(color: string): { color: string; opacity: number } {
+  const m = color.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/)
+  return m
+    ? { color: `rgb(${m[1]}, ${m[2]}, ${m[3]})`, opacity: Number(m[4]) }
+    : { color, opacity: 1 }
+}
+
+let measureCtx: CanvasRenderingContext2D | null = null
+function textWidth(text: string, size: number): number {
+  measureCtx ??= document.createElement('canvas').getContext('2d')
+  if (!measureCtx) return text.length * size * 0.6
+  const font = getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim()
+  measureCtx.font = `400 ${size}px ${font || 'sans-serif'}`
+  return measureCtx.measureText(text).width
+}
+
+/** 주제 색 점 (W3-13: 점 색 = 주제 색). 테마가 바뀌면 다시 만든다. */
+function dotImage(color: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${DOT}" height="${DOT}"><circle cx="${DOT / 2}" cy="${DOT / 2}" r="${DOT / 2}" fill="${color}"/></svg>`
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+}
+
+const COLOR_KEYS: TopicColorKey[] = [
   ...Array.from({ length: TOPIC_SLOTS }, (_, i) => `topic-${i + 1}` as const),
   'topic-other',
   'topic-none',
@@ -47,77 +86,112 @@ const NODE_COLOR_KEYS: TopicColorKey[] = [
 
 function graphStyle(theme: Theme): cytoscape.StylesheetJson {
   const ink = resolveColor('color-ink', theme)
-  const inkMuted = resolveColor('color-ink-muted', theme)
+  const inkMuted = splitAlpha(resolveColor('color-ink-muted', theme))
   const canvas = resolveColor('color-canvas', theme)
+  const card = resolveColor('color-surface-card', theme)
+  const ghost = splitAlpha(resolveColor('color-border-ghost', theme))
   const font = getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim()
+  const dotStyle = {
+    'background-width': DOT,
+    'background-height': DOT,
+    'background-fit': 'none',
+    'background-clip': 'none',
+    'background-image-containment': 'over',
+    'background-position-y': '50%',
+  } as const
   return [
+    // 주제 묶음: 점선 테두리 상자, 왼쪽 위에 주제 이름 (W3-13)
     {
-      selector: 'node',
+      selector: 'node.group',
       style: {
-        width: 14,
-        height: 14,
+        shape: 'round-rectangle',
+        'corner-radius': '4px',
+        'background-color': card,
+        'border-width': 1,
+        'border-style': 'dashed',
+        'border-color': ghost.color,
+        'border-opacity': ghost.opacity,
+        padding: '32px',
+        label: 'data(label)',
+        color: inkMuted.color,
+        'text-opacity': inkMuted.opacity,
+        'font-family': font || 'sans-serif',
+        'font-size': GROUP_FONT_SIZE,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': 26,
+        // 점(왼쪽 12 + 8) 뒤 8에서 글자가 시작한다
+        'text-margin-x': (ele: NodeSingular) =>
+          -ele.outerWidth() / 2 + (ele.data('labelWidth') as number) / 2 + 28,
+        ...dotStyle,
+        'background-position-x': 12,
+        'background-position-y': 13,
+      },
+    },
+    // 페이지: 알약 + 주제 색 점 + 제목
+    {
+      selector: 'node.page',
+      style: {
+        shape: 'round-rectangle',
+        'corner-radius': `${NODE_HEIGHT / 2}px`,
+        width: 'data(width)',
+        height: NODE_HEIGHT,
+        'background-color': canvas,
+        'border-width': 1,
+        'border-color': ghost.color,
+        'border-opacity': ghost.opacity,
         label: 'data(label)',
         color: ink,
         'font-family': font || 'sans-serif',
-        'font-size': 12,
-        'text-valign': 'bottom',
-        'text-margin-y': 4,
-        'text-background-color': canvas,
-        'text-background-opacity': 0.8,
-        'text-background-padding': '1px',
+        'font-size': NODE_FONT_SIZE,
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'text-margin-x': (DOT + 8) / 2,
+        ...dotStyle,
+        'background-position-x': 12,
       },
     },
-    ...NODE_COLOR_KEYS.map((key) => ({
+    ...COLOR_KEYS.map((key) => ({
       selector: `node[colorKey = "${key}"]`,
-      style: { 'background-color': resolveColor(`color-${key}`, theme) },
+      style: { 'background-image': dotImage(resolveColor(`color-${key}`, theme)) },
     })),
-    // 여러 주제에 걸친 개념: 색 대신 ink 테두리 (색 칸을 쓰지 않는다)
+    // 고른 선의 두 끝 페이지 (W3-13b)
     {
-      selector: 'node.mixed',
-      style: { 'background-color': canvas, 'border-width': 2, 'border-color': ink },
+      selector: 'node.page.endpoint',
+      style: { 'border-width': 2, 'border-color': ink, 'border-opacity': 1 },
     },
-    { selector: 'node:selected', style: { 'border-width': 3, 'border-color': ink } },
     {
       selector: 'edge',
       style: {
         width: 1,
-        'line-color': inkMuted,
-        'target-arrow-color': inkMuted,
-        'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.8,
-        'curve-style': 'bezier',
+        'line-color': ghost.color,
+        'line-opacity': ghost.opacity,
+        'curve-style': 'straight',
+        // 1px 선도 누르기 쉽게 (눌리는 범위만 넓힌다, 겹침 표시는 보이지 않게)
+        'overlay-padding': '6px',
+        'overlay-opacity': 0,
       },
     },
     {
-      selector: 'edge.confirmed',
-      style: { width: 3, 'line-color': ink, 'target-arrow-color': ink },
-    },
-    {
-      selector: 'edge.evidence_lost',
-      style: {
-        width: 1.5,
-        'line-color': inkMuted,
-        'target-arrow-color': inkMuted,
-        'line-style': 'dashed',
-        'line-dash-pattern': [6, 4],
-      },
+      selector: 'edge.selected',
+      style: { width: 2, 'line-color': ink, 'line-opacity': 1, 'z-index': 10 },
     },
   ]
 }
 
 /**
- * 전체 그래프 그림 (Cytoscape.js). 노드는 개념, 간선은 관계 (방향 있음).
- * 간선 모양은 design.md: 추출 ink-muted 1px · 확정 ink 3px · 근거 소실 ink-muted 점선(6·4) 1.5px.
- * Cytoscape는 한 번만 만들고 받은 그래프를 맞춰 넣는다. 처음에만 전체 배치를 하고, 이후에는 있던 노드를 그 자리에 두고
- * 새 노드만 이웃 옆에 놓는다 (창에 돌아와 다시 받아도 그림이 흔들리지 않고 확대·이동도 그대로다).
+ * 페이지 그래프 그림 (Figma W3-13, Cytoscape.js + fcose). 노드는 페이지, 선은 같은 키워드를 공유하는 두 페이지 (방향 없음).
+ * 같은 주제의 페이지는 주제 묶음(compound node) 안에 모은다. 처음에는 id로 정한 시작 위치에서 fcose로 배치해
+ * 같은 그래프면 열 때마다 같은 그림이다. 이후 다시 받으면 있던 페이지는 그 자리에 두고 새 페이지만 이웃 옆에 놓는다.
  */
-export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) {
+export function GraphCanvas(props: Props) {
+  const { graph, topics, colorKeys, selectedEdge } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
-  const onTapRef = useRef(onTapNode)
+  const handlers = useRef({ onTapNode: props.onTapNode, onTapEdge: props.onTapEdge })
   const { theme } = useTheme()
   useLayoutEffect(() => {
-    onTapRef.current = onTapNode
+    handlers.current = { onTapNode: props.onTapNode, onTapEdge: props.onTapEdge }
   })
 
   useEffect(() => {
@@ -125,10 +199,12 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
       container: hostRef.current,
       minZoom: 0.2,
       maxZoom: 3,
+      autounselectify: true,
     })
-    cy.on('tap', 'node', (e) => onTapRef.current(e.target.id()))
+    cy.on('tap', 'node.page', (e) => handlers.current.onTapNode(e.target.id()))
+    cy.on('tap', 'edge', (e) => handlers.current.onTapEdge(e.target.id()))
     cy.on('tap', (e) => {
-      if (e.target === cy) onTapRef.current(null)
+      if (e.target === cy || e.target.hasClass?.('group')) handlers.current.onTapEdge(null)
     })
     cyRef.current = cy
     return () => {
@@ -137,7 +213,7 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
     }
   }, [])
 
-  // 처음 그릴 때와 테마가 바뀔 때 스타일을 넣는다 (노드 색도 스타일시트에 있다)
+  // 처음 그릴 때와 테마가 바뀔 때 스타일을 넣는다 (점 색도 스타일시트에 있다)
   useEffect(() => {
     cyRef.current?.style(graphStyle(theme))
   }, [theme])
@@ -146,54 +222,91 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
     const cy = cyRef.current
     if (!cy) return
     const firstDraw = cy.elements().empty()
+    const order = topicsInGraph(graph.nodes, topics)
+    const groupIds = new Set(order.map(groupId))
     const nodeIds = new Set(graph.nodes.map((n) => n.id))
-    const edgeIds = new Set(graph.edges.map((e) => e.id))
+    const edgeIds = new Set(graph.edges.map(edgeKey))
     const added: NodeSingular[] = []
 
     cy.batch(() => {
-      cy.elements()
-        .filter((el) => !(el.isNode() ? nodeIds : edgeIds).has(el.id()))
+      cy.edges()
+        .filter((e) => !edgeIds.has(e.id()))
         .remove()
-      for (const n of graph.nodes) {
-        const key = nodeColorKey(n, colorKeys)
-        // 여러 주제는 클래스로 칠한다 (색 토큰이 없다)
-        const data = { id: n.id, label: n.label, colorKey: key }
-        const classes = key === 'topic-mixed' ? 'mixed' : ''
-        const existing = cy.getElementById(n.id)
-        if (existing.nonempty()) existing.data(data).classes(classes)
-        else added.push(cy.add({ group: 'nodes', data, classes }))
+      cy.nodes('.page')
+        .filter((n) => !nodeIds.has(n.id()))
+        .remove()
+      for (const topicId of order) {
+        const id = groupId(topicId)
+        const label = topicLabel(topics, topicId)
+        const data = { id, label, labelWidth: textWidth(label, GROUP_FONT_SIZE) }
+        const colorKey = topicId === null ? 'topic-none' : (colorKeys.get(topicId) ?? 'topic-other')
+        const existing = cy.getElementById(id)
+        if (existing.nonempty()) existing.data({ ...data, colorKey })
+        else cy.add({ group: 'nodes', data: { ...data, colorKey }, classes: 'group' })
       }
+      for (const n of graph.nodes) {
+        const data = {
+          id: n.id,
+          label: n.title,
+          colorKey: nodeColorKey(n, colorKeys),
+          width: textWidth(n.title, NODE_FONT_SIZE) + NODE_CHROME,
+        }
+        const parent = groupId(n.topicId)
+        const existing = cy.getElementById(n.id)
+        if (existing.nonempty()) {
+          existing.data(data)
+          // 다른 주제로 옮긴 페이지는 그 주제 묶음으로 옮긴다
+          if (existing.data('parent') !== parent) existing.move({ parent })
+        } else {
+          added.push(cy.add({ group: 'nodes', data: { ...data, parent }, classes: 'page' }))
+        }
+      }
+      cy.nodes('.group')
+        .filter((g) => !groupIds.has(g.id()))
+        .remove()
       for (const e of graph.edges) {
-        const classes = `${e.origin} ${e.status}`
-        const existing = cy.getElementById(e.id)
-        if (existing.nonempty()) existing.classes(classes)
-        else if (nodeIds.has(e.sourceId) && nodeIds.has(e.targetId)) {
-          cy.add({
-            group: 'edges',
-            data: { id: e.id, source: e.sourceId, target: e.targetId },
-            classes,
-          })
+        const id = edgeKey(e)
+        if (cy.getElementById(id).nonempty()) continue
+        if (nodeIds.has(e.sourceId) && nodeIds.has(e.targetId)) {
+          cy.add({ group: 'edges', data: { id, source: e.sourceId, target: e.targetId } })
         }
       }
     })
 
     if (firstDraw) {
-      cy.layout({ name: 'cose', animate: false, padding: 32 }).run()
-      // 노드가 적으면 화면에 맞추느라 크게 확대된다. 글자가 본문보다 커지지 않게 막는다.
+      const start = initialPositions(graph.nodes, order)
+      cy.nodes('.page').forEach((n) => {
+        const p = start.get(n.id())
+        if (p) n.position(p)
+      })
+      cy.layout({
+        name: 'fcose',
+        randomize: false,
+        animate: false,
+        quality: 'default',
+        packComponents: false,
+        nodeRepulsion: 6000,
+        idealEdgeLength: 100,
+        nestingFactor: 0.1,
+        gravityCompound: 1,
+        gravityRangeCompound: 1.5,
+        padding: 40,
+      } as cytoscape.LayoutOptions).run()
+      // 페이지가 적으면 화면에 맞추느라 크게 확대된다. 글자가 본문보다 커지지 않게 막는다.
       if (cy.zoom() > MAX_FIT_ZOOM) {
         cy.zoom(MAX_FIT_ZOOM)
         cy.center()
       }
       return
     }
-    // 새 노드: 이미 자리가 있는 이웃 옆에, 이웃이 없으면 지금 보이는 화면 가운데에
+    // 새 페이지: 이미 자리가 있는 이웃 옆에, 없으면 같은 주제 묶음 옆에, 그것도 없으면 화면 가운데
     const unplaced = new Set(added.map((n) => n.id()))
     const extent = cy.extent()
     added.forEach((node, i) => {
-      const anchor = node
-        .neighborhood()
-        .nodes()
-        .filter((m) => !unplaced.has(m.id()))[0] as NodeSingular | undefined
+      const anchor =
+        (node.neighborhood('node.page').filter((m) => !unplaced.has(m.id()))[0] as
+          NodeSingular | undefined) ??
+        (node.siblings().filter((m) => !unplaced.has(m.id()))[0] as NodeSingular | undefined)
       const center = anchor
         ? anchor.position()
         : { x: (extent.x1 + extent.x2) / 2, y: (extent.y1 + extent.y2) / 2 }
@@ -204,15 +317,20 @@ export function GraphCanvas({ graph, colorKeys, selectedId, onTapNode }: Props) 
       })
       unplaced.delete(node.id())
     })
-  }, [graph, colorKeys])
+  }, [graph, topics, colorKeys])
 
-  // 고른 노드 표시 (목록에서 골라도 그림에 보인다)
+  // 고른 선과 두 끝 페이지 표시 (W3-13b)
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return
-    cy.nodes(':selected').unselect()
-    if (selectedId) cy.getElementById(selectedId).select()
-  }, [selectedId, graph])
+    cy.batch(() => {
+      cy.elements('.selected, .endpoint').removeClass('selected endpoint')
+      if (!selectedEdge) return
+      const edge = cy.getElementById(selectedEdge)
+      edge.addClass('selected')
+      edge.connectedNodes().addClass('endpoint')
+    })
+  }, [selectedEdge, graph])
 
-  return <div ref={hostRef} className={styles.canvas} role="img" aria-label="전체 개념 그래프" />
+  return <div ref={hostRef} className={styles.canvas} role="img" aria-label="페이지 그래프" />
 }

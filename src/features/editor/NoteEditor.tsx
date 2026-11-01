@@ -14,7 +14,12 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { ContextMenu } from '../../components/ContextMenu'
 import { FieldError } from '../../components/FieldError'
 import { useToast } from '../../components/toastContext'
-import { useApplySavedNote, useDeleteNote, useNote } from '../../data/queries'
+import {
+  useApplySavedNote,
+  useDeleteNote,
+  useNote,
+  useScheduleRecommendations,
+} from '../../data/queries'
 import { AnalysisStatusIndicator } from './AnalysisStatusIndicator'
 import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
 import styles from './NoteEditor.module.css'
@@ -49,7 +54,18 @@ interface Props {
 
 export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref }: Props) {
   const applySavedNote = useApplySavedNote()
-  const [saver] = useState(() => new NoteSaver(note, { save: updateNote, onSaved: applySavedNote }))
+  // 저장은 추천 트리거다 (10/30). 자동 저장마다가 아니라 저장이 멈춘 뒤 한 번 요청한다.
+  const scheduleRecommendations = useScheduleRecommendations()
+  const [saver] = useState(
+    () =>
+      new NoteSaver(note, {
+        save: updateNote,
+        onSaved: (saved) => {
+          applySavedNote(saved)
+          scheduleRecommendations(saved.id)
+        },
+      }),
+  )
   const state = useSyncExternalStore(saver.subscribe, saver.getState)
   // 빵부스러기는 마지막으로 저장된 제목을 보여준다 (W1-09).
   const savedTitle = useNote(note.id).data?.title ?? note.title

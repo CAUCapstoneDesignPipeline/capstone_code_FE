@@ -193,8 +193,8 @@ export function Sidebar(props: Props) {
           />
         ) : (
           <>
-            <h2 className={styles.sectionLabel}>발견</h2>
-            <ul className={styles.list}>
+            {/* W3-13: 검색 바로 아래 "전체 그래프" (위에 붙던 "발견" 이름은 뺐다) */}
+            <ul className={styles.list} aria-label="그래프">
               <li>
                 <button
                   type="button"

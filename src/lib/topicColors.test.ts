@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphNode, Topic } from '../api'
-import { assignTopicSlots, nodeColorKey, nodeTopicId, topicColorKeys } from './topicColors'
+import { assignTopicSlots, nodeColorKey, topicColorKeys } from './topicColors'
 
 const topic = (id: string, createdAt: string, sortOrder = 0): Topic => ({
   id,
@@ -10,11 +10,7 @@ const topic = (id: string, createdAt: string, sortOrder = 0): Topic => ({
   noteCount: 0,
 })
 
-const node = (...topicIds: (string | null)[]): GraphNode => ({
-  id: 'c',
-  label: '개념',
-  notes: topicIds.map((topicId, i) => ({ id: `n${i}`, title: `노트 ${i}`, topicId })),
-})
+const node = (topicId: string | null): GraphNode => ({ id: 'n', title: '노트', topicId })
 
 const keysOf = (topics: Topic[]) => topicColorKeys(topics, assignTopicSlots(topics, {}))
 
@@ -59,12 +55,10 @@ describe('주제 색', () => {
     expect(assignTopicSlots([a, b], { a: 1, b: 1 })).toEqual({ a: 1, b: 2 })
   })
 
-  it('노드 색: 주제 하나면 그 주제, 미분류, 여러 주제, 모르는 주제', () => {
+  it('페이지 노드 색: 주제 색, 미분류, 모르는 주제', () => {
     const keys = keysOf([topic('a', '2026-10-01T00:00:00Z')])
-    expect(nodeColorKey(node('a', 'a'), keys)).toBe('topic-1')
+    expect(nodeColorKey(node('a'), keys)).toBe('topic-1')
     expect(nodeColorKey(node(null), keys)).toBe('topic-none')
-    expect(nodeTopicId(node('a', null))).toBe('mixed')
-    expect(nodeColorKey(node('a', 'b'), keys)).toBe('topic-mixed')
     expect(nodeColorKey(node('zzz'), keys)).toBe('topic-other')
   })
 })

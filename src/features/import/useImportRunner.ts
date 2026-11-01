@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { isApiError } from '../../api'
-import { useFetchTitlesIn, useImportNote } from '../../data/queries'
+import { useFetchTitlesIn, useImportNote, useRequestRecommendations } from '../../data/queries'
 import { numberedTitle, titleFromFileName, type PickedFile } from './markdownImport'
 
 export type RowStatus = 'waiting' | 'importing' | 'done' | 'failed'
@@ -37,6 +37,8 @@ export function useImportRunner() {
   const [run, setRun] = useState<ImportRun | null>(null)
   const importNote = useImportNote()
   const fetchTitles = useFetchTitlesIn()
+  // 가져오기는 추천 트리거다 (10/30). 노트를 만들 때마다 바로 요청한다.
+  const requestRecommendations = useRequestRecommendations()
 
   const start = useCallback(
     async (files: PickedFile[], topicId: string | null, topicName: string): Promise<ImportRun> => {
@@ -82,7 +84,8 @@ export function useImportRunner() {
         for (let attempt = 0; ; attempt++) {
           const title = numberedTitle(base, taken)
           try {
-            await importNote.mutateAsync({ title, topicId, body: file.body ?? '' })
+            const note = await importNote.mutateAsync({ title, topicId, body: file.body ?? '' })
+            void requestRecommendations(note.id)
             taken.add(title)
             patch(file.key, { status: 'done', title, renamed: title !== base })
             break
@@ -103,7 +106,7 @@ export function useImportRunner() {
       setRun(current)
       return current
     },
-    [fetchTitles, importNote],
+    [fetchTitles, importNote, requestRecommendations],
   )
 
   const clear = useCallback(() => setRun(null), [])

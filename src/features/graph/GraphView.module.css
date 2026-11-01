@@ -21,18 +21,18 @@
   font: var(--text-ui-body-sm-strong);
 }
 
-.body {
-  display: grid;
-  flex: 1;
-  grid-template-columns: minmax(0, 1fr) var(--layout-panel-width);
-  /* 행 높이를 화면에 고정한다 (개념 목록이 길어도 패널만 스크롤) */
-  grid-template-rows: minmax(0, 1fr);
-  min-height: 0;
+.caption {
+  flex: none;
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
 }
 
+/* W3-13: 그래프가 가운데 칸 전체를 쓰고 범례·선 카드는 위에 띄운다 */
 .stage {
   position: relative;
-  min-width: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 .canvas {
@@ -56,100 +56,94 @@
   gap: var(--space-8);
 }
 
-/* 오른쪽 패널: 노트 패널과 같은 모양 */
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-16);
-  overflow-y: auto;
-  padding: var(--space-16);
-  border-left: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-card);
-}
-
-.sectionLabel {
-  margin: 0 0 var(--space-8);
-  font: var(--text-ui-label-strong);
-}
-
 .hint {
   margin: 0 0 var(--space-4);
   color: var(--color-ink-muted);
   font: var(--text-ui-label);
 }
 
-.caption {
-  flex: none;
-  color: var(--color-ink-muted);
-  font: var(--text-ui-caption);
-}
-
-.list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  width: 100%;
-  height: var(--layout-row-height);
-  padding: 0 var(--space-8);
-  border: none;
-  border-radius: var(--radius-card);
-  background: none;
-  color: var(--color-ink);
-  font: var(--text-ui-body-sm);
-  text-align: left;
-}
-
-.row:hover {
-  background: var(--color-surface-muted);
-}
-
-.row[aria-pressed='true'] {
-  background: var(--color-surface-selected);
-}
-
-.row:focus-visible {
-  outline: 2px solid var(--color-ink);
-  outline-offset: -2px;
-}
-
-.rowLabel {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* 범례 (W3-13 오른쪽 위) */
 .legend {
+  position: absolute;
+  top: var(--space-16);
+  right: var(--space-16);
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4) var(--space-12);
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-12);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-card);
+}
+
+.legendList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .legendItem {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-8);
   font: var(--text-ui-label);
+}
+
+.legendNote {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
 }
 
 .swatch {
   flex: none;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
-.swatchMixed {
-  border: 2px solid var(--color-ink);
+/* 선 카드 (W3-13b): 오른쪽 패널이 없으므로 그래프 위 가운데 */
+.edgeCard {
+  position: absolute;
+  top: var(--space-32);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: min(240px, calc(100% - var(--space-32)));
+  padding: var(--space-12);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
   background: var(--color-canvas);
+  transform: translateX(-50%);
+}
+
+.edgeTitle {
+  margin: 0;
+  font: var(--text-ui-body-sm-strong);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  padding: var(--space-2) var(--space-8);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  font: var(--text-ui-caption);
+}
+
+.edgeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
 }

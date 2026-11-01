@@ -6,6 +6,7 @@ import check from '../assets/icons/check.svg'
 import chevronDown from '../assets/icons/chevron-down.svg'
 import chevronRight from '../assets/icons/chevron-right.svg'
 import clock from '../assets/icons/clock.svg'
+import compass from '../assets/icons/compass.svg'
 import close from '../assets/icons/close.svg'
 import dot from '../assets/icons/dot.svg'
 import external from '../assets/icons/external.svg'
@@ -44,6 +45,7 @@ const ICONS = {
   'chevron-down': chevronDown,
   'chevron-right': chevronRight,
   clock,
+  compass,
   close,
   dot,
   external,

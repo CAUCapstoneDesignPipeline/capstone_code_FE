@@ -4,9 +4,10 @@ import { Button, IconButton } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useToast } from '../components/toastContext'
+import type { RecommendationEvidence } from '../api'
 import { useCapabilities, useCreateUntitledNote } from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
-import { NotePane } from '../features/note/NotePane'
+import { NotePane, type EvidenceRequest } from '../features/note/NotePane'
 import { RecommendPanel } from '../features/recommend/RecommendPanel'
 import { Sidebar } from '../features/sidebar/Sidebar'
 import styles from './App.module.css'
@@ -17,7 +18,8 @@ const GraphView = lazy(() =>
 )
 
 /** 가운데 화면: 노트 편집기 또는 전체 그래프 */
-type Target = { kind: 'note'; noteId: string } | { kind: 'graph' }
+/** viaEvidence: 추천 카드의 근거를 눌러 가는 이동 (패널은 원래 추천을 그대로 보인다, W3-12) */
+type Target = { kind: 'note'; noteId: string; viaEvidence?: boolean } | { kind: 'graph' }
 
 /** 접을 수 있는 양옆 칸: 왼쪽 사이드바, 오른쪽 추천·챗봇 패널 */
 type Side = 'sidebar' | 'panel'
@@ -61,12 +63,17 @@ export function App() {
   const clearSelection = useCallback(() => setSelectedNoteId(null), [])
   /** 저장 안 된 내용이 있어 확인을 기다리는 이동 */
   const [leaving, setLeaving] = useState<{ to: Target; reason: string } | null>(null)
+  /** 추천 카드에서 누른 근거 (W3-12). 그 노트가 열리면 편집기가 문장을 강조한다. seq는 같은 근거를 다시 눌렀을 때 구분한다 */
+  const [evidenceRequest, setEvidenceRequest] = useState<EvidenceRequest | null>(null)
+  /** 오른쪽 패널이 추천을 보이는 노트. 보통은 연 노트지만, 근거로 이동하면 바꾸지 않는다 (카드가 패널에 그대로 남는다) */
+  const [panelNoteId, setPanelNoteId] = useState<string | null>(null)
 
   function show(target: Target) {
     if (target.kind === 'graph') {
       setGraphOpen(true)
     } else {
       setSelectedNoteId(target.noteId)
+      if (!target.viaEvidence) setPanelNoteId(target.noteId)
       setGraphOpen(false)
     }
   }
@@ -101,6 +108,12 @@ export function App() {
 
   const selectNote = (noteId: string) => go({ kind: 'note', noteId })
 
+  /** 근거로 이동 (W3-12): 노트를 열고(저장 안 된 내용이 있으면 먼저 묻는다) 근거 문장을 강조한다 */
+  function openEvidence(evidence: RecommendationEvidence) {
+    setEvidenceRequest((prev) => ({ evidence, seq: (prev?.seq ?? 0) + 1 }))
+    go({ kind: 'note', noteId: evidence.noteId, viaEvidence: true })
+  }
+
   /** 새 노트는 겹치지 않는 기본 제목("제목 없음", "제목 없음 1", …)으로 만들고 바로 연다. topicId가 null이면 미분류 */
   function createNoteIn(topicId: string | null) {
     createNote.mutate(topicId, {
@@ -114,7 +127,7 @@ export function App() {
       className={[
         styles.app,
         collapsed.sidebar && styles.sidebarCollapsed,
-        collapsed.panel && styles.panelCollapsed,
+        graphOpen ? styles.panelHidden : collapsed.panel && styles.panelCollapsed,
       ]
         .filter(Boolean)
         .join(' ')}
@@ -144,7 +157,7 @@ export function App() {
             onClick={() => setSideCollapsed('sidebar', false)}
           />
         )}
-        {collapsed.panel && (
+        {collapsed.panel && !graphOpen && (
           <IconButton
             ref={expandPanelRef}
             icon="panel-right-open"
@@ -172,6 +185,9 @@ export function App() {
         ) : (
           <NotePane
             noteId={selectedNoteId}
+            evidenceRequest={
+              evidenceRequest?.evidence.noteId === selectedNoteId ? evidenceRequest : null
+            }
             registerLeaveGuard={registerLeaveGuard}
             onCreateNote={() => createNoteIn(null)}
             onCreateTopic={() => setAddingTopic(true)}
@@ -179,9 +195,11 @@ export function App() {
           />
         )}
       </main>
-      {/* 노트를 열지 않았거나 그래프를 볼 때도 늘 보인다 */}
-      <div className={styles.panel} hidden={collapsed.panel}>
+      {/* 노트를 열지 않았을 때도 보인다. 그래프 화면에서는 숨긴다 (W3-13) */}
+      <div className={styles.panel} hidden={collapsed.panel || graphOpen}>
         <RecommendPanel
+          noteId={graphOpen ? null : panelNoteId}
+          onOpenEvidence={openEvidence}
           onCollapse={() => setSideCollapsed('panel', true)}
           collapseRef={collapsePanelRef}
         />
@@ -193,7 +211,11 @@ export function App() {
           description={`${leaving.reason} ${leaving.to.kind === 'graph' ? '그래프로' : '다른 노트로'} 옮기면 이 노트에서 고친 내용이 사라집니다. 필요한 내용은 복사해 두세요.`}
           confirmLabel="버리고 이동"
           cancelLabel="계속 편집"
-          onCancel={() => setLeaving(null)}
+          onCancel={() => {
+            // 근거로 이동하려다 취소했으면 그 근거도 잊는다 (나중에 그 노트를 열 때 강조하지 않게)
+            setEvidenceRequest(null)
+            setLeaving(null)
+          }}
           onConfirm={() => {
             show(leaving.to)
             setLeaving(null)
