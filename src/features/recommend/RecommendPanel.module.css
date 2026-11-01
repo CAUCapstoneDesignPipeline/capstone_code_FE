@@ -135,12 +135,6 @@
   font-size: 13px;
 }
 
-.recorded {
-  margin: 0;
-  color: var(--color-ink-muted);
-  font: var(--text-ui-caption);
-}
-
 /* 근거를 누르면 노트를 열고 문장을 강조한다 (W3-12). 누른 근거는 surface-selected */
 .evidenceButton {
   width: 100%;
