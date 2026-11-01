@@ -13,7 +13,11 @@ import {
   useTopics,
 } from '../../data/queries'
 import {
+  ANSWER_FAILED_TOAST,
   ANSWER_TOAST,
+  cardAfterAnswer,
+  CONFUSED_FAILED_TOAST,
+  currentIndex,
   remainingRecommendations,
   type RecommendationAnswer,
 } from '../../lib/recommendations'
@@ -60,10 +64,15 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   const allAnswered = all.length > 0 && list.length === 0
 
   // 여러 개면 한 장씩 (W3-09). 순서는 BE가 준 그대로다. 작업이 바뀌면 처음부터.
-  const [page, setPage] = useState({ jobId: '', index: 0 })
-  const index = page.jobId === job.data?.id ? Math.min(page.index, list.length - 1) : 0
-  const current = list[Math.max(index, 0)] ?? null
-  const goTo = (i: number) => setPage({ jobId: job.data?.id ?? '', index: i })
+  // 보고 있는 카드는 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패) 같은 카드를 보인다.
+  const [page, setPage] = useState<{ jobId: string; currentId: string | null }>({
+    jobId: '',
+    currentId: null,
+  })
+  const index = currentIndex(list, page.jobId === job.data?.id ? page.currentId : null)
+  const current = list[index] ?? null
+  const show = (currentId: string | null) => setPage({ jobId: job.data?.id ?? '', currentId })
+  const goTo = (i: number) => show(list[i]?.id ?? null)
 
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
   // 추천으로 돌아갔다 와도 대화를 이어 간다.
@@ -75,10 +84,12 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   function respond(id: RecommendationAnswer) {
     if (!current) return
     const message = ANSWER_TOAST[id]
+    // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (W3-10)
+    if (id !== 'confused') show(cardAfterAnswer(list, current.id))
     answer(current.id, id).then(
       () => message && toast('info', message),
-      // 보내지 못하면 카드가 다시 보인다
-      () => toast('error', '답을 보내지 못했습니다. 다시 시도하세요.'),
+      // 보내지 못하면 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
+      () => toast('error', id === 'confused' ? CONFUSED_FAILED_TOAST : ANSWER_FAILED_TOAST),
     )
     if (id !== 'confused') return
     if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
