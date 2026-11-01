@@ -23,10 +23,6 @@ export type Capabilities = { [K in keyof Schemas['Capabilities']]: boolean }
 // 분석·그래프는 계약이 아직 draft다 (x-contract-status: draft).
 export type AnalysisJob = Schemas['AnalysisJob']
 export type AnalysisStatus = AnalysisJob['status']
-export type NoteGraph = Schemas['NoteGraph']
-export type ConceptInNote = Schemas['ConceptInNote']
-export type Relation = Schemas['Relation']
-export type EvidenceSpan = Schemas['EvidenceSpan']
 
 /**
  * 페이지 그래프 (GET /graph, docs PR #17 v0.4.0-draft · Figma W3-13).
