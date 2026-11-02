@@ -231,6 +231,44 @@
   font: var(--text-code-block);
 }
 
+/* 수식 (KaTeX). 블록 수식은 가운데, 넓으면 가로로 밀어 본다 */
+.editor :global(.cm-lp-math .katex) {
+  font-size: 1.1em;
+}
+
+.editor :global(.cm-lp-math-block) {
+  overflow-x: auto;
+  padding: var(--space-4) 0;
+}
+
+.editor :global(.cm-lp-math-block .katex-display) {
+  margin: 0;
+}
+
+/* 글 사이의 $$…$$: 디스플레이 스타일이지만 줄을 끊지 않는다 */
+.editor :global(.cm-lp-math-inline-display .katex-display) {
+  display: inline-block;
+  margin: 0;
+}
+
+.editor :global(.cm-lp-math-empty),
+.editor :global(.cm-lp-math-loading) {
+  color: var(--color-ink-muted);
+}
+
+.editor :global(.cm-lp-math-empty) {
+  font-style: italic;
+}
+
+.editor :global(.cm-lp-math-block.cm-lp-math-empty) {
+  text-align: center;
+}
+
+/* 커서가 닿아 원문이 드러난 수식 */
+.editor :global(.cm-lp-math-src) {
+  font: var(--text-code-block);
+}
+
 /* 근거 문장 강조 (F-GRA-03): 표시만 한다. 오류색 없이 surface-selected + ink 밑줄 */
 .editor :global(.cm-evidence) {
   border-radius: 2px;
