@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { isApiError, type RecommendationEvidence } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
-import { keys, useNote, useNoteAnalysis } from '../../data/queries'
+import { keys, useCapabilities, useNote, useNoteAnalysis } from '../../data/queries'
 import { NoteEditor, type LeaveGuard, type NoteEditorHandle } from '../editor/NoteEditor'
 import styles from './NotePane.module.css'
 
@@ -61,8 +61,9 @@ function LoadedNote({
   onNoteGone,
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
-  // 편집기 상단 막대가 분석 상태를 보여 준다.
-  const analysis = useNoteAnalysis(noteId)
+  // 편집기 상단 막대가 분석 상태를 보여 준다. 분석이 꺼져 있으면 부르지 않고 결과도 넘기지 않는다 (AI-off).
+  const analysisEnabled = useCapabilities()?.analysisEnabled === true
+  const analysis = useNoteAnalysis(noteId, analysisEnabled)
   const qc = useQueryClient()
   const toast = useToast()
   const missing = !note.data && isApiError(note.error, 'NOT_FOUND')
@@ -99,7 +100,7 @@ function LoadedNote({
         note={note.data}
         registerLeaveGuard={registerLeaveGuard}
         onDeleted={onNoteGone}
-        analysis={analysis.data}
+        analysis={analysisEnabled ? analysis.data : undefined}
       />
     )
   }

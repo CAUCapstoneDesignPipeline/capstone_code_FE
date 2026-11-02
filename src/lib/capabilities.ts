@@ -6,13 +6,17 @@ export const CAPABILITIES_OFF: Capabilities = {
   discoveriesEnabled: false,
 }
 
-/**
- * 받은 기능 여부. 한 번 받은 값이 있으면 그 뒤 다시 받기에 실패해도 그 값을 쓴다 (잠깐의 오프라인으로 기능을 끄지 않는다).
- * 받은 적 없이 실패하면(경로가 없는 옛 서버 등) 모두 꺼진 것으로, 아직 받는 중이면 undefined.
- */
+/** 조회 실패·재조회 중에는 이전 허용 값을 사용하지 않는다. */
 export function resolveCapabilities(
   data: Capabilities | undefined,
   isError: boolean,
+  isFetching = false,
 ): Capabilities | undefined {
-  return data ?? (isError ? CAPABILITIES_OFF : undefined)
+  if (isError || isFetching) return CAPABILITIES_OFF
+  if (!data) return undefined
+  return {
+    analysisEnabled: data.analysisEnabled === true,
+    graphEnabled: data.graphEnabled === true,
+    discoveriesEnabled: data.discoveriesEnabled === true,
+  }
 }

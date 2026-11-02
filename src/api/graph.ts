@@ -1,12 +1,7 @@
 import { request } from './client'
-import type { AnalysisJob, Capabilities, Graph } from './types'
+import type { AnalysisJob, Graph } from './types'
 
 const analysisPath = (noteId: string) => `/notes/${encodeURIComponent(noteId)}/analysis`
-
-/** AI 기능(분석·그래프·발견)을 쓸 수 있는지. 로그인 없이 부를 수 있다. */
-export function getCapabilities(signal?: AbortSignal): Promise<Capabilities> {
-  return request('GET', '/capabilities', { signal })
-}
 
 /** 가장 최근 분석 작업 (draft, F-ANL-01). 분석한 적이 없으면 null */
 export async function getNoteAnalysis(

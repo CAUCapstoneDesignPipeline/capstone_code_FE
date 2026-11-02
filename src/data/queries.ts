@@ -68,9 +68,10 @@ export function useCapabilities() {
   const query = useQuery({
     queryKey: keys.capabilities,
     queryFn: ({ signal }) => getCapabilities(signal),
-    staleTime: 60_000,
+    staleTime: 30_000,
+    retry: false,
   })
-  return resolveCapabilities(query.data, query.isError)
+  return resolveCapabilities(query.data, query.isError, query.isFetching)
 }
 
 export function useTopics() {
@@ -122,18 +123,19 @@ export function useNote(noteId: string, enabled = true) {
  * 숨겨진 탭에서는 멈추고(refetchIntervalInBackground 기본값) 돌아오면 바로 다시 받는다(refetchOnWindowFocus).
  * 같은 노트에서 한 곳만 부른다 (부르는 곳마다 폴링 타이머가 따로 돈다).
  */
-export function useNoteAnalysis(noteId: string) {
-  // 조회는 AI-off에서도 된다 (지난 작업 기록). 폴링만 분석이 켜져 있을 때 한다.
-  const polling = useCapabilities()?.analysisEnabled === true
+export function useNoteAnalysis(noteId: string, enabled = false) {
   const [nextPoll] = useState(() => createAnalysisPoller())
   // 편집기가 저장할 때마다 캐시의 version을 올린다 (useApplySavedNote).
   const savedVersion = useNote(noteId).data?.version
   return useQuery({
     queryKey: keys.noteAnalysis(noteId),
+    enabled,
     queryFn: ({ signal }) => getNoteAnalysis(noteId, signal),
     refetchInterval: (query) =>
       // 노트가 지워졌으면 멈춘다
-      !polling || isApiError(query.state.error, 'NOT_FOUND')
+      !enabled ||
+      isApiError(query.state.error, 'NOT_FOUND') ||
+      isApiError(query.state.error, 'AI_UNAVAILABLE')
         ? false
         : nextPoll(query.state.data, savedVersion),
   })
