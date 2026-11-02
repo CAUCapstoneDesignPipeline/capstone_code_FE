@@ -90,6 +90,16 @@
   list-style: none;
 }
 
+/* Figma W3-01 Sidebar/Import: 전체 폭 secondary 버튼, 아이콘·글자는 왼쪽 정렬 */
+.import {
+  flex: none;
+  padding: 0 var(--space-4);
+}
+
+.importButton {
+  width: 100%;
+}
+
 .actions {
   display: flex;
   flex: none;

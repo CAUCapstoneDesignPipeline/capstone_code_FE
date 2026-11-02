@@ -9,6 +9,7 @@ import close from '../assets/icons/close.svg'
 import dot from '../assets/icons/dot.svg'
 import external from '../assets/icons/external.svg'
 import graph from '../assets/icons/graph.svg'
+import importIcon from '../assets/icons/import.svg'
 import info from '../assets/icons/info.svg'
 import loader from '../assets/icons/loader.svg'
 import logout from '../assets/icons/logout.svg'
@@ -45,6 +46,7 @@ const ICONS = {
   dot,
   external,
   graph,
+  import: importIcon,
   info,
   loader,
   logout,
