@@ -9,7 +9,9 @@ describe('AI 기능 여부', () => {
     expect(resolveCapabilities(undefined, true)).toEqual(CAPABILITIES_OFF)
   })
 
-  it('받은 값이 있으면 다시 받기에 실패해도 그 값을 쓴다', () => {
-    expect(resolveCapabilities(ON, true)).toEqual(ON)
+  it('이전 허용 값이 있어도 실패하거나 재조회 중이면 모두 차단한다', () => {
+    expect(resolveCapabilities(ON, true)).toEqual(CAPABILITIES_OFF)
+    expect(resolveCapabilities(ON, false, true)).toEqual(CAPABILITIES_OFF)
+    expect(resolveCapabilities(ON, false, false)).toEqual(ON)
   })
 })

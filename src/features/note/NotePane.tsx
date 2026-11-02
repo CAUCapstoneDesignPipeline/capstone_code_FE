@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { isApiError } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
-import { keys, useNote, useNoteAnalysis } from '../../data/queries'
+import { keys, useCapabilities, useNote, useNoteAnalysis } from '../../data/queries'
 import { NoteEditor, type LeaveGuard, type NoteEditorHandle } from '../editor/NoteEditor'
 import { NoteGraphPanel, type ShowEvidence } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
@@ -50,7 +50,10 @@ function LoadedNote({
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
   // 편집기 상단 막대와 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
-  const analysis = useNoteAnalysis(noteId)
+  const capabilities = useCapabilities()
+  const analysisEnabled = capabilities?.analysisEnabled === true
+  const graphEnabled = capabilities?.graphEnabled === true
+  const analysis = useNoteAnalysis(noteId, analysisEnabled)
   // 패널에서 고른 근거를 편집기에 강조한다 (F-GRA-03)
   const editorRef = useRef<NoteEditorHandle>(null)
   const showEvidence = useCallback<ShowEvidence>(
@@ -73,15 +76,21 @@ function LoadedNote({
   // 한 번 불러온 뒤에는 이후 오류가 나도 편집기를 유지한다 (편집 중인 내용을 지우지 않는다).
   if (note.data) {
     return (
-      <div className={styles.withPanel}>
+      <div className={graphEnabled ? styles.withPanel : styles.pane}>
         <NoteEditor
           ref={editorRef}
           note={note.data}
           registerLeaveGuard={registerLeaveGuard}
           onDeleted={onNoteGone}
-          analysis={analysis.data}
+          analysis={analysisEnabled ? analysis.data : undefined}
         />
-        <NoteGraphPanel noteId={noteId} job={analysis.data} onShowEvidence={showEvidence} />
+        {graphEnabled && (
+          <NoteGraphPanel
+            noteId={noteId}
+            job={analysisEnabled ? analysis.data : undefined}
+            onShowEvidence={showEvidence}
+          />
+        )}
       </div>
     )
   }
