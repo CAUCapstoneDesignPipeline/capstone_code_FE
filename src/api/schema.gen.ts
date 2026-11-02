@@ -4,6 +4,121 @@
  */
 
 export interface paths {
+    "/source-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * uploadSourceFile (개발 계약 채택)
+         * @description PNG/JPEG/PDF 실제내용 검증. 파일10MiB/20페이지/25MP. PDF는300DPI×UserUnit(누락1) 기준 raw inherited MediaBox와CropBox 각각의 width/height를ceil한 픽셀곱으로검사한다. 무한/음수/뒤집힌기하와초과는거부하고 내부이미지픽셀도별도검사한다. geometry정책은development/ocr-contract-review.md를따른다. 실제OCR품질보장아님.
+         */
+        post: operations["uploadSourceFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/source-files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        /** downloadSourceFile (개발 계약 채택) */
+        get: operations["downloadSourceFile"];
+        put?: never;
+        post?: never;
+        /** deleteSourceFile (개발 계약 채택) */
+        delete: operations["deleteSourceFile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** startConversion (개발 계약 채택) */
+        post: operations["startConversion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversions/{conversionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversionId: string;
+            };
+            cookie?: never;
+        };
+        /** getConversion (개발 계약 채택) */
+        get: operations["getConversion"];
+        put?: never;
+        post?: never;
+        /** cancelConversion (개발 계약 채택) */
+        delete: operations["cancelConversion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversions/{conversionId}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversionId: string;
+            };
+            cookie?: never;
+        };
+        /** getConversionResult (개발 계약 채택) */
+        get: operations["getConversionResult"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversions/{conversionId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** confirmConversion (개발 계약 채택) */
+        post: operations["confirmConversion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/capabilities": {
         parameters: {
             query?: never;
@@ -12,10 +127,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * AI 기능 사용 가능 여부 (AI-off)
+         * AI 기능 사용 가능 여부
          * @description 인증 없이 공개하는 기능 여부만 반환한다. AI-off 구현은 세 값 모두 false다.
          *     개인 정보·내부 주소·모델/인증 정보는 포함하지 않는다. 잘못된 Bearer 헤더도 이 공개 조회에는 사용하지 않는다.
-         *     true 활성화는 이 제안의 범위가 아니며 별도 계약·구현·승인이 필요하다.
+         *     기본 false를 유지한다. local/test true는 후속 채택 계약과 실제 구현·설정 검증을 필요로 하며 운영 true는 별도 승인 대상이다.
          */
         get: operations["getCapabilities"];
         put?: never;
@@ -359,12 +474,7 @@ export interface paths {
         put?: never;
         /**
          * 분석 요청 (명시적 분석)
-         * @description 승인된 AI-off 동작: 인증·정규 UUID·현재 사용자 소유를 먼저 확인한 뒤 503 AI_UNAVAILABLE / reason=NOT_DEPLOYED다.
-         *     job을 만들거나 기존 pending/running을 변경하지 않는다. 202·가짜 id·성공 상태를 만들지 않는다.
-         *     Retry-After는 보내지 않는다. FE는 자동 retry/분석 폴링을 시작하지 않는다.
-         *     아래 202는 기존 AI 활성 동작 초안이며 승인된 AI-off 모드에는 해당하지 않는다.
-         *     노트의 현재 version으로 분석 작업을 만든다. 저장할 때 자동으로 만드는 기준은 미정이라(F-ANL-01)
-         *     명시적 요청도 둔다. 이미 대기·진행 중인 작업이 있으면 새로 만들지 않고 그 작업을 준다.
+         * @description AI-off의 기존 인증/소유 확인 후503 AI_UNAVAILABLE/NOT_DEPLOYED와 무작업 생성 규칙은 유지한다. 활성 local/test 개발은 명시 POST만 접수하며 노트 저장/이동/확정으로 자동 실행하지 않는다. 같은 노트의 active 작업은 기존 job을202로 반환한다. 예산/profile/readiness 설정이 맞지 않으면 fail-closed503이다.
          */
         post: operations["requestNoteAnalysis"];
         delete?: never;
@@ -462,7 +572,7 @@ export interface paths {
         };
         /**
          * 후보 목록 (F-CAN-01, W2-03)
-         * @description 순위순(score 내림차순). openCount는 사이드바 "발견" 배지에 쓴다 (알림 방식 D15).
+         * @description 사용자 소유 결과. 계산 판정·soundness·사용자 검토·최신성을 분리한다. 기본 추천은 검증된 두 문서 독립 기여/conclusion/sound/current만 최대5개, held/rejected/known/hypothesis 제외.
          */
         get: operations["listCandidates"];
         put?: never;
@@ -484,7 +594,7 @@ export interface paths {
         };
         /**
          * 후보 상세 (F-CAN-01, W2-04·W2-05)
-         * @description A → B → C 단계와 관계 유형, 단계별 근거, B가 나오는 두 문장, 설명(전제·조건·가정·결론), 검증 결과.
+         * @description 사용자 소유 결과. 계산 판정·soundness·사용자 검토·최신성을 분리한다. 기본 추천은 검증된 두 문서 독립 기여/conclusion/sound/current만 최대5개, held/rejected/known/hypothesis 제외.
          */
         get: operations["getCandidate"];
         put?: never;
@@ -508,8 +618,7 @@ export interface paths {
         put?: never;
         /**
          * 후보 승인·수정·기각 (F-REV-01, W2-04·W2-05·W2-06)
-         * @description approve·modify는 확정 관계를 만들고 그래프에 넣는다. reject는 기각 이력만 남긴다.
-         *     후보 하나에 한 번만 검토한다 (erd.md E5). 가설 후보를 승인하려면 asHypothesis를 true로 보낸다.
+         * @description 현재 projection과 append-only event를 원자적으로 갱신한다. expectedRevision과 idempotencyKey 필수. accept는soundness를 바꾸지 않고 자동confirmed relation을 만들지 않는다. modify는 새revision·unchecked로 바꾸며 기존 검사 승계 금지. 동일key/payload 재시도는 같은 event 반환; 다른payload·stale revision409.
          */
         post: operations["reviewCandidate"];
         delete?: never;
@@ -542,6 +651,183 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        DraftConversionSource: {
+            /** Format: uuid */
+            fileId: string;
+            contentSha256: string;
+            /** @enum {string} */
+            mediaType: "image/png" | "image/jpeg" | "application/pdf";
+            byteSize: number;
+            pageCount: number;
+            objectRef: string;
+        };
+        DraftConversionLimits: {
+            maxBytes: number;
+            maxPages: number;
+            maxPixelsPerPage: number;
+            timeoutSeconds: number;
+            maxCostMicrounits: number;
+            currency: string;
+        };
+        DraftConversionRequest: {
+            /** @constant */
+            contractRevision: "ocr-conversion-2026-10-30-adopted.1";
+            /** Format: uuid */
+            jobId: string;
+            /** Format: uuid */
+            attemptId: string;
+            /** Format: uuid */
+            ownerId: string;
+            source: components["schemas"]["DraftConversionSource"];
+            conversionRevision: number;
+            idempotencyKey: string;
+            limits: components["schemas"]["DraftConversionLimits"];
+        };
+        DraftConversionMapping: {
+            page: number;
+            region: number[];
+            startOffset: number;
+            endOffset: number;
+            quote: string;
+            /** @enum {string} */
+            status: "verified" | "unverified" | "invalidated";
+        };
+        DraftConversionPage: {
+            page: number;
+            /** @enum {string} */
+            status: "converted" | "failed" | "unreadable";
+            errorCode: string | null;
+        };
+        DraftConversionResponse: {
+            /** @constant */
+            contractRevision: "ocr-conversion-2026-10-30-adopted.1";
+            /** Format: uuid */
+            jobId: string;
+            /** Format: uuid */
+            attemptId: string;
+            /** Format: uuid */
+            ownerId: string;
+            sourceSha256: string;
+            conversionRevision: number;
+            resultRevision: number;
+            engineRevision: string;
+            markdown: string;
+            markdownSha256: string;
+            pages: components["schemas"]["DraftConversionPage"][];
+            mappings: components["schemas"]["DraftConversionMapping"][];
+            unknownRegions: {
+                page: number;
+                reason: string;
+            }[];
+            costMicrounits: number | null;
+        };
+        /** @description 비동기 실패도 GET은200이며 errorCode에 제한된 실패분류를 반환한다. 내부failureCode를별도공개필드로추가하지않는다. */
+        DraftConversionJob: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            fileId: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            conversionRevision: number;
+            resultRevision: number | null;
+            errorCode: string | null;
+        };
+        DraftConversionStart: {
+            /** Format: uuid */
+            fileId: string;
+            idempotencyKey: string;
+        };
+        DraftConversionConfirmation: {
+            expectedResultRevision: number;
+            idempotencyKey: string;
+            title: string;
+            /** Format: uuid */
+            topicId: string | null;
+            markdown: string;
+            expectedMarkdownSha256: string;
+        };
+        DraftConversionConfirmed: {
+            /** Format: uuid */
+            noteId: string;
+            /** Format: uuid */
+            sourceFileId: string;
+            /** Format: uuid */
+            conversionJobId: string;
+            resultRevision: number;
+            noteVersion: number;
+            /** @enum {string} */
+            mappingStatus: "verified" | "unverified";
+        };
+        DraftUploadReceipt: {
+            /** Format: uuid */
+            fileId: string;
+            /** @enum {string} */
+            mediaType: "image/png" | "image/jpeg" | "application/pdf";
+            contentSha256: string;
+            byteSize: number;
+            pageCount: number;
+        };
+        DraftInsightEvidence: {
+            /** Format: uuid */
+            noteId: string;
+            noteVersion: number;
+            inputRevision: number;
+            bodySha256: string;
+            startOffset: number;
+            endOffset: number;
+            quote: string;
+        };
+        DraftInsight: {
+            /** Format: uuid */
+            id: string;
+            revision: number;
+            conclusion: string;
+            conditions: string[];
+            trace: string[];
+            evidence: components["schemas"]["DraftInsightEvidence"][];
+            /** @enum {string} */
+            derivationStatus: "conclusion" | "held" | "rejected" | "known";
+            /** @enum {string} */
+            soundness: "sound" | "unsound" | "uncertain" | "unchecked";
+            /** @enum {string} */
+            reviewStatus: "unreviewed" | "accepted" | "rejected" | "modified";
+            /** @enum {string} */
+            freshness: "current" | "stale" | "evidence_lost";
+            noveltyNoteIds: string[];
+        };
+        DraftInsightList: {
+            results: components["schemas"]["DraftInsight"][];
+            /** @constant */
+            unsearchedOutsideScope: true;
+        };
+        DraftReviewEventRequest: {
+            expectedRevision: number;
+            /** @enum {string} */
+            action: "accept" | "reject" | "modify";
+            /** @enum {string|null} */
+            reason: "wrong" | "already_known" | "in_source" | "not_helpful" | null;
+            /** @enum {string|null} */
+            learning: "already_known" | "new_understanding" | null;
+            editedConclusion: string | null;
+            idempotencyKey: string;
+        } & (unknown & unknown);
+        DraftReviewEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            candidateId: string;
+            revision: number;
+            /** @enum {string} */
+            action: "accept" | "reject" | "modify";
+            /** @enum {string|null} */
+            reason: "wrong" | "already_known" | "in_source" | "not_helpful" | null;
+            /** @enum {string|null} */
+            learning: "already_known" | "new_understanding" | null;
+            editedConclusion: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        } & (unknown & unknown);
         /** @description DB 테이블 topic. noteCount는 조회 때 센다. */
         Topic: {
             /** Format: uuid */
@@ -664,13 +950,40 @@ export interface components {
             /** @description 편집을 시작할 때 받은 version */
             version: number;
         };
+        /** @description 공개 모드 공통 shape. AI-off 불변식은 AiOffCapabilities로 별도 검사한다. boolean true는 운영 활성화 승인 자체를 의미하지 않는다. */
         Capabilities: {
+            analysisEnabled: boolean;
+            graphEnabled: boolean;
+            discoveriesEnabled: boolean;
+        };
+        /** @description 2026-10-10 승인된 AI-off 응답. 세 값 모두 false여야 한다. */
+        AiOffCapabilities: components["schemas"]["Capabilities"] & {
             /** @constant */
-            analysisEnabled: false;
+            analysisEnabled?: false;
             /** @constant */
-            graphEnabled: false;
+            graphEnabled?: false;
             /** @constant */
-            discoveriesEnabled: false;
+            discoveriesEnabled?: false;
+        };
+        AiUnavailableError: components["schemas"]["Error"] & {
+            error?: {
+                /** @constant */
+                code: "AI_UNAVAILABLE";
+                /** @constant */
+                message: "AI 분석은 아직 사용할 수 없습니다.";
+                details: {
+                    /** @enum {string} */
+                    reason: "NOT_DEPLOYED" | "MISCONFIGURED" | "CONFIGURATION" | "AUTHENTICATION" | "PROFILE" | "INVALID_RESPONSE" | "INPUT_LIMIT" | "TIMEOUT" | "UNAVAILABLE";
+                };
+            };
+        };
+        AiOffUnavailableError: components["schemas"]["AiUnavailableError"] & {
+            error?: {
+                details?: {
+                    /** @constant */
+                    reason?: "NOT_DEPLOYED";
+                };
+            };
         };
         Error: {
             error: {
@@ -678,7 +991,7 @@ export interface components {
                  * @description AI_UNAVAILABLE는 승인된 AI-off 공개 계약의 코드다.
                  * @enum {string}
                  */
-                code: "VALIDATION_FAILED" | "UNAUTHENTICATED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "TOPIC_ORDER_CONFLICT" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "CANDIDATE_CLOSED" | "AI_UNAVAILABLE" | "INTERNAL";
+                code: "VALIDATION_FAILED" | "UNAUTHENTICATED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "TOPIC_ORDER_CONFLICT" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "CANDIDATE_CLOSED" | "REVIEW_CONFLICT" | "UPLOAD_LIMIT_EXCEEDED" | "UNSUPPORTED_FILE_TYPE" | "CONVERSION_UNAVAILABLE" | "CONVERSION_CONFLICT" | "AI_UNAVAILABLE" | "INTERNAL";
                 /** @description 사용자에게 그대로 보여줄 한국어 문장. 문구는 기능명세서 7.1 */
                 message: string;
                 /**
@@ -737,7 +1050,7 @@ export interface components {
              */
             name: string;
         };
-        /** @description DB 테이블 analysis_job */
+        /** @description DB 테이블 analysis_job; 기존 status는 보존하고 새 작업의 상세 수명주기는 lifecycleState로 추가한다. */
         AnalysisJob: {
             /** Format: uuid */
             id: string;
@@ -749,6 +1062,11 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "running" | "succeeded" | "failed";
+            /** @enum {string} */
+            lifecycleState?: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "superseded";
+            inputRevision?: number;
+            /** @description 내부 오류/원문 없이 정제된 코드 */
+            failureCode?: string | null;
             errorMessage?: string | null;
             /** Format: date-time */
             createdAt: string;
@@ -1218,7 +1536,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description AI-off. 소유 확인 후 기능 차단, 작업 생성 없음. Retry-After 없음 */
+        /** @description 소유 확인 후 기능 차단, 새 작업 생성 없음. AI-off reason은NOT_DEPLOYED, AI-on 설정/readiness 실패는 제한된reason. Retry-After 없음 */
         AiUnavailable: {
             headers: {
                 [name: string]: unknown;
@@ -1235,18 +1553,7 @@ export interface components {
                  *       }
                  *     }
                  */
-                "application/json": components["schemas"]["Error"] & {
-                    error?: {
-                        /** @constant */
-                        code: "AI_UNAVAILABLE";
-                        /** @constant */
-                        message: "AI 분석은 아직 사용할 수 없습니다.";
-                        details: {
-                            /** @constant */
-                            reason: "NOT_DEPLOYED";
-                        };
-                    };
-                };
+                "application/json": components["schemas"]["AiUnavailableError"];
             };
         };
         /** @description 그 밖의 서버 오류 (문구 안) */
@@ -1322,6 +1629,375 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    uploadSourceFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 사용자 채택 개발 계약 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftUploadReceipt"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description UPLOAD_LIMIT_EXCEEDED — 파일·페이지·픽셀 제한 초과 */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description UNSUPPORTED_FILE_TYPE — 지원외·실제 content와 선언 불일치·손상·금지 active PDF content */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadSourceFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 소유자만 private 원본 조회. Cache-Control: no-store, attachment; 원격 URL redirect 없음 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteSourceFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 완료 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startConversion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftConversionStart"];
+            };
+        };
+        responses: {
+            /** @description 사용자 채택 개발 계약 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftConversionJob"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getConversion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 사용자 채택 개발 계약 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftConversionJob"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    cancelConversion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 완료 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getConversionResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 사용자 채택 개발 계약 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftConversionResponse"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    confirmConversion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftConversionConfirmation"];
+            };
+        };
+        responses: {
+            /** @description 사용자 채택 개발 계약 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftConversionConfirmed"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            /** @description 같은 멱등 키의 다른 payload / stale revision / 취소 상태 / 제목 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 변환 adapter/한도/비용 설정 없음. 시작을 거부하고 작업을 만들지 않음 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getCapabilities: {
         parameters: {
             query?: never;
@@ -1331,7 +2007,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description AI-off 기능 상태. Cache-Control은 no-store */
+            /** @description 모드별 기능 상태. AI-off는 세 값 모두 false, 채택된 AI-on은 설정·readiness 결과를 반영. Cache-Control은 no-store */
             200: {
                 headers: {
                     "Cache-Control"?: "no-store";
@@ -1949,7 +2625,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description AI 활성 동작 초안 (이번 AI-off 구현에서 미제공) — 작업을 만들었거나 이미 있는 작업 */
+            /** @description 개발용 AI 활성 모드: 생성 또는 같은 active job 반환. 운영 공개와 별개. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -1985,6 +2661,8 @@ export interface operations {
                     "application/json": components["schemas"]["NoteGraph"];
                 };
             };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -2015,6 +2693,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -2066,9 +2745,8 @@ export interface operations {
     listCandidates: {
         parameters: {
             query?: {
-                status?: "open" | "accepted" | "rejected" | "withdrawn";
-                /** @description 없으면 후보와 가설 모두 */
-                kind?: "candidate" | "hypothesis";
+                view?: "recommendations" | "history";
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -2082,9 +2760,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CandidateList"];
+                    "application/json": components["schemas"]["DraftInsightList"];
                 };
             };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
         };
     };
     getCandidate: {
@@ -2104,9 +2785,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CandidateDetail"];
+                    "application/json": components["schemas"]["DraftInsight"];
                 };
             };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -2121,7 +2804,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewRequest"];
+                "application/json": components["schemas"]["DraftReviewEventRequest"];
             };
         };
         responses: {
@@ -2131,28 +2814,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Review"];
+                    "application/json": components["schemas"]["DraftReviewEvent"];
                 };
             };
             400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
-            /** @description 이미 검토했거나 거둔 후보 (문구 안) */
+            /** @description REVIEW_CONFLICT: stale expectedRevision/idempotency payload mismatch or unreviewable state */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "CANDIDATE_CLOSED",
-                     *         "message": "이미 검토했거나 더 이상 제안하지 않는 후보입니다.",
-                     *         "details": {
-                     *           "status": "accepted"
-                     *         }
-                     *       }
-                     *     }
-                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2174,10 +2847,13 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        reviews: components["schemas"]["Review"][];
+                        reviews: components["schemas"]["DraftReviewEvent"][];
                     };
                 };
             };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

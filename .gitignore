@@ -32,3 +32,6 @@ dist-ssr
 /.local/
 __pycache__/
 *.py[cod]
+
+# Short-lived WIF credentials created by google-github-actions/auth
+/gha-creds-*.json

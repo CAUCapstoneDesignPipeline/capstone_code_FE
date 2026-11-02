@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { isApiError } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
-import { keys, useNote, useNoteAnalysis } from '../../data/queries'
+import { keys, useCapabilities, useNote, useNoteAnalysis } from '../../data/queries'
 import { NoteEditor, type LeaveGuard, type NoteEditorHandle } from '../editor/NoteEditor'
 import { NoteGraphPanel, type ShowEvidence } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
@@ -54,7 +54,10 @@ function LoadedNote({
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
   // 편집기 상단 막대와 그래프 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
-  const analysis = useNoteAnalysis(noteId)
+  const capabilities = useCapabilities()
+  const analysisEnabled = capabilities?.analysisEnabled === true
+  const graphEnabled = capabilities?.graphEnabled === true
+  const analysis = useNoteAnalysis(noteId, analysisEnabled)
   // 패널에서 고른 근거를 편집기에 강조한다 (F-GRA-03)
   const editorRef = useRef<NoteEditorHandle>(null)
   const showEvidence = useCallback<ShowEvidence>(
@@ -83,12 +86,17 @@ function LoadedNote({
           note={note.data}
           registerLeaveGuard={registerLeaveGuard}
           onDeleted={onNoteGone}
-          analysis={analysis.data}
+          analysis={analysisEnabled ? analysis.data : undefined}
         />
         {/* 편집기·분석 연결은 여기 두고, 그리는 자리만 오른쪽 패널의 탭이다 */}
-        {graphPanelSlot &&
+        {graphEnabled &&
+          graphPanelSlot &&
           createPortal(
-            <NoteGraphPanel noteId={noteId} job={analysis.data} onShowEvidence={showEvidence} />,
+            <NoteGraphPanel
+              noteId={noteId}
+              job={analysisEnabled ? analysis.data : undefined}
+              onShowEvidence={showEvidence}
+            />,
             graphPanelSlot,
           )}
       </>

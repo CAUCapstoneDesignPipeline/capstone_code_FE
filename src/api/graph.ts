@@ -1,12 +1,7 @@
 import { request } from './client'
-import type { AnalysisJob, Capabilities, Graph, NoteGraph } from './types'
+import type { AnalysisJob, Graph, NoteGraph } from './types'
 
 const analysisPath = (noteId: string) => `/notes/${encodeURIComponent(noteId)}/analysis`
-
-/** AI 기능(분석·그래프·발견)을 쓸 수 있는지. 로그인 없이 부를 수 있다. */
-export function getCapabilities(signal?: AbortSignal): Promise<Capabilities> {
-  return request('GET', '/capabilities', { signal })
-}
 
 /** 이 노트를 근거로 가진 개념·관계 (draft, F-GRA-03). relations[].evidence에는 이 노트의 구간만 온다. */
 export function getNoteGraph(noteId: string, signal?: AbortSignal): Promise<NoteGraph> {
