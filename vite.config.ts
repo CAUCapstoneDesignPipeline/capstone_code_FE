@@ -9,9 +9,7 @@ export default defineConfig({
     {
       // 첫 그림 전에 테마를 정한다 (src/lib/themeBoot.ts)
       name: 'theme-boot',
-      transformIndexHtml: () => [
-        { tag: 'script', children: THEME_BOOT_SCRIPT, injectTo: 'head' },
-      ],
+      transformIndexHtml: () => [{ tag: 'script', children: THEME_BOOT_SCRIPT, injectTo: 'head' }],
     },
   ],
 })
