@@ -1,19 +1,8 @@
-/* 오른쪽 패널: 폭 300, surface-card, 왼쪽 border-subtle 1px, 여백 16 */
+/* 오른쪽 패널(RecommendPanel)의 "개념·관계" 탭 안. 폭·여백·바탕·제목은 패널이 맡는다 */
 .panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
-  width: var(--layout-panel-width);
-  height: 100%;
-  overflow-y: auto;
-  padding: var(--space-16);
-  border-left: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-card);
-}
-
-.heading {
-  margin: 0;
-  font: var(--text-ui-label-strong);
 }
 
 .failed {

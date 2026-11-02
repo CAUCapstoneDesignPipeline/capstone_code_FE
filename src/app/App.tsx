@@ -1,13 +1,15 @@
 import { lazy, Suspense, useCallback, useRef, useState } from 'react'
-import { Button } from '../components/Button'
+import { Button, PanelToggleButton } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useToast } from '../components/toastContext'
 import { useCapabilities, useCreateUntitledNote } from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
 import { NotePane } from '../features/note/NotePane'
+import { RecommendPanel } from '../features/recommend/RecommendPanel'
 import { Sidebar } from '../features/sidebar/Sidebar'
 import styles from './App.module.css'
+import { useCollapsible } from './useCollapsible'
 
 // 그래프 화면은 Cytoscape가 커서(약 400KB) 열 때 따로 불러온다.
 const GraphView = lazy(() =>
@@ -20,6 +22,22 @@ type Target = { kind: 'note'; noteId: string } | { kind: 'graph' }
 export function App() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
   const [graphOpen, setGraphOpen] = useState(false)
+  /** 오른쪽 패널의 "개념·관계" 탭 자리. 열린 노트(NotePane)가 여기에 그래프 패널을 그린다. */
+  const [graphPanelSlot, setGraphPanelSlot] = useState<HTMLDivElement | null>(null)
+  const {
+    collapsed: sidebarCollapsed,
+    setCollapsed: setSidebarCollapsed,
+    collapseRef: collapseSidebarRef,
+    expandRef: expandSidebarRef,
+  } = useCollapsible('sidebar')
+  const {
+    collapsed: panelCollapsed,
+    setCollapsed: setPanelCollapsed,
+    collapseRef: collapsePanelRef,
+    expandRef: expandPanelRef,
+  } = useCollapsible('panel')
+  // 그래프 화면은 오른쪽에 자기 정보 패널이 있어 추천 패널을 숨긴다 (접힘 상태는 그대로 둔다).
+  const panelHidden = panelCollapsed || graphOpen
   /** 사이드바 트리에 새 주제 입력칸을 띄웠는지 (사이드바 아래 버튼·빈 화면 버튼 공통) */
   const [addingTopic, setAddingTopic] = useState(false)
   const createNote = useCreateUntitledNote()
@@ -63,8 +81,18 @@ export function App() {
   }
 
   return (
-    <div className={styles.app}>
-      <aside className={styles.sidebar}>
+    <div
+      className={[
+        styles.app,
+        sidebarCollapsed && styles.sidebarCollapsed,
+        panelHidden && styles.panelHidden,
+        panelCollapsed && !graphOpen && styles.panelExpandable,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {/* 접어도 내리지 않고 숨긴다. 검색어·펼친 주제가 그대로 남는다. */}
+      <aside className={styles.sidebar} hidden={sidebarCollapsed}>
         <Sidebar
           selectedNoteId={selectedNoteId}
           graphOpen={graphOpen}
@@ -74,9 +102,29 @@ export function App() {
           onAddingTopicChange={setAddingTopic}
           onCreateNote={createNoteIn}
           creatingNote={createNote.isPending}
+          onCollapse={() => setSidebarCollapsed(true)}
+          collapseRef={collapseSidebarRef}
         />
       </aside>
       <main className={styles.main}>
+        {sidebarCollapsed && (
+          <PanelToggleButton
+            ref={expandSidebarRef}
+            icon="panel-left-open"
+            label="사이드바 펼치기"
+            className={`${styles.expandButton} ${styles.expandSidebar}`}
+            onClick={() => setSidebarCollapsed(false)}
+          />
+        )}
+        {panelCollapsed && !graphOpen && (
+          <PanelToggleButton
+            ref={expandPanelRef}
+            icon="panel-right-open"
+            label="패널 펼치기"
+            className={`${styles.expandButton} ${styles.expandPanel}`}
+            onClick={() => setPanelCollapsed(false)}
+          />
+        )}
         {graphOpen ? (
           // 그래프 화면 파일을 못 받으면(오프라인, 새 배포로 옛 파일이 사라짐) 앱 전체 대신 이 자리만 알린다.
           <ErrorBoundary
@@ -100,9 +148,19 @@ export function App() {
             onCreateNote={() => createNoteIn(null)}
             onCreateTopic={() => setAddingTopic(true)}
             onNoteGone={clearSelection}
+            graphPanelSlot={graphPanelSlot}
           />
         )}
       </main>
+      {/* 노트를 열지 않아도 보인다. 숨겨도 내리지 않아 챗봇 대화가 남는다. */}
+      <div className={styles.panel} hidden={panelHidden}>
+        <RecommendPanel
+          noteOpen={selectedNoteId !== null && !graphOpen}
+          graphPanelSlotRef={setGraphPanelSlot}
+          onCollapse={() => setPanelCollapsed(true)}
+          collapseRef={collapsePanelRef}
+        />
+      </div>
 
       {leaving && (
         <ConfirmDialog

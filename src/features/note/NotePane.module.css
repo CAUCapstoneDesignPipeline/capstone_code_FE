@@ -4,15 +4,6 @@
   height: 100%;
 }
 
-/* 편집기 + 오른쪽 패널 (패널 접기·좁은 화면은 미정) */
-.withPanel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--layout-panel-width);
-  /* 행 높이를 화면에 고정한다. 없으면 긴 노트만큼 행이 늘어나 편집기·패널이 각자 스크롤하지 않고 화면 전체가 밀린다. */
-  grid-template-rows: minmax(0, 1fr);
-  height: 100%;
-}
-
 .topBar {
   flex: none;
   height: var(--layout-topbar-height);
