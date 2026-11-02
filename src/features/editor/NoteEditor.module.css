@@ -142,14 +142,6 @@
   background: var(--color-surface-selected);
 }
 
-.optionLabel {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dropdownDivider {
   padding: var(--space-4) 0;
 }

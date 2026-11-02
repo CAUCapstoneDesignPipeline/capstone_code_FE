@@ -51,6 +51,12 @@
   white-space: nowrap;
 }
 
+.themeGroup {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .scroll {
   flex: 1;
   min-height: 0;
@@ -84,9 +90,11 @@
   list-style: none;
 }
 
+/* 맨 아래 줄: 테마 바꾸기(자리 임시) · 새 주제 · 새 노트 */
 .actions {
   display: flex;
   flex: none;
+  align-items: center;
   gap: var(--space-8);
   padding: 0 var(--space-4);
 }

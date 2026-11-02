@@ -12,6 +12,8 @@ import graph from '../assets/icons/graph.svg'
 import info from '../assets/icons/info.svg'
 import loader from '../assets/icons/loader.svg'
 import logout from '../assets/icons/logout.svg'
+import monitor from '../assets/icons/monitor.svg'
+import moon from '../assets/icons/moon.svg'
 import more from '../assets/icons/more.svg'
 import note from '../assets/icons/note.svg'
 import panelLeftClose from '../assets/icons/panel-left-close.svg'
@@ -22,6 +24,7 @@ import pencil from '../assets/icons/pencil.svg'
 import plus from '../assets/icons/plus.svg'
 import provider from '../assets/icons/provider.svg'
 import search from '../assets/icons/search.svg'
+import sun from '../assets/icons/sun.svg'
 import terminal from '../assets/icons/terminal.svg'
 import topic from '../assets/icons/topic.svg'
 import trash from '../assets/icons/trash.svg'
@@ -45,6 +48,8 @@ const ICONS = {
   info,
   loader,
   logout,
+  monitor,
+  moon,
   more,
   note,
   'panel-left-close': panelLeftClose,
@@ -55,6 +60,7 @@ const ICONS = {
   plus,
   provider,
   search,
+  sun,
   terminal,
   topic,
   trash,
