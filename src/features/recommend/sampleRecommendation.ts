@@ -11,7 +11,8 @@ export interface NoteEvidence {
 /** 노트 밖에서 가져온 지식 */
 export interface ExternalEvidence {
   kind: 'external'
-  source: string
+  /** AI 응답에 온 출처 URL. 결과 카드에서 링크로 연다. */
+  url: string
   quote: string
 }
 
@@ -38,7 +39,7 @@ export const SAMPLE_RECOMMENDATION: Recommendation = {
   },
   external: {
     kind: 'external',
-    source: 'rfc-editor.org/rfc/rfc9110',
+    url: 'https://www.rfc-editor.org/rfc/rfc9110',
     quote: 'PUT·DELETE는 멱등 메서드로 정의되며, 실패 시 자동으로 재시도해도 된다.',
   },
   conclusion:

@@ -1,0 +1,16 @@
+.link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--color-ink-muted);
+  text-underline-offset: 2px;
+}
+
+.link:hover {
+  text-decoration-color: currentColor;
+}
+
+.link:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
