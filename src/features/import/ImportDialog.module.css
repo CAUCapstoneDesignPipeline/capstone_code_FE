@@ -1,0 +1,155 @@
+/* Figma W3-04~06 Overlay/Dialog: 너비 480, ConfirmDialog와 같은 테두리·scrim */
+.dialog {
+  flex-direction: column;
+  gap: var(--space-16);
+  width: min(480px, calc(100vw - var(--space-32)));
+  max-height: calc(100vh - var(--space-64));
+  padding: var(--space-24);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.dialog[open] {
+  display: flex;
+}
+
+.dialog::backdrop {
+  background: var(--color-scrim);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-ui-title-sm);
+}
+
+.description {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-body-sm);
+}
+
+.caption {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+/* DropZone: 점선 테두리 안에 아이콘 · 안내 · 파일 선택 · 지원 형식 */
+.dropZone {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-24) var(--space-16);
+  border: 1px dashed var(--color-border-ghost);
+  border-radius: var(--radius-card);
+  color: var(--color-ink);
+  font: var(--text-ui-body-sm);
+}
+
+.dropZone[data-dragging] {
+  background: var(--color-surface-selected);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.sectionLabel {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-label);
+}
+
+.fileList {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* FileRow: 높이 54. 가져오지 않는 파일은 surface-card 배경에 흐린 글자, 대기는 흐린 글자만 */
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 54px;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-card);
+}
+
+.fileRow[data-tone='excluded'] {
+  background: var(--color-surface-card);
+}
+
+.fileRow[data-tone] .fileName {
+  color: var(--color-ink-muted);
+}
+
+.fileText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.fileName {
+  overflow: hidden;
+  font: var(--text-ui-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileMeta {
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.progress {
+  flex: none;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-ink);
+  transition: width 0.2s ease;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+
+  .progressFill {
+    transition: none;
+  }
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: var(--space-8);
+}

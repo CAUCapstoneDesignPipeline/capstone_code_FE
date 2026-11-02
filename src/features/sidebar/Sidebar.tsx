@@ -1,4 +1,4 @@
-import { useMemo, useState, type Ref } from 'react'
+import { useMemo, useRef, useState, type Ref } from 'react'
 import type { Topic } from '../../api'
 import { Button, IconButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
@@ -10,6 +10,8 @@ import {
   useSwapTopicOrder,
   useTopics,
 } from '../../data/queries'
+import { ImportDialog } from '../import/ImportDialog'
+import { summarize, useImportRunner } from '../import/useImportRunner'
 import { moveNoteErrorMessage } from '../../lib/errorMessages'
 import { withRo } from '../../lib/korean'
 import { normalizeName } from '../../lib/names'
@@ -68,6 +70,14 @@ export function Sidebar(props: Props) {
   const currentNoteId = graphOpen ? null : selectedNoteId
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [deletingTopic, setDeletingTopic] = useState<Topic | null>(null)
+  const [importOpen, setImportOpenState] = useState(false)
+  // 가져오기가 끝났을 때 대화 상자가 열려 있는지 (닫혀 있으면 토스트로 알리고 결과를 지운다, W3-05)
+  const importOpenRef = useRef(false)
+  const setImportOpen = (open: boolean) => {
+    importOpenRef.current = open
+    setImportOpenState(open)
+  }
+  const importer = useImportRunner()
   const [query, setQuery] = useState('')
   const q = normalizeName(useDebouncedValue(query, SEARCH_DELAY_MS))
   const searching = query.trim() !== ''
@@ -233,9 +243,14 @@ export function Sidebar(props: Props) {
         )}
       </div>
 
-      {/* Figma W3-01 Sidebar/Import. 가져오기 API가 아직 없어 버튼만 둔다 */}
+      {/* Figma W3-01 Sidebar/Import. Markdown 여러 파일 가져오기 (P01·U03) */}
       <div className={styles.import}>
-        <Button variant="secondary" icon="import" className={styles.importButton}>
+        <Button
+          variant="secondary"
+          icon="import"
+          className={styles.importButton}
+          onClick={() => setImportOpen(true)}
+        >
           가져오기
         </Button>
       </div>
@@ -267,6 +282,26 @@ export function Sidebar(props: Props) {
 
       {deletingTopic && (
         <DeleteTopicDialog topic={deletingTopic} onClose={() => setDeletingTopic(null)} />
+      )}
+      {importOpen && (
+        <ImportDialog
+          run={importer.run}
+          // 열린 노트의 주제에 넣는다. 열린 노트가 없으면 미분류 ("새 노트"와 같다, W3-04)
+          defaultTopicId={selectedTopicId ?? null}
+          onStart={(files, topicId, topicName) =>
+            void importer.start(files, topicId, topicName).then((run) => {
+              if (importOpenRef.current) return
+              const { kind, message } = summarize(run)
+              toast(kind, message)
+              importer.clear()
+            })
+          }
+          onClose={() => setImportOpen(false)}
+          onDone={() => {
+            importer.clear()
+            setImportOpen(false)
+          }}
+        />
       )}
     </nav>
   )

@@ -1,11 +1,8 @@
-import menuStyles from '../../components/ContextMenu.module.css'
-import { Icon } from '../../components/Icon'
+import { TopicSelect } from '../../components/TopicSelect'
 import { useToast } from '../../components/toastContext'
 import { useMoveNote, useNote, useTopics } from '../../data/queries'
 import { moveNoteErrorMessage } from '../../lib/errorMessages'
 import { withRo } from '../../lib/korean'
-import { usePopover } from '../../lib/usePopover'
-import styles from './NoteEditor.module.css'
 
 /**
  * 빵부스러기 "주제 › 제목"의 주제 부분 (Figma DropdownTrigger + Dropdown).
@@ -16,69 +13,25 @@ export function TopicDropdown({ noteId }: { noteId: string }) {
   const topics = useTopics()
   const move = useMoveNote()
   const toast = useToast()
-  const { open, setOpen, rootRef, triggerRef } = usePopover<HTMLDivElement, HTMLButtonElement>()
   const current = note.data?.topicId ?? null
-  const currentName =
-    current === null ? '미분류' : (topics.data?.topics.find((t) => t.id === current)?.name ?? '')
-
-  function choose(topicId: string | null, name: string) {
-    setOpen(false)
-    triggerRef.current?.focus()
-    if (topicId === current) return
-    move.mutate(
-      { noteId, topicId },
-      {
-        onSuccess: () => toast('info', `노트를 ${withRo(name)} 옮겼습니다.`),
-        onError: (e) => toast('error', moveNoteErrorMessage(e)),
-      },
-    )
-  }
-
-  function option(topicId: string | null, name: string) {
-    const selected = topicId === current
-    return (
-      <li key={topicId ?? 'none'} role="none">
-        <button
-          type="button"
-          role="option"
-          aria-selected={selected}
-          className={styles.option}
-          onClick={() => choose(topicId, name)}
-        >
-          <Icon name={topicId === null ? 'unassigned' : 'topic'} />
-          <span className={menuStyles.itemLabel}>{name}</span>
-          {selected && <Icon name="check" />}
-        </button>
-      </li>
-    )
-  }
 
   return (
-    <div className={styles.dropdownRoot} ref={rootRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className={styles.dropdownTrigger}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={`주제: ${currentName}. 다른 주제로 옮기기`}
-        disabled={move.isPending || !topics.data}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Icon name={current === null ? 'unassigned' : 'topic'} />
-        <span>{currentName}</span>
-        <Icon name="chevron-down" />
-      </button>
-      {open && topics.data && (
-        <div className={styles.dropdown}>
-          <p className={styles.dropdownHeader}>주제로 옮기기</p>
-          <ul role="listbox" aria-label="주제로 옮기기" className={styles.optionList}>
-            {topics.data.topics.map((t) => option(t.id, t.name))}
-            <li role="separator" className={styles.dropdownDivider} />
-            {option(null, '미분류')}
-          </ul>
-        </div>
-      )}
-    </div>
+    <TopicSelect
+      topics={topics.data?.topics}
+      value={current}
+      header="주제로 옮기기"
+      triggerLabel={(name) => `주제: ${name}. 다른 주제로 옮기기`}
+      disabled={move.isPending}
+      onChange={(topicId, name) => {
+        if (topicId === current) return
+        move.mutate(
+          { noteId, topicId },
+          {
+            onSuccess: () => toast('info', `노트를 ${withRo(name)} 옮겼습니다.`),
+            onError: (e) => toast('error', moveNoteErrorMessage(e)),
+          },
+        )
+      }}
+    />
   )
 }
