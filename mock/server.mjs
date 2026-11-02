@@ -409,6 +409,15 @@ export function createStore(analysisOptions) {
       return recommendations.request(noteOr404(id))
     },
 
+    /** 추천 카드의 답 (v0.4.0-draft). action은 understood·known·confused @param {string} id @param {unknown} input */
+    sendRecommendationFeedback(id, input) {
+      const action = asObject(input).action
+      if (typeof action !== 'string' || !['understood', 'known', 'confused'].includes(action))
+        throw invalid('action', 'invalid', '응답을 다시 선택하세요.')
+      if (!recommendations.feedback(id, action))
+        throw new HttpError(404, 'NOT_FOUND', '추천을 찾을 수 없습니다.')
+    },
+
     /** @param {string} jobId */
     getRecommendationJob(jobId) {
       const job = recommendations.get(jobId)
@@ -547,6 +556,7 @@ function route(store, auth, req, parts, params, body, aiOff) {
     if (
       resource === 'graph' ||
       resource === 'recommendation-jobs' ||
+      resource === 'recommendations' ||
       (resource === 'notes' && (sub === 'graph' || sub === 'recommendation-jobs'))
     ) {
       throw new HttpError(404, 'NOT_FOUND', '요청한 대상을 찾을 수 없습니다.')
@@ -565,6 +575,8 @@ function route(store, auth, req, parts, params, body, aiOff) {
     return { status: 200, body: store.getGraph(params) }
   if (resource === 'recommendation-jobs' && id && !sub && method === 'GET')
     return { status: 200, body: store.getRecommendationJob(id) }
+  if (resource === 'recommendations' && id && sub === 'feedback' && method === 'POST')
+    return (store.sendRecommendationFeedback(id, body), { status: 204 })
   if (resource === 'notes') {
     if (!id && method === 'GET') return { status: 200, body: store.listNotes(params) }
     if (!id && method === 'POST') return { status: 201, body: store.createNote(body) }

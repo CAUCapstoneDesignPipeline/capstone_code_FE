@@ -3,7 +3,24 @@ import { useState, type Ref } from 'react'
 import type { NoteSummary, Recommendation, RecommendationEvidence } from '../../api'
 import { Button, IconButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
-import { keys, useCapabilities, useNote, useRecommendations, useTopics } from '../../data/queries'
+import { useToast } from '../../components/toastContext'
+import {
+  keys,
+  useCapabilities,
+  useNote,
+  useRecommendationAnswers,
+  useRecommendations,
+  useTopics,
+} from '../../data/queries'
+import {
+  ANSWER_FAILED_TOAST,
+  ANSWER_TOAST,
+  cardAfterAnswer,
+  CONFUSED_FAILED_TOAST,
+  currentIndex,
+  remainingRecommendations,
+  type RecommendationAnswer,
+} from '../../lib/recommendations'
 import { ChatView } from './ChatView'
 import { ExternalSourceLink } from './ExternalSourceLink'
 import styles from './RecommendPanel.module.css'
@@ -21,17 +38,16 @@ interface Props {
 }
 
 /** 추천을 읽고 고르는 답 (Figma W3-02 Recommend/Actions) */
-const RESPONSES = [
+const RESPONSES: { id: RecommendationAnswer; label: string; variant: 'primary' | 'secondary' }[] = [
   { id: 'understood', label: '이해함', variant: 'primary' },
   { id: 'known', label: '알고 있던 내용', variant: 'secondary' },
   { id: 'confused', label: '이해가 안 됨', variant: 'secondary' },
-] as const
-
-type ResponseId = (typeof RESPONSES)[number]['id']
+]
 
 /**
  * 3단 레이아웃의 오른쪽 칸. 열린 노트의 추천(사용자가 모르는 지식)을 보인다.
  * 분석 중(W3-07) · 없음(W3-08) · 여러 개면 한 장씩 넘김(W3-09). 근거를 누르면 그 노트를 열고 문장을 강조한다(W3-12).
+ * '이해함'·'알고 있던 내용'으로 답하면 카드를 빼고 다음 카드로, 마지막이면 "추천을 모두 확인했습니다"(W3-10·11).
  * "이해가 안 됨"을 고르면 같은 패널에서 챗봇이 쉽게 풀어 준다(W3-03).
  */
 export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef }: Props) {
@@ -40,25 +56,41 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   const job = useRecommendations(off ? null : noteId)
   const noteTitle = useNote(noteId ?? '', noteId !== null).data?.title ?? ''
   const pending = job.data?.status === 'pending'
-  const list = job.data?.status === 'completed' ? job.data.recommendations : []
+  const { answers, answer } = useRecommendationAnswers()
+  const toast = useToast()
+  const all = job.data?.status === 'completed' ? job.data.recommendations : []
+  // 답한 카드는 빼고 남은 카드만 넘긴다 (W3-10·11)
+  const list = remainingRecommendations(all, answers)
+  const allAnswered = all.length > 0 && list.length === 0
 
   // 여러 개면 한 장씩 (W3-09). 순서는 BE가 준 그대로다. 작업이 바뀌면 처음부터.
-  const [page, setPage] = useState({ jobId: '', index: 0 })
-  const index = page.jobId === job.data?.id ? Math.min(page.index, list.length - 1) : 0
-  const current = list[Math.max(index, 0)] ?? null
-  const goTo = (i: number) => setPage({ jobId: job.data?.id ?? '', index: i })
+  // 보고 있는 카드는 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패) 같은 카드를 보인다.
+  const [page, setPage] = useState<{ jobId: string; currentId: string | null }>({
+    jobId: '',
+    currentId: null,
+  })
+  const index = currentIndex(list, page.jobId === job.data?.id ? page.currentId : null)
+  const current = list[index] ?? null
+  const show = (currentId: string | null) => setPage({ jobId: job.data?.id ?? '', currentId })
+  const goTo = (i: number) => show(list[i]?.id ?? null)
 
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
-  // 답을 보낼 API(피드백)는 다음 작업에서 붙인다. 지금은 이 화면에서만 기억한다.
-  const [responses, setResponses] = useState<Record<string, ResponseId>>({})
   // 추천으로 돌아갔다 와도 대화를 이어 간다.
   const [messages, setMessages] = useState<ChatMessage[]>([])
   // 누른 근거만 표시한다 (W3-12)
   const [shownEvidence, setShownEvidence] = useState<string | null>(null)
 
-  function respond(id: ResponseId) {
+  /** 답하면 이 카드는 빠지고 같은 자리에 다음 카드가 온다. '이해가 안 됨'은 카드를 남기고 챗봇으로 */
+  function respond(id: RecommendationAnswer) {
     if (!current) return
-    setResponses((prev) => ({ ...prev, [current.id]: id }))
+    const message = ANSWER_TOAST[id]
+    // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (W3-10)
+    if (id !== 'confused') show(cardAfterAnswer(list, current.id))
+    answer(current.id, id).then(
+      () => message && toast('info', message),
+      // 보내지 못하면 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
+      () => toast('error', id === 'confused' ? CONFUSED_FAILED_TOAST : ANSWER_FAILED_TOAST),
+    )
     if (id !== 'confused') return
     if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
     setView('chat')
@@ -122,7 +154,6 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
       ) : current ? (
         <RecommendView
           recommendation={current}
-          response={responses[current.id] ?? null}
           onRespond={respond}
           shownEvidence={shownEvidence}
           onOpenEvidence={(side, evidence) => {
@@ -130,6 +161,8 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
             onOpenEvidence(evidence)
           }}
         />
+      ) : allAnswered ? (
+        <AllAnswered />
       ) : (
         <Empty off={off} />
       )}
@@ -175,21 +208,33 @@ function Empty({ off }: { off: boolean }) {
   )
 }
 
+/** W3-11 추천 · 모두 확인함: 남은 카드가 없을 때 */
+function AllAnswered() {
+  return (
+    <div className={styles.empty}>
+      <Icon name="check" />
+      <p className={styles.emptyTitle}>추천을 모두 확인했습니다</p>
+      <p className={styles.emptyText}>
+        노트를 저장하거나 가져오면
+        <br />
+        새로운 연결을 다시 찾습니다.
+      </p>
+    </div>
+  )
+}
+
 /** Figma W3-02 Recommend/Body + Actions: 근거 A·B와 외부 지식을 이어 결론을 보이고 답을 받는다 */
 function RecommendView({
   recommendation,
-  response,
   onRespond,
   shownEvidence,
   onOpenEvidence,
 }: {
   recommendation: Recommendation
-  response: ResponseId | null
-  onRespond: (id: ResponseId) => void
+  onRespond: (id: RecommendationAnswer) => void
   shownEvidence: string | null
   onOpenEvidence: (side: 'a' | 'b', evidence: RecommendationEvidence) => void
 }) {
-  const responseLabel = RESPONSES.find((r) => r.id === response)?.label
   const { evidenceA, evidenceB, externalKnowledge } = recommendation
   return (
     <>
@@ -244,18 +289,12 @@ function RecommendView({
               key={r.id}
               variant={r.variant}
               className={styles.action}
-              aria-pressed={response === r.id}
               onClick={() => onRespond(r.id)}
             >
               {r.label}
             </Button>
           ))}
         </div>
-        {responseLabel && (
-          <p className={styles.recorded} role="status">
-            답을 남겼습니다: {responseLabel}
-          </p>
-        )}
       </div>
     </>
   )

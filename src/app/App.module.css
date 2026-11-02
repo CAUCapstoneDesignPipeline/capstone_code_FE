@@ -64,6 +64,25 @@
   right: var(--space-12);
 }
 
+/* W3-14b: 접힌 패널의 펴기 버튼 위 배지 (답하지 않은 새 추천 수). 누르면 펴기 버튼이 받도록 클릭을 통과시킨다 */
+.expandBadge {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  z-index: 2;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-ink);
+  color: var(--color-canvas);
+  font: var(--text-ui-caption);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* 그래프 화면을 불러오는 중이거나 못 불러왔을 때 */
 .notice {
   display: flex;

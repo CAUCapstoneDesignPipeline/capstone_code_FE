@@ -23,6 +23,7 @@ import {
   orderConflictCurrent,
   reorderTopics,
   requestRecommendationJob,
+  sendRecommendationFeedback,
   updateTopic,
   type AnalysisJob,
   type Capabilities,
@@ -36,6 +37,7 @@ import {
 } from '../api'
 import { createAnalysisPoller, isAnalysisActive } from '../lib/analysisPoll'
 import { resolveCapabilities } from '../lib/capabilities'
+import type { RecommendationAnswer } from '../lib/recommendations'
 import { nextUntitledTitle } from '../lib/names'
 
 /**
@@ -53,6 +55,8 @@ export const keys = {
   graph: ['graph'] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
+  /** 이 화면에서 추천 카드에 남긴 답 (추천 id → 답) */
+  recommendationAnswers: ['recommendationAnswers'] as const,
   capabilities: ['capabilities'] as const,
 }
 
@@ -168,6 +172,51 @@ export function useRecommendations(noteId: string | null) {
     refetchInterval: (query) =>
       query.state.data?.status === 'pending' ? RECOMMEND_POLL_MS : false,
   })
+}
+
+/**
+ * 추천 카드에 남긴 답 (W3-10·11). 패널과 접힌 패널의 배지(W3-14b)가 함께 쓰도록 캐시에 둔다.
+ * 답은 화면에 바로 반영하고 POST /recommendations/{id}/feedback으로 보낸다(BE에 아직 없어 가짜 서버만).
+ * 보내지 못하면 답을 되돌리고(카드가 다시 보인다) 오류를 던진다. 새로 고치면 캐시는 사라진다.
+ */
+export function useRecommendationAnswers() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: keys.recommendationAnswers,
+    queryFn: (): Record<string, RecommendationAnswer> => ({}),
+    initialData: {},
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+  const answer = useCallback(
+    async (recommendationId: string, action: RecommendationAnswer) => {
+      const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
+        keys.recommendationAnswers,
+      )?.[recommendationId]
+      qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => ({
+        ...prev,
+        [recommendationId]: action,
+      }))
+      try {
+        await sendRecommendationFeedback(recommendationId, action)
+      } catch (e) {
+        qc.setQueryData<Record<string, RecommendationAnswer>>(
+          keys.recommendationAnswers,
+          (prev) => {
+            // 그 사이 다른 답을 골랐으면 그대로 둔다
+            if (prev?.[recommendationId] !== action) return prev
+            const next = { ...prev }
+            if (before === undefined) delete next[recommendationId]
+            else next[recommendationId] = before
+            return next
+          },
+        )
+        throw e
+      }
+    },
+    [qc],
+  )
+  return { answers: data, answer }
 }
 
 /** 추천 작업을 바로 요청한다 (가져오기 트리거). 추천이 꺼져 있으면 보내지 않는다. */

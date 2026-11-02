@@ -1,5 +1,5 @@
 import { request } from './client'
-import type { RecommendationJob } from './types'
+import type { RecommendationFeedback, RecommendationJob } from './types'
 
 // 사용자가 모르는 지식 추천 (docs PR #17 v0.4.0-draft). 작업 id를 받고 결과를 polling한다.
 
@@ -14,4 +14,17 @@ export function getRecommendationJob(
   signal?: AbortSignal,
 ): Promise<RecommendationJob> {
   return request('GET', `/recommendation-jobs/${encodeURIComponent(jobId)}`, { signal })
+}
+
+/**
+ * 추천 카드의 답 (W3-02 버튼 3개). understood = 이해함, known = 알고 있던 내용, confused = 이해가 안 됨. 204.
+ * BE에 아직 없어 가짜 서버만 받는다 (docs PR #17 v0.4.0-draft).
+ */
+export function sendRecommendationFeedback(
+  recommendationId: string,
+  action: RecommendationFeedback['action'],
+): Promise<void> {
+  return request('POST', `/recommendations/${encodeURIComponent(recommendationId)}/feedback`, {
+    body: { action },
+  })
 }
