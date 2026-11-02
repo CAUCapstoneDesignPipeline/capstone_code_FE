@@ -16,6 +16,7 @@ import {
   getGraph,
   getNoteAnalysis,
   getNoteGraph,
+  getRecommendationJob,
   isApiError,
   listNotes,
   listTopics,
@@ -23,12 +24,14 @@ import {
   orderConflictCurrent,
   reorderTopics,
   requestNoteAnalysis,
+  requestRecommendationJob,
   updateTopic,
   type AnalysisJob,
   type Capabilities,
   type Note,
   type NoteCreate,
   type NoteSummary,
+  type RecommendationJob,
   type Topic,
   type TopicCreate,
   type TopicList,
@@ -51,6 +54,8 @@ export const keys = {
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
   graph: ['graph'] as const,
+  /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
+  recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
   capabilities: ['capabilities'] as const,
 }
 
@@ -101,10 +106,11 @@ export function useNoteTopicId(noteId: string | null): string | null | undefined
 }
 
 /** 편집기가 쓰는 노트 한 건. 편집을 시작한 뒤에는 편집기가 내용을 들고 있으므로 스스로 다시 불러오지 않는다. */
-export function useNote(noteId: string) {
+export function useNote(noteId: string, enabled = true) {
   return useQuery({
     queryKey: keys.note(noteId),
     queryFn: ({ signal }) => getNote(noteId, signal),
+    enabled,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   })
@@ -149,6 +155,76 @@ export function useRequestAnalysis(noteId: string) {
 /** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
 export function useGraph(enabled: boolean) {
   return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal), enabled })
+}
+
+/** 저장한 뒤 이만큼 더 고치지 않으면 추천을 요청한다 (자동 저장마다 LLM을 돌리지 않게, docs PR #17) */
+export const RECOMMEND_AFTER_SAVE_MS = 5000
+/** 추천 작업 polling 간격 (FE 선호안: 작업 ID + polling) */
+export const RECOMMEND_POLL_MS = 2000
+
+/**
+ * 노트의 가장 최근 추천 작업 (Figma W3-07~09). 이 화면에서 요청한 작업만 안다 (작업 id로만 조회할 수 있다).
+ * 요청한 적이 없으면 null. pending이면 polling하고 completed면 멈춘다. 작업을 못 찾으면(보관 기간이 지남) null로 본다.
+ */
+export function useRecommendations(noteId: string | null) {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: keys.recommendationJob(noteId ?? ''),
+    queryFn: async ({ signal }): Promise<RecommendationJob | null> => {
+      const job = qc.getQueryData<RecommendationJob | null>(keys.recommendationJob(noteId!))
+      if (!job) return null
+      try {
+        return await getRecommendationJob(job.id, signal)
+      } catch (e) {
+        if (isApiError(e, 'NOT_FOUND')) return null
+        throw e
+      }
+    },
+    enabled: noteId !== null,
+    staleTime: Infinity,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'pending' ? RECOMMEND_POLL_MS : false,
+  })
+}
+
+/** 추천 작업을 바로 요청한다 (가져오기 트리거). 추천이 꺼져 있으면 보내지 않는다. */
+export function useRequestRecommendations() {
+  const qc = useQueryClient()
+  return useCallback(
+    async (noteId: string) => {
+      if (qc.getQueryData<Capabilities>(keys.capabilities)?.discoveriesEnabled !== true) return
+      try {
+        const job = await requestRecommendationJob(noteId)
+        qc.setQueryData(keys.recommendationJob(noteId), job)
+      } catch {
+        // 추천 실패는 알리지 않는다 (10/30: 실패 비노출). 다음 저장 때 다시 요청한다.
+      }
+    },
+    [qc],
+  )
+}
+
+const recommendTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/**
+ * 저장 트리거: 저장할 때마다 부르면, 마지막 저장 뒤 RECOMMEND_AFTER_SAVE_MS 동안 더 저장하지 않을 때 한 번 요청한다.
+ * 노트를 떠나도 예약은 남는다 (그 노트의 마지막 내용으로 요청).
+ */
+export function useScheduleRecommendations() {
+  const requestNow = useRequestRecommendations()
+  return useCallback(
+    (noteId: string) => {
+      clearTimeout(recommendTimers.get(noteId))
+      recommendTimers.set(
+        noteId,
+        setTimeout(() => {
+          recommendTimers.delete(noteId)
+          void requestNow(noteId)
+        }, RECOMMEND_AFTER_SAVE_MS),
+      )
+    },
+    [requestNow],
+  )
 }
 
 /** 노트 옆 패널의 개념·관계 (F-GRA-03) */

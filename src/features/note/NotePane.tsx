@@ -1,14 +1,26 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
-import { isApiError } from '../../api'
+import { useEffect, useRef } from 'react'
+import { isApiError, type RecommendationEvidence } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
 import { keys, useNote, useNoteAnalysis } from '../../data/queries'
-import { NoteEditor, type LeaveGuard } from '../editor/NoteEditor'
+import { NoteEditor, type LeaveGuard, type NoteEditorHandle } from '../editor/NoteEditor'
 import styles from './NotePane.module.css'
+
+/** 추천 카드에서 누른 근거 (W3-12). seq가 바뀌면 다시 강조한다 */
+export interface EvidenceRequest {
+  evidence: RecommendationEvidence
+  seq: number
+}
+
+/** W3-12b: 노트를 열었지만 근거 문장을 찾지 못했을 때 */
+export const EVIDENCE_MISSING_MESSAGE =
+  '근거 문장이 지금 노트에 없습니다. 분석한 뒤 노트가 바뀌었습니다.'
 
 interface Props {
   noteId: string | null
+  /** 이 노트에서 강조할 근거. 없으면 null */
+  evidenceRequest?: EvidenceRequest | null
   registerLeaveGuard?: (guard: LeaveGuard | null) => void
   onCreateNote: () => void
   onCreateTopic: () => void
@@ -44,6 +56,7 @@ export function NotePane({ noteId, ...props }: Props) {
 
 function LoadedNote({
   noteId,
+  evidenceRequest,
   registerLeaveGuard,
   onNoteGone,
 }: { noteId: string } & Omit<Props, 'noteId'>) {
@@ -63,10 +76,26 @@ function LoadedNote({
     onNoteGone()
   }, [missing, toast, qc, onNoteGone])
 
+  // 근거로 이동 (W3-12·12b): 편집기가 생긴 뒤 근거 문장을 강조한다. 위치가 밀렸으면 가장 가까운 같은 문장,
+  // 같은 문장이 없으면 강조하지 않고 알린다. 편집기가 다시 만들어지면(개발 모드 StrictMode 등) 다시 강조하고,
+  // 알림은 같은 요청(seq)마다 한 번만 띄운다.
+  const editorRef = useRef<NoteEditorHandle>(null)
+  const toastedSeq = useRef<number | null>(null)
+  const loaded = note.data !== undefined
+  useEffect(() => {
+    if (!loaded || !evidenceRequest) return
+    const result = editorRef.current?.showEvidence(evidenceRequest.evidence)
+    if (result === 'missing' && toastedSeq.current !== evidenceRequest.seq) {
+      toastedSeq.current = evidenceRequest.seq
+      toast('info', EVIDENCE_MISSING_MESSAGE)
+    }
+  }, [loaded, evidenceRequest, toast])
+
   // 한 번 불러온 뒤에는 이후 오류가 나도 편집기를 유지한다 (편집 중인 내용을 지우지 않는다).
   if (note.data) {
     return (
       <NoteEditor
+        ref={editorRef}
         note={note.data}
         registerLeaveGuard={registerLeaveGuard}
         onDeleted={onNoteGone}

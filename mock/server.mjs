@@ -1,5 +1,6 @@
 // @ts-check
-// 데이터를 메모리에 기억하는 가짜 서버. BE 연결 전 개발용이며 docs/api/openapi.yaml v0.3과 docs/api/rules.md를 따른다.
+// 데이터를 메모리에 기억하는 가짜 서버. BE 연결 전 개발용이며 docs/api/openapi.yaml(v0.3, 그래프·추천은 v0.4.0-draft)과 docs/api/rules.md를 따른다.
+// 추천(사용자가 모르는 지식)은 fakeRecommend.mjs의 규칙으로 흉내 낸다.
 // 분석·그래프(draft)는 fakeAnalysis.mjs의 규칙으로 흉내 낸다.
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
@@ -8,12 +9,13 @@
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
 //   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
 //   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번).
-//   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프 경로는 404.
+//   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프·추천 경로는 404.
 
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { createAnalysisQueue, createConceptRegistry } from './fakeAnalysis.mjs'
+import { createRecommendationQueue } from './fakeRecommend.mjs'
 
 /**
  * @typedef {{ id: string, name: string, sortOrder: number, createdAt: string }} Topic
@@ -113,6 +115,10 @@ export function createStore(analysisOptions) {
       now,
     },
     analysisOptions,
+  )
+  const recommendations = createRecommendationQueue(
+    { getNote: (id) => notes.get(id), allNotes: () => [...notes.values()], now },
+    { runMs: analysisOptions?.runMs },
   )
 
   /** @param {string} id */
@@ -353,13 +359,13 @@ export function createStore(analysisOptions) {
     },
 
     /**
-     * 그래프 보기 (draft, F-VIZ-01). scope=all·topic·note. 노트별 결과를 합쳐 개념은 노드, 관계는 간선으로 준다.
-     * 계약 제안(미확정): 노드에 근거 노트(notes: [{ id, title, topicId }])를 붙인다. 주제별 색과 노드 → 노트 이동에 쓴다.
+     * 페이지 그래프 (v0.4.0-draft, Figma W3-13). 노드 = 페이지, 두 페이지가 같은 개념(키워드)을 쓰면 선 1개.
+     * 공유 키워드는 마지막으로 성공한 분석의 개념 이름이다. 분석 전 페이지도 노드로 준다 (고립 노드).
      * @param {URLSearchParams} params
      */
     getGraph(params) {
       const scope = params.get('scope') ?? 'all'
-      if (!['all', 'topic', 'note'].includes(scope))
+      if (!['all', 'topic'].includes(scope))
         throw invalid('scope', 'invalid', 'scope가 올바르지 않습니다.')
       /** @type {(note: Note) => boolean} */
       let inScope = () => true
@@ -368,46 +374,46 @@ export function createStore(analysisOptions) {
         if (!topicId) throw invalid('topicId', 'invalid', 'topicId가 필요합니다.')
         if (topicId !== 'none') topicOr404(topicId)
         inScope = (n) => n.topicId === (topicId === 'none' ? null : topicId)
-      } else if (scope === 'note') {
-        const noteId = params.get('noteId')
-        if (!noteId) throw invalid('noteId', 'invalid', 'noteId가 필요합니다.')
-        noteOr404(noteId)
-        inScope = (n) => n.id === noteId
       }
-
-      /** @type {Map<string, { id: string, label: string, notes: { id: string, title: string, topicId: string | null }[] }>} */
-      const nodes = new Map()
-      /** @type {Map<string, any>} */
-      const edges = new Map()
-      for (const [noteId, result] of analysis.allResults()) {
-        const note = notes.get(noteId)
-        if (!note || !inScope(note)) continue
-        const ref = { id: note.id, title: note.title, topicId: note.topicId }
-        for (const c of result.concepts) {
-          const node = nodes.get(c.id) ?? { id: c.id, label: c.label, notes: [] }
-          node.notes.push(ref)
-          nodes.set(c.id, node)
-        }
-        for (const r of result.relations) {
-          // 같은 관계가 여러 노트에서 나오면 하나의 간선이다. 노트 순서와 관계없이
-          // 확정이 추출보다, 근거가 남은 쪽이 근거 소실보다 앞선다.
-          const prev = edges.get(r.id)
-          const confirmed = prev?.origin === 'confirmed' || r.origin === 'confirmed'
-          edges.set(r.id, {
-            id: r.id,
-            sourceId: r.source.id,
-            targetId: r.target.id,
-            type: r.type,
-            origin: confirmed ? 'confirmed' : 'extracted',
-            status: prev?.status === 'active' || r.status === 'active' ? 'active' : 'evidence_lost',
-            asHypothesis: confirmed
-              ? (prev?.origin === 'confirmed' && prev.asHypothesis) ||
-                (r.origin === 'confirmed' && r.asHypothesis)
-              : false,
+      const pages = [...notes.values()].filter(inScope)
+      /** @type {Map<string, Map<string, string>>} 페이지 → 개념 id → 이름 */
+      const conceptsOf = new Map(
+        pages.map((n) => [
+          n.id,
+          new Map(analysis.result(n.id).concepts.map((c) => [c.id, c.label])),
+        ]),
+      )
+      const edges = []
+      for (let i = 0; i < pages.length; i++) {
+        for (let j = i + 1; j < pages.length; j++) {
+          const a = /** @type {Map<string, string>} */ (conceptsOf.get(pages[i].id))
+          const b = /** @type {Map<string, string>} */ (conceptsOf.get(pages[j].id))
+          const shared = [...a.keys()].filter((id) => b.has(id)).map((id) => a.get(id))
+          if (shared.length === 0) continue
+          edges.push({
+            sourceId: pages[i].id,
+            targetId: pages[j].id,
+            sharedKeywords: /** @type {string[]} */ (shared).sort(),
           })
         }
       }
-      return { scope, nodes: [...nodes.values()], edges: [...edges.values()] }
+      return {
+        scope,
+        nodes: pages.map((n) => ({ id: n.id, title: n.title, topicId: n.topicId })),
+        edges,
+      }
+    },
+
+    /** 추천 작업 요청 (v0.4.0-draft) @param {string} id */
+    requestRecommendationJob(id) {
+      return recommendations.request(noteOr404(id))
+    },
+
+    /** @param {string} jobId */
+    getRecommendationJob(jobId) {
+      const job = recommendations.get(jobId)
+      if (!job) throw new HttpError(404, 'NOT_FOUND', '추천 작업을 찾을 수 없습니다.')
+      return job
     },
 
     /** 노트별 개념·관계 (draft). 개념·관계는 마지막으로 성공한 분석의 결과다. @param {string} id */
@@ -523,7 +529,7 @@ function route(store, auth, req, parts, params, body, aiOff) {
     const on = !aiOff
     return {
       status: 200,
-      body: { analysisEnabled: on, graphEnabled: on, discoveriesEnabled: false },
+      body: { analysisEnabled: on, graphEnabled: on, discoveriesEnabled: on },
     }
   }
 
@@ -538,7 +544,11 @@ function route(store, auth, req, parts, params, body, aiOff) {
         reason: 'NOT_DEPLOYED',
       })
     }
-    if (resource === 'graph' || (resource === 'notes' && sub === 'graph')) {
+    if (
+      resource === 'graph' ||
+      resource === 'recommendation-jobs' ||
+      (resource === 'notes' && (sub === 'graph' || sub === 'recommendation-jobs'))
+    ) {
       throw new HttpError(404, 'NOT_FOUND', '요청한 대상을 찾을 수 없습니다.')
     }
   }
@@ -553,6 +563,8 @@ function route(store, auth, req, parts, params, body, aiOff) {
   }
   if (resource === 'graph' && !id && method === 'GET')
     return { status: 200, body: store.getGraph(params) }
+  if (resource === 'recommendation-jobs' && id && !sub && method === 'GET')
+    return { status: 200, body: store.getRecommendationJob(id) }
   if (resource === 'notes') {
     if (!id && method === 'GET') return { status: 200, body: store.listNotes(params) }
     if (!id && method === 'POST') return { status: 201, body: store.createNote(body) }
@@ -567,6 +579,8 @@ function route(store, auth, req, parts, params, body, aiOff) {
       return { status: 202, body: store.requestNoteAnalysis(id) }
     if (id && sub === 'graph' && method === 'GET')
       return { status: 200, body: store.getNoteGraph(id) }
+    if (id && sub === 'recommendation-jobs' && method === 'POST')
+      return { status: 202, body: store.requestRecommendationJob(id) }
   }
   throw new HttpError(404, 'NOT_FOUND', `없는 경로입니다: ${method} /${parts.join('/')}`)
 }

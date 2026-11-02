@@ -4,7 +4,7 @@ import { Icon, type IconName } from '../../components/Icon'
 import styles from './ChatView.module.css'
 import { ExternalSourceLink } from './ExternalSourceLink'
 import { sampleAnswer, type ChatMessage } from './sampleChat'
-import type { Recommendation } from './sampleRecommendation'
+import type { Recommendation } from '../../api'
 
 interface Props {
   /** 챗봇이 풀어 주는 추천. 근거를 컨텍스트로 보인다. */
@@ -36,18 +36,21 @@ export function ChatView({ recommendation, messages, onMessagesChange }: Props) 
     {
       icon: 'note',
       kind: '근거 A',
-      source: <span className={styles.contextSource}>{recommendation.a.noteTitle}</span>,
+      source: <span className={styles.contextSource}>{recommendation.evidenceA.noteTitle}</span>,
     },
     {
       icon: 'note',
       kind: '근거 B',
-      source: <span className={styles.contextSource}>{recommendation.b.noteTitle}</span>,
+      source: <span className={styles.contextSource}>{recommendation.evidenceB.noteTitle}</span>,
     },
     {
       icon: 'external',
       kind: '외부 지식',
       source: (
-        <ExternalSourceLink url={recommendation.external.url} className={styles.contextSource} />
+        <ExternalSourceLink
+          url={recommendation.externalKnowledge.sourceUrl}
+          className={styles.contextSource}
+        />
       ),
     },
   ]
