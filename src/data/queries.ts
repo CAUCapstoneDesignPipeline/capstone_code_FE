@@ -15,7 +15,6 @@ import {
   getCapabilities,
   getGraph,
   getNoteAnalysis,
-  getNoteGraph,
   getRecommendationJob,
   isApiError,
   listNotes,
@@ -23,7 +22,6 @@ import {
   moveNote,
   orderConflictCurrent,
   reorderTopics,
-  requestNoteAnalysis,
   requestRecommendationJob,
   updateTopic,
   type AnalysisJob,
@@ -52,7 +50,6 @@ export const keys = {
   notes: ['note'] as const,
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
-  noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
   graph: ['graph'] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
@@ -138,20 +135,6 @@ export function useNoteAnalysis(noteId: string) {
   })
 }
 
-/** 분석 다시 요청. 받은 작업으로 바로 바꿔 폴링을 다시 시작한다. */
-export function useRequestAnalysis(noteId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => requestNoteAnalysis(noteId),
-    onSuccess: (job) => qc.setQueryData(keys.noteAnalysis(noteId), job),
-    // AI가 꺼졌으면 기능 여부를 다시 받아 화면을 AI-off로 바꾼다
-    onError: (e) => {
-      if (isApiError(e, 'AI_UNAVAILABLE'))
-        void qc.invalidateQueries({ queryKey: keys.capabilities })
-    },
-  })
-}
-
 /** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
 export function useGraph(enabled: boolean) {
   return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal), enabled })
@@ -225,15 +208,6 @@ export function useScheduleRecommendations() {
     },
     [requestNow],
   )
-}
-
-/** 노트 옆 패널의 개념·관계 (F-GRA-03) */
-export function useNoteGraph(noteId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: keys.noteGraph(noteId),
-    queryFn: ({ signal }) => getNoteGraph(noteId, signal),
-    enabled,
-  })
 }
 
 /**
@@ -437,7 +411,6 @@ export function useDeleteNote() {
     onSuccess: (_, noteId) => {
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
-      qc.removeQueries({ queryKey: keys.noteGraph(noteId) })
       void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
