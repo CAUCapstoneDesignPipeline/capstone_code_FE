@@ -30,6 +30,7 @@ import {
   type Note,
   type NoteCreate,
   type NoteSummary,
+  type Recommendation,
   type RecommendationJob,
   type Topic,
   type TopicCreate,
@@ -55,6 +56,8 @@ export const keys = {
   graph: ['graph'] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
+  /** 노트별로 추천 패널에 쌓인 카드 (보이는 카드 + 대기 카드)와 보고 있는 카드 */
+  recommendationDeck: (noteId: string) => ['recommendationDeck', noteId] as const,
   /** 이 화면에서 추천 카드에 남긴 답 (추천 id → 답) */
   recommendationAnswers: ['recommendationAnswers'] as const,
   capabilities: ['capabilities'] as const,
@@ -174,6 +177,51 @@ export function useRecommendations(noteId: string | null) {
     refetchInterval: (query) =>
       query.state.data?.status === 'pending' ? RECOMMEND_POLL_MS : false,
   })
+}
+
+/** 노트별로 추천 패널에 쌓인 카드 (11/04 회의). 새로 고치면 사라진다 */
+export interface RecommendationDeck {
+  /** 쌓인 카드 전체. 기본은 BE 순서, 단 보고 있는 카드와 그 앞은 고정 (mergeRecommendations) */
+  cards: Recommendation[]
+  /** 보고 있는 카드. 아직 넘기지 않았으면 null (첫 카드) */
+  currentId: string | null
+  /** cards에 마지막으로 합친 추천 작업. 같은 작업은 두 번 합치지 않는다 */
+  jobId: string | null
+}
+
+const EMPTY_DECK: RecommendationDeck = { cards: [], currentId: null, jobId: null }
+
+/**
+ * 노트별 추천 카드 목록 (11/04 회의). 새 작업이 분석 중이어도 쌓인 카드를 그대로 보이고,
+ * 작업이 끝나면 새 결과를 합친다. 패널과 접힌 패널의 배지(W3-14b)가 함께 쓰도록 캐시(메모리)에만 둔다.
+ */
+export function useRecommendationDeck(noteId: string | null) {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: keys.recommendationDeck(noteId ?? ''),
+    queryFn: () => EMPTY_DECK,
+    initialData: EMPTY_DECK,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+  const update = useCallback(
+    (change: (deck: RecommendationDeck) => RecommendationDeck) => {
+      if (noteId === null) return
+      qc.setQueryData<RecommendationDeck>(keys.recommendationDeck(noteId), (prev) =>
+        change(prev ?? EMPTY_DECK),
+      )
+    },
+    [qc, noteId],
+  )
+  /** 효과 안에서 쓴다: 렌더 뒤 바뀐 최신 값 */
+  const read = useCallback(
+    () =>
+      (noteId === null
+        ? undefined
+        : qc.getQueryData<RecommendationDeck>(keys.recommendationDeck(noteId))) ?? EMPTY_DECK,
+    [qc, noteId],
+  )
+  return { deck: noteId === null ? EMPTY_DECK : data, update, read }
 }
 
 /**

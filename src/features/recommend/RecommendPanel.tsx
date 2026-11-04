@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useRef, useState, type Ref } from 'react'
+import { useEffect, useRef, useState, type Ref } from 'react'
 import { flushSync } from 'react-dom'
 import type { NoteSummary, Recommendation, RecommendationEvidence } from '../../api'
 import { Button, PanelToggleButton } from '../../components/Button'
@@ -10,6 +10,7 @@ import {
   useCapabilities,
   useNote,
   useRecommendationAnswers,
+  useRecommendationDeck,
   useRecommendations,
   useTopics,
 } from '../../data/queries'
@@ -19,9 +20,12 @@ import {
   cardAfterAnswer,
   CONFUSED_FAILED_TOAST,
   currentIndex,
-  remainingRecommendations,
+  mergeRecommendations,
+  newRecommendationsToast,
+  splitRecommendations,
   type RecommendationAnswer,
 } from '../../lib/recommendations'
+import { StatusPill } from '../editor/StatusPill'
 import { ChatView } from './ChatView'
 import { ExternalSourceLink } from './ExternalSourceLink'
 import styles from './RecommendPanel.module.css'
@@ -48,6 +52,8 @@ const RESPONSES: { id: RecommendationAnswer; label: string; variant: 'primary' |
 /**
  * 3단 레이아웃의 오른쪽 칸. 열린 노트의 추천(사용자가 모르는 지식)을 보인다.
  * 분석 중(W3-07) · 없음(W3-08) · 여러 개면 한 장씩 넘김(W3-09). 근거를 누르면 그 노트를 열고 문장을 강조한다(W3-12).
+ * 카드는 노트별로 쌓인다 (11/04 회의). 다시 분석하는 동안에도 쌓인 카드를 그대로 두고 헤더 아래에 "분석 중"을 띄우며(W3-16),
+ * 끝나면 새 추천을 합친다. 순서는 기본은 BE 순서, 단 지금 보고 있는 카드와 그 앞은 고정, 최대 5장 (mergeRecommendations).
  * '이해함'·'알고 있던 내용'으로 답하면 카드를 빼고 다음 카드로, 마지막이면 "추천을 모두 확인했습니다"(W3-10·11).
  * "이해가 안 됨"을 고르면 같은 패널에서 챗봇이 쉽게 풀어 준다(W3-03).
  */
@@ -56,24 +62,46 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   const off = capabilities?.discoveriesEnabled === false
   const job = useRecommendations(off ? null : noteId)
   const noteTitle = useNote(noteId ?? '', noteId !== null).data?.title ?? ''
-  const pending = job.data?.status === 'pending'
   const { answers, answer } = useRecommendationAnswers()
   const toast = useToast()
-  const all = job.data?.status === 'completed' ? job.data.recommendations : []
-  // 답한 카드는 빼고 남은 카드만 넘긴다 (W3-10·11)
-  const list = remainingRecommendations(all, answers)
-  const allAnswered = all.length > 0 && list.length === 0
+  const { deck, update, read } = useRecommendationDeck(off ? null : noteId)
+  const completedJob = job.data?.status === 'completed' ? job.data : null
+  // 끝난 작업을 아직 합치지 않았으면 합칠 때까지 분석 중으로 본다 (빈 화면이 잠깐 보이지 않게)
+  const pending =
+    job.data?.status === 'pending' || (completedJob !== null && completedJob.id !== deck.jobId)
 
-  // 여러 개면 한 장씩 (W3-09). 순서는 BE가 준 그대로다. 작업이 바뀌면 처음부터.
-  // 보고 있는 카드는 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패) 같은 카드를 보인다.
-  const [page, setPage] = useState<{ jobId: string; currentId: string | null }>({
-    jobId: '',
-    currentId: null,
-  })
-  const index = currentIndex(list, page.jobId === job.data?.id ? page.currentId : null)
+  // 답한 카드는 빼고(W3-10·11) 앞 5장만 보인다. 나머지는 대기하다 카드가 빠지면 끝에 붙는다.
+  const { visible: list, waiting } = splitRecommendations(deck.cards, answers)
+  const allAnswered =
+    list.length === 0 && (deck.cards.length > 0 || (completedJob?.recommendations.length ?? 0) > 0)
+
+  // 여러 개면 한 장씩 (W3-09). 기본은 BE 순서, 단 지금 보고 있는 카드와 그 앞은 고정, 최대 5장.
+  // 보고 있는 카드는 노트별로 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패),
+  // 새 추천이 합쳐져도 같은 카드를 보인다.
+  const index = currentIndex(list, deck.currentId)
   const current = list[index] ?? null
-  const show = (currentId: string | null) => setPage({ jobId: job.data?.id ?? '', currentId })
+  const show = (currentId: string | null) => update((d) => ({ ...d, currentId }))
   const goTo = (i: number) => show(list[i]?.id ?? null)
+
+  // 작업이 끝나면 쌓인 카드와 합친다. 처음 받으면 BE 순서대로 앞 5장을 보이고 첫 카드를 본다.
+  useEffect(() => {
+    if (!completedJob) return
+    const before = read()
+    if (before.jobId === completedJob.id) return
+    const shown = splitRecommendations(before.cards, answers).visible
+    const viewing = shown.length > 0 ? shown[currentIndex(shown, before.currentId)].id : null
+    const merged = mergeRecommendations(
+      before.cards,
+      viewing,
+      completedJob.recommendations,
+      answers,
+    )
+    update(() => ({ cards: merged.cards, currentId: viewing, jobId: completedJob.id }))
+    // 처음 받을 때는 카드가 곧 보이므로 알리지 않는다
+    if (before.cards.length > 0 && merged.added > 0) {
+      toast('info', newRecommendationsToast(merged.added))
+    }
+  }, [completedJob, answers, read, update, toast])
 
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
   // 추천으로 돌아갔다 와도 대화를 이어 간다.
@@ -94,7 +122,8 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
     if (!current) return
     const message = ANSWER_TOAST[id]
     // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (W3-10)
-    if (id !== 'confused') show(cardAfterAnswer(list, current.id))
+    // 보이는 카드의 마지막이었으면 그 자리에 붙는 대기 카드를 본다
+    if (id !== 'confused') show(cardAfterAnswer([...list, ...waiting], current.id))
     answer(current.id, id).then(
       () => message && toast('info', message),
       // 보내지 못하면 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
@@ -118,13 +147,13 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
             추천으로
           </Button>
         )}
-        {!chatting && pending && (
+        {!chatting && pending && list.length === 0 && (
           <span className={styles.status} role="status">
             <Icon name="loader" className={styles.spin} />
             분석 중
           </span>
         )}
-        {!chatting && !pending && list.length > 1 && (
+        {!chatting && list.length > 1 && (
           <nav className={styles.pager} aria-label="추천 넘기기">
             <button
               type="button"
@@ -154,11 +183,15 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
           onClick={onCollapse}
         />
       </header>
+      {/* W3-16: 쌓인 카드가 있으면 그대로 두고 헤더 아래 줄에 분석 중을 띄운다. 넘기기는 헤더에 그대로 */}
+      {!chatting && pending && list.length > 0 && (
+        <div className={styles.statusRow}>
+          <StatusPill label="분석 중" icon="loader" stuck={false} spinning status="running" />
+        </div>
+      )}
 
       {chatting ? (
         <ChatView recommendation={current} messages={messages} onMessagesChange={setMessages} />
-      ) : pending ? (
-        <Analyzing noteTitle={noteTitle} />
       ) : current ? (
         <RecommendView
           recommendation={current}
@@ -169,6 +202,8 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
             onOpenEvidence(evidence)
           }}
         />
+      ) : pending ? (
+        <Analyzing noteTitle={noteTitle} />
       ) : allAnswered ? (
         <AllAnswered />
       ) : (

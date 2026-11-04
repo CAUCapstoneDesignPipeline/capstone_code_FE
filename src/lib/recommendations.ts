@@ -5,7 +5,7 @@ export type RecommendationAnswer = 'understood' | 'known' | 'confused'
 
 /**
  * 패널에 남는 추천 (W3-10·11). '이해함'·'알고 있던 내용'으로 답하면 빠지고 다음 카드로 넘어간다.
- * '이해가 안 됨'은 챗봇으로 넘어갈 뿐 답이 끝난 것이 아니라 남긴다. 순서는 BE가 준 그대로다.
+ * '이해가 안 됨'은 챗봇으로 넘어갈 뿐 답이 끝난 것이 아니라 남긴다. 순서는 받은 목록 그대로다.
  */
 export function remainingRecommendations(
   list: readonly Recommendation[],
@@ -15,6 +15,66 @@ export function remainingRecommendations(
     const a = answers[r.id]
     return a === undefined || a === 'confused'
   })
+}
+
+/** '이해함'·'알고 있던 내용'으로 답한 카드. 목록에 다시 넣지 않는다 ('이해가 안 됨'은 남는다) */
+function isDone(answer: RecommendationAnswer | undefined): boolean {
+  return answer !== undefined && answer !== 'confused'
+}
+
+/** 패널에 한 번에 보이는 카드 수 (11/04 회의). 나머지는 대기 목록에서 차례를 기다린다 */
+export const MAX_VISIBLE_RECOMMENDATIONS = 5
+
+/**
+ * 쌓인 카드를 보이는 카드와 대기 카드로 나눈다 (W3-09, 11/04 회의).
+ * 답한 카드를 뺀 뒤 앞 5장이 보이고, 나머지는 대기한다. 답해서 카드가 빠지면 대기 카드가 차례로 끝에 붙는다.
+ * 답을 보내지 못해 답이 되돌려지면 그 카드는 원래 자리로 돌아온다.
+ */
+export function splitRecommendations(
+  cards: readonly Recommendation[],
+  answers: Readonly<Record<string, RecommendationAnswer>>,
+): { visible: Recommendation[]; waiting: Recommendation[] } {
+  const remaining = remainingRecommendations(cards, answers)
+  return {
+    visible: remaining.slice(0, MAX_VISIBLE_RECOMMENDATIONS),
+    waiting: remaining.slice(MAX_VISIBLE_RECOMMENDATIONS),
+  }
+}
+
+/**
+ * 새 추천 작업이 끝났을 때 쌓인 카드와 새 결과를 합친다 (11/04 회의).
+ * - 앞부분 고정: 보고 있는 카드와 그 앞(이미 넘겨 본 카드)은 자리와 순서를 그대로 둔다.
+ *   같은 id가 새 결과에 있으면 내용(결론·근거 등)만 새 것으로 바꾸고, 없어도 남긴다.
+ * - 뒤쪽: 나머지는 새 결과의 BE 순서(점수 순)대로 다시 채운다. 이미 답한 카드('이해가 안 됨' 제외)는 넣지 않는다.
+ *   그래서 새 결과에 없는 뒤쪽 카드는 빠진다. 같은 추천은 BE가 같은 id로 주므로 id로 중복을 거른다.
+ * cards는 쌓인 카드 전체(보이는 카드 + 대기 카드)다. 결과에서 보이는 카드는 splitRecommendations로 나눈다.
+ * added는 이전 목록(대기 포함)에 없던 id 수다 ("새 추천 N개").
+ */
+export function mergeRecommendations(
+  cards: readonly Recommendation[],
+  currentId: string | null,
+  incoming: readonly Recommendation[],
+  answers: Readonly<Record<string, RecommendationAnswer>>,
+): { cards: Recommendation[]; added: number } {
+  const { visible } = splitRecommendations(cards, answers)
+  const fresh = new Map(incoming.map((r) => [r.id, r]))
+  const pinnedCount = visible.findIndex((r) => r.id === currentId) + 1
+  const pinned = visible.slice(0, pinnedCount).map((r) => fresh.get(r.id) ?? r)
+
+  const out = [...pinned]
+  const ids = new Set(pinned.map((r) => r.id))
+  for (const r of incoming) {
+    if (ids.has(r.id) || isDone(answers[r.id])) continue
+    ids.add(r.id)
+    out.push(r)
+  }
+  const before = new Set(cards.map((r) => r.id))
+  return { cards: out, added: out.filter((r) => !before.has(r.id)).length }
+}
+
+/** 새 카드가 들어왔을 때 알림 (11/04 회의) */
+export function newRecommendationsToast(count: number): string {
+  return `새 추천 ${count}개`
 }
 
 /** 답한 뒤 알림 (W3-10·11). '이해가 안 됨'은 챗봇으로 넘어가 알리지 않는다 */
@@ -29,7 +89,10 @@ export function currentIndex(list: readonly Recommendation[], currentId: string 
   return i < 0 ? 0 : i
 }
 
-/** 보고 있는 카드에 답해 카드가 빠지면 볼 카드 (W3-10): 같은 자리에 오는 다음 카드, 마지막이었으면 앞 카드 */
+/**
+ * 보고 있는 카드에 답해 카드가 빠지면 볼 카드 (W3-10): 같은 자리에 오는 다음 카드, 마지막이었으면 앞 카드.
+ * list에 대기 카드까지 넘기면, 보이는 카드의 마지막에 답했을 때 그 자리에 붙는 대기 카드를 본다.
+ */
 export function cardAfterAnswer(
   list: readonly Recommendation[],
   answeredId: string,

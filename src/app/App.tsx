@@ -8,13 +8,14 @@ import {
   useCapabilities,
   useCreateUntitledNote,
   useRecommendationAnswers,
+  useRecommendationDeck,
   useRecommendations,
 } from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
 import { NotePane, type EvidenceRequest } from '../features/note/NotePane'
 import { RecommendPanel } from '../features/recommend/RecommendPanel'
 import { Sidebar } from '../features/sidebar/Sidebar'
-import { remainingRecommendations } from '../lib/recommendations'
+import { splitRecommendations } from '../lib/recommendations'
 import styles from './App.module.css'
 import { useCollapsible } from './useCollapsible'
 
@@ -66,6 +67,8 @@ export function App() {
   // 패널이 저절로 열리지는 않는다.
   const panelJob = useRecommendations(graphOpen ? null : panelNoteId)
   const { answers } = useRecommendationAnswers()
+  // 배지 수는 패널에 보이는 카드 수(최대 5)와 같다
+  const { deck: panelDeck } = useRecommendationDeck(graphOpen ? null : panelNoteId)
   const finishedJob = panelJob.data?.status === 'completed' ? panelJob.data : null
   const [seenJobId, setSeenJobId] = useState<string | null>(null)
   if (!panelCollapsed && !graphOpen && finishedJob && finishedJob.id !== seenJobId) {
@@ -73,7 +76,7 @@ export function App() {
   }
   const newRecommendations =
     panelCollapsed && finishedJob && finishedJob.id !== seenJobId
-      ? remainingRecommendations(finishedJob.recommendations, answers).length
+      ? splitRecommendations(panelDeck.cards, answers).visible.length
       : 0
 
   function show(target: Target) {
