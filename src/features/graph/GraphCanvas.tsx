@@ -5,7 +5,7 @@ import type { Graph } from '../../api'
 import { useTheme, type Theme } from '../../lib/theme'
 import { nodeColorKey, TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import styles from './GraphView.module.css'
-import { edgeKey, initialPositions } from './pageGraph'
+import { edgeKey, initialPositions, placeNear, sortedById, type Box } from './pageGraph'
 
 cytoscape.use(fcose)
 
@@ -206,7 +206,8 @@ export function GraphCanvas(props: Props) {
       cy.nodes('.page')
         .filter((n) => !nodeIds.has(n.id()))
         .remove()
-      for (const n of graph.nodes) {
+      // id 순으로 넣는다. 응답의 노드·선 순서가 달라도 fcose에 같은 순서로 들어가 같은 그림이 나온다.
+      for (const n of sortedById(graph.nodes, (node) => node.id)) {
         const data = {
           id: n.id,
           label: n.title,
@@ -218,7 +219,7 @@ export function GraphCanvas(props: Props) {
         if (existing.nonempty()) existing.data(data)
         else added.push(cy.add({ group: 'nodes', data, classes: 'page' }))
       }
-      for (const e of graph.edges) {
+      for (const e of sortedById(graph.edges, edgeKey)) {
         const id = edgeKey(e)
         if (cy.getElementById(id).nonempty()) continue
         if (nodeIds.has(e.sourceId) && nodeIds.has(e.targetId)) {
@@ -250,9 +251,19 @@ export function GraphCanvas(props: Props) {
       }
       return
     }
-    // 새 페이지: 이미 자리가 있는 이웃 옆에, 이웃이 없으면 화면 가운데
+    // 새 페이지: 이미 자리가 있는 이웃 옆에, 이웃이 없으면 화면 가운데. 다른 페이지와 겹치면 빈자리를 찾는다.
     const unplaced = new Set(added.map((n) => n.id()))
     const extent = cy.extent()
+    const boxOf = (n: NodeSingular): Box => ({
+      ...n.position(),
+      width: n.data('width') as number,
+      height: NODE_HEIGHT,
+    })
+    const taken = cy
+      .nodes('.page')
+      .filter((n) => !unplaced.has(n.id()))
+      // '.page' 셀렉터로 고른 노드뿐이다
+      .map((n) => boxOf(n as NodeSingular))
     added.forEach((node, i) => {
       const anchor = node.neighborhood('node.page').filter((m) => !unplaced.has(m.id()))[0] as
         NodeSingular | undefined
@@ -260,10 +271,9 @@ export function GraphCanvas(props: Props) {
         ? anchor.position()
         : { x: (extent.x1 + extent.x2) / 2, y: (extent.y1 + extent.y2) / 2 }
       const angle = (i * 2 * Math.PI) / Math.max(added.length, 6)
-      node.position({
-        x: center.x + NEW_NODE_GAP * Math.cos(angle),
-        y: center.y + NEW_NODE_GAP * Math.sin(angle),
-      })
+      const size = { width: node.data('width') as number, height: NODE_HEIGHT }
+      node.position(placeNear(center, angle, size, taken, NEW_NODE_GAP))
+      taken.push(boxOf(node))
       unplaced.delete(node.id())
     })
   }, [graph, colorKeys])

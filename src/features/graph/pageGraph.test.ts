@@ -4,6 +4,9 @@ import {
   edgeKey,
   initialPositions,
   legendEntries,
+  overlaps,
+  placeNear,
+  sortedById,
   selectedEdgeInfo,
   topicsInGraph,
   unitHash,
@@ -100,5 +103,53 @@ describe('selectedEdgeInfo', () => {
     expect(selectedEdgeInfo(graph, 'a|z')).toBeNull()
     expect(selectedEdgeInfo(graph, 'b|x')).toBeNull()
     expect(selectedEdgeInfo(graph, null)).toBeNull()
+  })
+})
+
+describe('넣는 순서 고정 (fcose 타일링이 순서를 따른다)', () => {
+  it('노드는 id 순, 선은 edgeKey 순. 원래 배열은 바꾸지 않는다', () => {
+    const nodes = [page('c', null), page('a', 't1'), page('b', null)]
+    expect(sortedById(nodes, (n) => n.id).map((n) => n.id)).toEqual(['a', 'b', 'c'])
+    expect(sortedById([...nodes].reverse(), (n) => n.id)).toEqual(sortedById(nodes, (n) => n.id))
+    expect(nodes.map((n) => n.id)).toEqual(['c', 'a', 'b'])
+    const edges = [
+      { sourceId: 'c', targetId: 'b' },
+      { sourceId: 'b', targetId: 'a' },
+    ]
+    expect(sortedById(edges, edgeKey).map(edgeKey)).toEqual(['a|b', 'b|c'])
+  })
+})
+
+describe('새 페이지 자리 (placeNear)', () => {
+  const size = { width: 100, height: 30 }
+  const center = { x: 0, y: 0 }
+
+  it('겹치는 페이지가 없으면 지금까지처럼 중심에서 gap만큼 angle 방향', () => {
+    expect(placeNear(center, 0, size, [], 80)).toEqual({ x: 80, y: 0 })
+    const p = placeNear(center, Math.PI / 2, size, [], 80)
+    expect(p.x).toBeCloseTo(0)
+    expect(p.y).toBeCloseTo(80)
+  })
+
+  it('연결 없는 페이지를 한 번에 하나씩 더해도 같은 자리에 쌓이지 않는다', () => {
+    // 화면(중심)은 그대로, 매번 added가 하나뿐이라 각도도 0으로 같다
+    const taken: { x: number; y: number; width: number; height: number }[] = []
+    for (let i = 0; i < 6; i++) {
+      const p = placeNear(center, 0, size, taken, 80)
+      expect(taken.some((t) => overlaps({ ...p, ...size }, t))).toBe(false)
+      taken.push({ ...p, ...size })
+    }
+  })
+
+  it('빈자리가 없으면 첫 자리를 쓴다', () => {
+    const wall = [{ x: 0, y: 0, width: 10_000, height: 10_000 }]
+    expect(placeNear(center, 0, size, wall, 80, 2, 4)).toEqual({ x: 80, y: 0 })
+  })
+
+  it('겹침은 여백까지 본다', () => {
+    const a = { x: 0, y: 0, width: 100, height: 30 }
+    expect(overlaps(a, { x: 105, y: 0, width: 100, height: 30 })).toBe(true)
+    expect(overlaps(a, { x: 109, y: 0, width: 100, height: 30 })).toBe(false)
+    expect(overlaps(a, { x: 0, y: 39, width: 100, height: 30 })).toBe(false)
   })
 })
