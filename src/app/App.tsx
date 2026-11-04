@@ -76,7 +76,10 @@ export function App() {
   }
   const newRecommendations =
     panelCollapsed && finishedJob && finishedJob.id !== seenJobId
-      ? splitRecommendations(panelDeck.cards, answers).visible.length
+      ? // 패널이 합친 뒤의 카드만 센다 (합치기 전에는 배지를 띄우지 않는다)
+        panelDeck.jobId === finishedJob.id
+        ? splitRecommendations(panelDeck.cards, answers).visible.length
+        : 0
       : 0
 
   function show(target: Target) {
@@ -201,6 +204,7 @@ export function App() {
       <div className={styles.panel} hidden={panelHidden}>
         <RecommendPanel
           noteId={graphOpen ? null : panelNoteId}
+          hidden={panelHidden}
           onOpenEvidence={openEvidence}
           onCollapse={() => setPanelCollapsed(true)}
           collapseRef={collapsePanelRef}

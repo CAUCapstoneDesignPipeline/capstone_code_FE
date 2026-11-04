@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Recommendation } from '../api'
 import {
+  viewingIndex,
   cardAfterAnswer,
   currentIndex,
   mergeRecommendations,
@@ -123,9 +124,30 @@ describe('mergeRecommendations (11/04 회의)', () => {
     expect(ids(cards)).toEqual(['a', 'b', 'c'])
   })
 
-  it('보고 있는 카드가 없으면 고정 없이 새 결과 순서', () => {
-    const { cards } = mergeRecommendations([rec('a'), rec('b')], null, [rec('b'), rec('a')], {})
-    expect(ids(cards)).toEqual(['b', 'a'])
+  it('넘기지 않았으면(currentId 없음) 첫 카드를 보는 것으로 보고 그 카드만 고정한다', () => {
+    const merged = mergeRecommendations(
+      [rec('a'), rec('b')],
+      null,
+      [rec('x'), rec('b'), rec('a')],
+      {},
+    )
+    expect(ids(merged.cards)).toEqual(['a', 'x', 'b'])
+    expect(merged.currentId).toBe('a')
+  })
+
+  it('처음 받으면 첫 카드를 본다. 카드가 없으면 null', () => {
+    expect(mergeRecommendations([], null, [rec('a'), rec('b')], {}).currentId).toBe('a')
+    expect(mergeRecommendations([], null, [], {}).currentId).toBeNull()
+  })
+
+  it('offered: 답이 확정돼 넣지 않은 카드까지 센다 (모두 답했으면 W3-11)', () => {
+    const merged = mergeRecommendations([], null, [rec('a'), rec('b')], {
+      a: 'known',
+      b: 'understood',
+    })
+    expect(merged.cards).toEqual([])
+    expect(merged.offered).toBe(2)
+    expect(mergeRecommendations([], null, [], {}).offered).toBe(0)
   })
 
   it('5장을 넘으면 대기하고, 답해서 빠지면 대기 카드가 끝에 붙는다', () => {
@@ -205,5 +227,45 @@ describe('mergeRecommendations (11/04 회의)', () => {
       expect(ids(cards)).toEqual(['a', 'b', 'c', 'd', 'x'])
       expect(ids(splitRecommendations(cards, {}).visible)).toEqual(['a', 'b', 'c', 'd', 'x'])
     })
+  })
+
+  it('합친 결과의 보고 있는 카드는 넘겨받은 카드 그대로다', () => {
+    const merged = mergeRecommendations([rec('a'), rec('b')], 'b', [rec('x')], {})
+    expect(merged.currentId).toBe('b')
+  })
+})
+
+describe('viewingIndex', () => {
+  const cards = ['1', '2', '3', '4', '5', '6'].map((id) => rec(id))
+
+  it('보이는 카드면 그 자리, 없으면 0', () => {
+    const { visible, waiting } = splitRecommendations(cards, {})
+    expect(viewingIndex(visible, waiting, '3')).toBe(2)
+    expect(viewingIndex(visible, waiting, 'x')).toBe(0)
+    expect(viewingIndex(visible, waiting, null)).toBe(0)
+  })
+
+  it('마지막 카드에 답해 대기 카드로 넘어갔는데 전송이 실패하면, 첫 카드가 아니라 돌아온 카드를 본다', () => {
+    // 5를 보다가 '이해함' → 패널은 답하기 전 목록(대기 포함)으로 다음 카드를 정한다 → 6이 끝에 붙어 6을 본다
+    const shown = splitRecommendations(cards, {})
+    const currentId = cardAfterAnswer([...shown.visible, ...shown.waiting], '5')
+    expect(currentId).toBe('6')
+    const answered = splitRecommendations(cards, { '5': 'understood' })
+    expect(answered.visible[viewingIndex(answered.visible, answered.waiting, currentId)].id).toBe(
+      '6',
+    )
+    // 전송 실패로 답이 되돌려짐 → 5가 제자리로, 6은 다시 대기
+    const restored = splitRecommendations(cards, {})
+    expect(ids(restored.waiting)).toEqual(['6'])
+    expect(restored.visible[viewingIndex(restored.visible, restored.waiting, currentId)].id).toBe(
+      '5',
+    )
+  })
+
+  it('합칠 때도 같은 규칙으로 보고 있는 카드를 정해 고정한다', () => {
+    // 위와 같은 상태(6을 보는 중인데 6이 대기)에서 합치면 5까지 고정
+    const merged = mergeRecommendations(cards, '6', [rec('x')], {})
+    expect(ids(merged.cards)).toEqual(['1', '2', '3', '4', '5', 'x'])
+    expect(merged.currentId).toBe('5')
   })
 })

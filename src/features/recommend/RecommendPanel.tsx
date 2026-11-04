@@ -19,11 +19,11 @@ import {
   ANSWER_TOAST,
   cardAfterAnswer,
   CONFUSED_FAILED_TOAST,
-  currentIndex,
   mergeRecommendations,
   newRecommendationsToast,
   removeRecommendation,
   splitRecommendations,
+  viewingIndex,
   type RecommendationAnswer,
 } from '../../lib/recommendations'
 import { StatusPill } from '../editor/StatusPill'
@@ -35,6 +35,8 @@ import { SAMPLE_FIRST_MESSAGE, type ChatMessage } from './sampleChat'
 interface Props {
   /** 열린 노트. 그 노트의 가장 최근 추천 작업을 보인다. 없으면 null */
   noteId: string | null
+  /** 패널이 접혔거나 숨었는지. 숨은 동안 새 추천은 알림 대신 펴기 버튼의 배지(W3-14b)로 알린다 */
+  hidden: boolean
   /** 근거 A·B를 누르면 그 노트를 열고 문장을 강조한다 (W3-12) */
   onOpenEvidence: (evidence: RecommendationEvidence) => void
   /** 패널을 접는다 */
@@ -58,7 +60,7 @@ const RESPONSES: { id: RecommendationAnswer; label: string; variant: 'primary' |
  * '이해함'·'알고 있던 내용'으로 답하면 카드를 빼고 다음 카드로, 마지막이면 "추천을 모두 확인했습니다"(W3-10·11).
  * "이해가 안 됨"을 고르면 같은 패널에서 챗봇이 쉽게 풀어 준다(W3-03).
  */
-export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef }: Props) {
+export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, collapseRef }: Props) {
   const capabilities = useCapabilities()
   const off = capabilities?.discoveriesEnabled === false
   const job = useRecommendations(off ? null : noteId)
@@ -73,16 +75,13 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
 
   // 답한 카드는 빼고(W3-10·11) 앞 5장만 보인다. 나머지는 대기하다 카드가 빠지면 끝에 붙는다.
   const { visible: list, waiting } = splitRecommendations(deck.cards, answers)
-  const allAnswered =
-    list.length === 0 &&
-    (deck.cards.length > 0 ||
-      deck.answeredSinceMerge ||
-      (completedJob?.recommendations.length ?? 0) > 0)
+  // 마지막으로 합친 추천이 있었는데 남은 카드가 없으면 모두 답한 것이다 (W3-11)
+  const allAnswered = list.length === 0 && deck.offered > 0
 
   // 여러 개면 한 장씩 (W3-09). 기본은 BE 순서, 단 지금 보고 있는 카드와 그 앞은 고정, 최대 5장.
   // 보고 있는 카드는 노트별로 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패),
-  // 새 추천이 합쳐져도 같은 카드를 보인다.
-  const index = currentIndex(list, deck.currentId)
+  // 새 추천이 합쳐져도 같은 카드를 보인다. 보던 카드가 대기로 밀리면 제자리로 돌아온 카드를 본다.
+  const index = viewingIndex(list, waiting, deck.currentId)
   const current = list[index] ?? null
   const show = (currentId: string | null) => update((d) => ({ ...d, currentId }))
   const goTo = (i: number) => show(list[i]?.id ?? null)
@@ -92,26 +91,25 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
     if (!completedJob) return
     const before = read()
     if (before.jobId === completedJob.id) return
-    const shown = splitRecommendations(before.cards, answers).visible
-    const viewing = shown.length > 0 ? shown[currentIndex(shown, before.currentId)].id : null
     const merged = mergeRecommendations(
       before.cards,
-      viewing,
+      before.currentId,
       completedJob.recommendations,
       answers,
       sending,
     )
     update(() => ({
       cards: merged.cards,
-      currentId: viewing,
+      currentId: merged.currentId,
       jobId: completedJob.id,
-      answeredSinceMerge: false,
+      offered: merged.offered,
     }))
-    // 처음 받을 때는 카드가 곧 보이므로 알리지 않는다
-    if (before.cards.length > 0 && merged.added > 0) {
+    // 처음 받을 때(합친 적이 없을 때)는 카드가 곧 보이므로 알리지 않는다.
+    // 패널이 숨어 있으면 펴기 버튼의 배지(W3-14b)가 알린다.
+    if (before.jobId !== null && merged.added > 0 && !hidden) {
       toast('info', newRecommendationsToast(merged.added))
     }
-  }, [completedJob, answers, sending, read, update, toast])
+  }, [completedJob, answers, sending, hidden, read, update, toast])
 
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
   // 추천으로 돌아갔다 와도 대화를 이어 간다.
@@ -139,11 +137,7 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
       () => {
         // 확정된 답의 카드는 쌓인 카드에서 뺀다. 전송 중에는 남겨 두어(화면에선 숨김) 실패하면 제자리로 돌아온다
         if (id !== 'confused') {
-          update((d) => ({
-            ...d,
-            cards: removeRecommendation(d.cards, answeredId),
-            answeredSinceMerge: true,
-          }))
+          update((d) => ({ ...d, cards: removeRecommendation(d.cards, answeredId) }))
         }
         if (message) toast('info', message)
       },

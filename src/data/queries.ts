@@ -60,7 +60,7 @@ export const keys = {
   recommendationDeck: (noteId: string) => ['recommendationDeck', noteId] as const,
   /** 이 화면에서 추천 카드에 남긴 답 (추천 id → 답) */
   recommendationAnswers: ['recommendationAnswers'] as const,
-  /** 아직 전송 중인 답의 추천 id (추천 id → true) */
+  /** 아직 전송 중인 답의 추천 id (추천 id → 전송 중인 요청 수) */
   recommendationSending: ['recommendationSending'] as const,
   capabilities: ['capabilities'] as const,
 }
@@ -189,15 +189,15 @@ export interface RecommendationDeck {
   currentId: string | null
   /** cards에 마지막으로 합친 추천 작업. 같은 작업은 두 번 합치지 않는다 */
   jobId: string | null
-  /** 마지막으로 합친 뒤 답이 확정돼 뺀 카드가 있는지 (모두 답했을 때 W3-11을 보이려고) */
-  answeredSinceMerge: boolean
+  /** 마지막으로 합칠 때 다룬 추천 수 (mergeRecommendations의 offered). 합칠 때만 정한다 */
+  offered: number
 }
 
 const EMPTY_DECK: RecommendationDeck = {
   cards: [],
   currentId: null,
   jobId: null,
-  answeredSinceMerge: false,
+  offered: 0,
 }
 
 /**
@@ -250,7 +250,7 @@ export function useRecommendationAnswers() {
   })
   const { data: sendingIds } = useQuery({
     queryKey: keys.recommendationSending,
-    queryFn: (): Record<string, true> => ({}),
+    queryFn: (): Record<string, number> => ({}),
     initialData: {},
     staleTime: Infinity,
     gcTime: Infinity,
@@ -258,10 +258,12 @@ export function useRecommendationAnswers() {
   const sending = useMemo(() => new Set(Object.keys(sendingIds)), [sendingIds])
   const answer = useCallback(
     async (recommendationId: string, action: RecommendationAnswer) => {
-      const setSending = (on: boolean) =>
-        qc.setQueryData<Record<string, true>>(keys.recommendationSending, (prev) => {
+      // 같은 카드에 답이 겹쳐도(예: '이해가 안 됨' 전송 중에 '이해함') 마지막 요청이 끝날 때까지 전송 중으로 센다
+      const setSending = (delta: 1 | -1) =>
+        qc.setQueryData<Record<string, number>>(keys.recommendationSending, (prev) => {
           const next = { ...prev }
-          if (on) next[recommendationId] = true
+          const count = (next[recommendationId] ?? 0) + delta
+          if (count > 0) next[recommendationId] = count
           else delete next[recommendationId]
           return next
         })
@@ -272,12 +274,13 @@ export function useRecommendationAnswers() {
         ...prev,
         [recommendationId]: action,
       }))
-      setSending(true)
+      setSending(1)
       try {
         await sendRecommendationFeedback(recommendationId, action)
-        setSending(false)
+        setSending(-1)
       } catch (e) {
-        setSending(false)
+        // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
+        // 추천을 합칠 때 카드가 빠질 수 있다.
         qc.setQueryData<Record<string, RecommendationAnswer>>(
           keys.recommendationAnswers,
           (prev) => {
@@ -289,6 +292,7 @@ export function useRecommendationAnswers() {
             return next
           },
         )
+        setSending(-1)
         throw e
       }
     },
@@ -538,6 +542,9 @@ export function useDeleteNote() {
     onSuccess: (_, noteId) => {
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
+      // 노트별 추천 카드는 세션 내내 메모리에 두므로, 지운 노트의 것은 함께 버린다
+      qc.removeQueries({ queryKey: keys.recommendationJob(noteId) })
+      qc.removeQueries({ queryKey: keys.recommendationDeck(noteId) })
       void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })
