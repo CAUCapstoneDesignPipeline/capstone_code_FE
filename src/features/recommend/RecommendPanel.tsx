@@ -1,60 +1,86 @@
-import { useRef, useState, type KeyboardEvent, type Ref } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useRef, useState, type Ref } from 'react'
 import { flushSync } from 'react-dom'
-import { DashedBadge } from '../../components/Badge'
+import type { NoteSummary, Recommendation, RecommendationEvidence } from '../../api'
 import { Button, PanelToggleButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
+import { useToast } from '../../components/toastContext'
+import {
+  keys,
+  useCapabilities,
+  useNote,
+  useRecommendationAnswers,
+  useRecommendations,
+  useTopics,
+} from '../../data/queries'
+import {
+  ANSWER_FAILED_TOAST,
+  ANSWER_TOAST,
+  cardAfterAnswer,
+  CONFUSED_FAILED_TOAST,
+  currentIndex,
+  remainingRecommendations,
+  type RecommendationAnswer,
+} from '../../lib/recommendations'
 import { ChatView } from './ChatView'
+import { ExternalSourceLink } from './ExternalSourceLink'
 import styles from './RecommendPanel.module.css'
 import { SAMPLE_FIRST_MESSAGE, type ChatMessage } from './sampleChat'
-import {
-  SAMPLE_RECOMMENDATION,
-  type ExternalEvidence,
-  type NoteEvidence,
-  type Recommendation,
-} from './sampleRecommendation'
 
 interface Props {
-  /** 노트를 열었는지. 열었으면 "개념·관계" 탭을 보인다. */
-  noteOpen: boolean
-  /** "개념·관계" 탭 자리. 열린 노트가 여기에 그래프 패널을 그린다 (NotePane). */
-  graphPanelSlotRef: Ref<HTMLDivElement>
+  /** 열린 노트. 그 노트의 가장 최근 추천 작업을 보인다. 없으면 null */
+  noteId: string | null
+  /** 근거 A·B를 누르면 그 노트를 열고 문장을 강조한다 (W3-12) */
+  onOpenEvidence: (evidence: RecommendationEvidence) => void
   /** 패널을 접는다 */
   onCollapse: () => void
   /** 접기 버튼. 패널을 다시 펼치면 여기로 초점을 돌려준다. */
   collapseRef?: Ref<HTMLButtonElement>
 }
 
-type Tab = 'recommend' | 'graph'
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'recommend', label: '추천' },
-  { id: 'graph', label: '개념·관계' },
-]
-
 /** 추천을 읽고 고르는 답 (Figma W3-02 Recommend/Actions) */
-const RESPONSES = [
+const RESPONSES: { id: RecommendationAnswer; label: string; variant: 'primary' | 'secondary' }[] = [
   { id: 'understood', label: '이해함', variant: 'primary' },
   { id: 'known', label: '알고 있던 내용', variant: 'secondary' },
   { id: 'confused', label: '이해가 안 됨', variant: 'secondary' },
-] as const
-
-type ResponseId = (typeof RESPONSES)[number]['id']
+]
 
 /**
- * 3단 레이아웃의 오른쪽 칸. 새 지식을 추천하고(Figma W3-02), "이해가 안 됨"을 고르면
- * 같은 패널에서 챗봇이 쉽게 풀어 준다(W3-03).
+ * 3단 레이아웃의 오른쪽 칸. 열린 노트의 추천(사용자가 모르는 지식)을 보인다.
+ * 분석 중(W3-07) · 없음(W3-08) · 여러 개면 한 장씩 넘김(W3-09). 근거를 누르면 그 노트를 열고 문장을 강조한다(W3-12).
+ * '이해함'·'알고 있던 내용'으로 답하면 카드를 빼고 다음 카드로, 마지막이면 "추천을 모두 확인했습니다"(W3-10·11).
+ * "이해가 안 됨"을 고르면 같은 패널에서 챗봇이 쉽게 풀어 준다(W3-03).
  */
-export function RecommendPanel({ noteOpen, graphPanelSlotRef, onCollapse, collapseRef }: Props) {
-  const recommendation = SAMPLE_RECOMMENDATION
-  // 노트를 닫으면 추천만 남는다. 다시 열면 고른 탭으로 돌아간다.
-  const [selectedTab, setSelectedTab] = useState<Tab>('recommend')
-  const tab: Tab = noteOpen ? selectedTab : 'recommend'
-  const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({})
+export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef }: Props) {
+  const capabilities = useCapabilities()
+  const off = capabilities?.discoveriesEnabled === false
+  const job = useRecommendations(off ? null : noteId)
+  const noteTitle = useNote(noteId ?? '', noteId !== null).data?.title ?? ''
+  const pending = job.data?.status === 'pending'
+  const { answers, answer } = useRecommendationAnswers()
+  const toast = useToast()
+  const all = job.data?.status === 'completed' ? job.data.recommendations : []
+  // 답한 카드는 빼고 남은 카드만 넘긴다 (W3-10·11)
+  const list = remainingRecommendations(all, answers)
+  const allAnswered = all.length > 0 && list.length === 0
+
+  // 여러 개면 한 장씩 (W3-09). 순서는 BE가 준 그대로다. 작업이 바뀌면 처음부터.
+  // 보고 있는 카드는 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패) 같은 카드를 보인다.
+  const [page, setPage] = useState<{ jobId: string; currentId: string | null }>({
+    jobId: '',
+    currentId: null,
+  })
+  const index = currentIndex(list, page.jobId === job.data?.id ? page.currentId : null)
+  const current = list[index] ?? null
+  const show = (currentId: string | null) => setPage({ jobId: job.data?.id ?? '', currentId })
+  const goTo = (i: number) => show(list[i]?.id ?? null)
+
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
-  // 답을 보낼 API가 아직 없어 이 화면에서만 기억한다.
-  const [response, setResponse] = useState<ResponseId | null>(null)
   // 추천으로 돌아갔다 와도 대화를 이어 간다.
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  // 누른 근거만 표시한다 (W3-12)
+  const [shownEvidence, setShownEvidence] = useState<string | null>(null)
+
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   /** 화면을 바꾼다. 누른 버튼이 사라지므로 초점을 새 화면의 제목에 두어 처음부터 읽게 한다. */
@@ -63,39 +89,63 @@ export function RecommendPanel({ noteOpen, graphPanelSlotRef, onCollapse, collap
     titleRef.current?.focus()
   }
 
-  /** 탭 사이는 왼쪽·오른쪽 화살표로 옮긴다 (WAI-ARIA tabs) */
-  function moveTab(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-    e.preventDefault()
-    const index = TABS.findIndex((t) => t.id === tab)
-    const next = TABS[(index + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]!.id
-    setSelectedTab(next)
-    tabRefs.current[next]?.focus()
-  }
-
-  function respond(id: ResponseId) {
-    setResponse(id)
+  /** 답하면 이 카드는 빠지고 같은 자리에 다음 카드가 온다. '이해가 안 됨'은 카드를 남기고 챗봇으로 */
+  function respond(id: RecommendationAnswer) {
+    if (!current) return
+    const message = ANSWER_TOAST[id]
+    // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (W3-10)
+    if (id !== 'confused') show(cardAfterAnswer(list, current.id))
+    answer(current.id, id).then(
+      () => message && toast('info', message),
+      // 보내지 못하면 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
+      () => toast('error', id === 'confused' ? CONFUSED_FAILED_TOAST : ANSWER_FAILED_TOAST),
+    )
     if (id !== 'confused') return
     if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
     switchView('chat')
   }
 
+  const chatting = view === 'chat' && current !== null
+
   return (
     <aside className={styles.panel} aria-labelledby="recommend-panel-title">
       <header className={styles.header}>
         <h2 ref={titleRef} id="recommend-panel-title" className={styles.title} tabIndex={-1}>
-          {tab === 'graph'
-            ? '이 노트의 개념·관계'
-            : view === 'recommend'
-              ? '새로운 지식 추천'
-              : '챗봇 · 쉽게 풀어보기'}
+          {chatting ? '챗봇 · 쉽게 풀어보기' : '새로운 지식 추천'}
         </h2>
-        {/* 추천·챗봇 API가 아직 없어 내용이 Figma 예시다 */}
-        {tab === 'recommend' && <DashedBadge>예시</DashedBadge>}
-        {tab === 'recommend' && view === 'chat' && (
+        {chatting && (
           <Button variant="text-link" onClick={() => switchView('recommend')}>
             추천으로
           </Button>
+        )}
+        {!chatting && pending && (
+          <span className={styles.status} role="status">
+            <Icon name="loader" className={styles.spin} />
+            분석 중
+          </span>
+        )}
+        {!chatting && !pending && list.length > 1 && (
+          <nav className={styles.pager} aria-label="추천 넘기기">
+            <button
+              type="button"
+              className={styles.pagerButton}
+              disabled={index <= 0}
+              onClick={() => goTo(index - 1)}
+            >
+              이전
+            </button>
+            <span className={styles.pagerCount}>
+              {index + 1} / {list.length}
+            </span>
+            <button
+              type="button"
+              className={styles.pagerButton}
+              disabled={index >= list.length - 1}
+              onClick={() => goTo(index + 1)}
+            >
+              다음
+            </button>
+          </nav>
         )}
         <PanelToggleButton
           ref={collapseRef}
@@ -105,70 +155,95 @@ export function RecommendPanel({ noteOpen, graphPanelSlotRef, onCollapse, collap
         />
       </header>
 
-      {noteOpen && (
-        <div className={styles.tabs} role="tablist" aria-label="패널 내용" onKeyDown={moveTab}>
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              ref={(el) => {
-                tabRefs.current[t.id] = el
-              }}
-              type="button"
-              role="tab"
-              id={`panel-tab-${t.id}`}
-              className={styles.tab}
-              aria-selected={tab === t.id}
-              aria-controls={`panel-tabpanel-${t.id}`}
-              tabIndex={tab === t.id ? 0 : -1}
-              onClick={() => setSelectedTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      {chatting ? (
+        <ChatView recommendation={current} messages={messages} onMessagesChange={setMessages} />
+      ) : pending ? (
+        <Analyzing noteTitle={noteTitle} />
+      ) : current ? (
+        <RecommendView
+          recommendation={current}
+          onRespond={respond}
+          shownEvidence={shownEvidence}
+          onOpenEvidence={(side, evidence) => {
+            setShownEvidence(`${current.id}:${side}`)
+            onOpenEvidence(evidence)
+          }}
+        />
+      ) : allAnswered ? (
+        <AllAnswered />
+      ) : (
+        <Empty off={off} />
       )}
-
-      {/* 탭을 바꿔도 내리지 않고 숨긴다. 챗봇 대화와 그래프 패널의 고른 근거가 남는다. */}
-      <div
-        id="panel-tabpanel-recommend"
-        className={styles.tabPanel}
-        role={noteOpen ? 'tabpanel' : undefined}
-        aria-labelledby={noteOpen ? 'panel-tab-recommend' : undefined}
-        hidden={tab !== 'recommend'}
-      >
-        {view === 'recommend' ? (
-          <RecommendView recommendation={recommendation} response={response} onRespond={respond} />
-        ) : (
-          <ChatView
-            recommendation={recommendation}
-            messages={messages}
-            onMessagesChange={setMessages}
-          />
-        )}
-      </div>
-      <div
-        ref={graphPanelSlotRef}
-        id="panel-tabpanel-graph"
-        className={styles.tabPanel}
-        role={noteOpen ? 'tabpanel' : undefined}
-        aria-labelledby={noteOpen ? 'panel-tab-graph' : undefined}
-        hidden={tab !== 'graph'}
-      />
     </aside>
+  )
+}
+
+/** W3-07 추천 · 분석 중: 자리 표시만, 버튼 없음 */
+function Analyzing({ noteTitle }: { noteTitle: string }) {
+  return (
+    <div className={styles.body} aria-busy>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className={styles.section}>
+          <span className={`${styles.skeleton} ${styles.skeletonLabel}`} />
+          <span className={`${styles.skeleton} ${styles.skeletonBlock}`} />
+        </div>
+      ))}
+      <span className={`${styles.skeleton} ${styles.skeletonConclusion}`} />
+      <p className={styles.hint}>
+        {noteTitle ? `'${noteTitle}'을 분석하고 있습니다. ` : '분석하고 있습니다. '}
+        끝나면 새로운 지식을 여기에 보여 드립니다.
+      </p>
+    </div>
+  )
+}
+
+/** W3-08 추천 · 없음. 분석 결과가 없거나 보류·탈락뿐이거나, 아직 요청하지 않았을 때 */
+function Empty({ off }: { off: boolean }) {
+  return (
+    <div className={styles.empty}>
+      <Icon name="compass" />
+      <p className={styles.emptyTitle}>
+        {off ? '새로운 지식 추천은 아직 사용할 수 없습니다' : '아직 추천할 새로운 지식이 없습니다'}
+      </p>
+      {!off && (
+        <p className={styles.emptyText}>
+          노트를 더 쓰거나 가져오면
+          <br />
+          노트 사이의 연결을 찾아 추천합니다.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** W3-11 추천 · 모두 확인함: 남은 카드가 없을 때 */
+function AllAnswered() {
+  return (
+    <div className={styles.empty}>
+      <Icon name="check" />
+      <p className={styles.emptyTitle}>추천을 모두 확인했습니다</p>
+      <p className={styles.emptyText}>
+        노트를 저장하거나 가져오면
+        <br />
+        새로운 연결을 다시 찾습니다.
+      </p>
+    </div>
   )
 }
 
 /** Figma W3-02 Recommend/Body + Actions: 근거 A·B와 외부 지식을 이어 결론을 보이고 답을 받는다 */
 function RecommendView({
   recommendation,
-  response,
   onRespond,
+  shownEvidence,
+  onOpenEvidence,
 }: {
   recommendation: Recommendation
-  response: ResponseId | null
-  onRespond: (id: ResponseId) => void
+  onRespond: (id: RecommendationAnswer) => void
+  shownEvidence: string | null
+  onOpenEvidence: (side: 'a' | 'b', evidence: RecommendationEvidence) => void
 }) {
-  const responseLabel = RESPONSES.find((r) => r.id === response)?.label
+  const { evidenceA, evidenceB, externalKnowledge } = recommendation
   return (
     <>
       <div className={styles.body}>
@@ -176,19 +251,33 @@ function RecommendView({
           <h3 id="recommend-a" className={styles.label}>
             근거 A
           </h3>
-          <EvidenceQuote evidence={recommendation.a} />
+          <NoteEvidenceButton
+            evidence={evidenceA}
+            selected={shownEvidence === `${recommendation.id}:a`}
+            onClick={() => onOpenEvidence('a', evidenceA)}
+          />
         </section>
         <section className={styles.section} aria-labelledby="recommend-b">
           <h3 id="recommend-b" className={styles.label}>
             근거 B
           </h3>
-          <EvidenceQuote evidence={recommendation.b} />
+          <NoteEvidenceButton
+            evidence={evidenceB}
+            selected={shownEvidence === `${recommendation.id}:b`}
+            onClick={() => onOpenEvidence('b', evidenceB)}
+          />
         </section>
         <section className={styles.section} aria-labelledby="recommend-external">
           <h3 id="recommend-external" className={styles.label}>
             외부 지식
           </h3>
-          <EvidenceQuote evidence={recommendation.external} />
+          <figure className={styles.evidence}>
+            <figcaption className={styles.source}>
+              <Icon name="external" />
+              <ExternalSourceLink url={externalKnowledge.sourceUrl} className={styles.sourceName} />
+            </figcaption>
+            <blockquote className={styles.quote}>{externalKnowledge.summary}</blockquote>
+          </figure>
         </section>
         <span className={styles.arrow} aria-hidden>
           ↓
@@ -208,47 +297,58 @@ function RecommendView({
               key={r.id}
               variant={r.variant}
               className={styles.action}
-              aria-pressed={response === r.id}
               onClick={() => onRespond(r.id)}
             >
               {r.label}
             </Button>
           ))}
         </div>
-        {responseLabel && (
-          <p className={styles.recorded} role="status">
-            답을 남겼습니다: {responseLabel}
-          </p>
-        )}
       </div>
     </>
   )
 }
 
+/** 근거가 나온 노트의 주제 이름. 사이드바 목록에서 찾고, 모르면 비운다 */
+function useNoteTopicName(noteId: string): string | null {
+  const qc = useQueryClient()
+  const topics = useTopics()
+  const summary = qc
+    .getQueriesData<NoteSummary[]>({ queryKey: keys.noteLists })
+    .flatMap(([, list]) => list ?? [])
+    .find((n) => n.id === noteId)
+  if (!summary) return null
+  if (summary.topicId === null) return '미분류'
+  return topics.data?.topics.find((t) => t.id === summary.topicId)?.name ?? null
+}
+
 /**
- * Figma EvidenceQuote: 출처(노트 제목 · 주제, 또는 외부 주소) + 저장된 원문 문장 그대로.
- * surface-emphasis + 왼쪽 ink 2px. 누르면 노트를 열고 문장을 강조할 예정이다 (지금은 예시라 열 노트가 없다).
+ * Figma EvidenceQuote (W3-02) + 근거로 이동 (W3-12): 노트 제목 · 주제 + 저장된 원문 문장 그대로.
+ * 누르면 그 노트를 열고 문장을 강조한다. 누른 근거는 surface-selected로 표시한다.
  */
-function EvidenceQuote({ evidence }: { evidence: NoteEvidence | ExternalEvidence }) {
+function NoteEvidenceButton({
+  evidence,
+  selected,
+  onClick,
+}: {
+  evidence: RecommendationEvidence
+  selected: boolean
+  onClick: () => void
+}) {
+  const topicName = useNoteTopicName(evidence.noteId)
   return (
-    <figure className={styles.evidence}>
-      <figcaption className={styles.source}>
-        {evidence.kind === 'note' ? (
-          <>
-            <Icon name="note" />
-            <span className={styles.sourceName}>{evidence.noteTitle}</span>
-            {evidence.topicName && (
-              <span className={styles.sourceTopic}>· {evidence.topicName}</span>
-            )}
-          </>
-        ) : (
-          <>
-            <Icon name="external" />
-            <span className={styles.sourceName}>{evidence.source}</span>
-          </>
-        )}
-      </figcaption>
-      <blockquote className={styles.quote}>{evidence.quote}</blockquote>
-    </figure>
+    <button
+      type="button"
+      className={`${styles.evidence} ${styles.evidenceButton}`}
+      aria-pressed={selected}
+      aria-label={`${evidence.noteTitle} 열고 근거 문장 보기: ${evidence.quote}`}
+      onClick={onClick}
+    >
+      <span className={styles.source}>
+        <Icon name="note" />
+        <span className={styles.sourceName}>{evidence.noteTitle}</span>
+        {topicName && <span className={styles.sourceTopic}>· {topicName}</span>}
+      </span>
+      <span className={styles.quote}>{evidence.quote}</span>
+    </button>
   )
 }

@@ -13,28 +13,31 @@ import {
   deleteTopic,
   getNote,
   getCapabilities,
-  ApiError,
   getGraph,
   getNoteAnalysis,
-  getNoteGraph,
+  getRecommendationJob,
   isApiError,
   listNotes,
   listTopics,
   moveNote,
   orderConflictCurrent,
   reorderTopics,
-  requestNoteAnalysis,
+  requestRecommendationJob,
+  sendRecommendationFeedback,
   updateTopic,
   type AnalysisJob,
   type Capabilities,
   type Note,
+  type NoteCreate,
   type NoteSummary,
+  type RecommendationJob,
   type Topic,
   type TopicCreate,
   type TopicList,
 } from '../api'
 import { createAnalysisPoller, isAnalysisActive } from '../lib/analysisPoll'
 import { resolveCapabilities } from '../lib/capabilities'
+import type { RecommendationAnswer } from '../lib/recommendations'
 import { nextUntitledTitle } from '../lib/names'
 
 /**
@@ -49,8 +52,11 @@ export const keys = {
   notes: ['note'] as const,
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
-  noteGraph: (noteId: string) => ['noteGraph', noteId] as const,
   graph: ['graph'] as const,
+  /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
+  recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
+  /** 이 화면에서 추천 카드에 남긴 답 (추천 id → 답) */
+  recommendationAnswers: ['recommendationAnswers'] as const,
   capabilities: ['capabilities'] as const,
 }
 
@@ -102,10 +108,11 @@ export function useNoteTopicId(noteId: string | null): string | null | undefined
 }
 
 /** 편집기가 쓰는 노트 한 건. 편집을 시작한 뒤에는 편집기가 내용을 들고 있으므로 스스로 다시 불러오지 않는다. */
-export function useNote(noteId: string) {
+export function useNote(noteId: string, enabled = true) {
   return useQuery({
     queryKey: keys.note(noteId),
     queryFn: ({ signal }) => getNote(noteId, signal),
+    enabled,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   })
@@ -134,35 +141,124 @@ export function useNoteAnalysis(noteId: string, enabled = false) {
   })
 }
 
-/** 분석 다시 요청. 받은 작업으로 바로 바꿔 폴링을 다시 시작한다. */
-export function useRequestAnalysis(noteId: string, enabled = false) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => {
-      if (!enabled) throw new ApiError('AI_UNAVAILABLE', '분석 기능을 사용할 수 없습니다.', 503)
-      return requestNoteAnalysis(noteId)
-    },
-    onSuccess: (job) => qc.setQueryData(keys.noteAnalysis(noteId), job),
-    // AI가 꺼졌으면 기능 여부를 다시 받아 화면을 AI-off로 바꾼다
-    onError: (e) => {
-      if (isApiError(e, 'AI_UNAVAILABLE'))
-        void qc.invalidateQueries({ queryKey: keys.capabilities })
-    },
-  })
-}
-
 /** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
 export function useGraph(enabled: boolean) {
   return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal), enabled })
 }
 
-/** 노트 옆 패널의 개념·관계 (F-GRA-03) */
-export function useNoteGraph(noteId: string, enabled: boolean) {
+/** 저장한 뒤 이만큼 더 고치지 않으면 추천을 요청한다 (자동 저장마다 LLM을 돌리지 않게, docs PR #17) */
+export const RECOMMEND_AFTER_SAVE_MS = 5000
+/** 추천 작업 polling 간격 (FE 선호안: 작업 ID + polling) */
+export const RECOMMEND_POLL_MS = 2000
+
+/**
+ * 노트의 가장 최근 추천 작업 (Figma W3-07~09). 이 화면에서 요청한 작업만 안다 (작업 id로만 조회할 수 있다).
+ * 요청한 적이 없으면 null. pending이면 polling하고 completed면 멈춘다. 작업을 못 찾으면(보관 기간이 지남) null로 본다.
+ */
+export function useRecommendations(noteId: string | null) {
+  const qc = useQueryClient()
   return useQuery({
-    queryKey: keys.noteGraph(noteId),
-    queryFn: ({ signal }) => getNoteGraph(noteId, signal),
-    enabled,
+    queryKey: keys.recommendationJob(noteId ?? ''),
+    queryFn: async ({ signal }): Promise<RecommendationJob | null> => {
+      const job = qc.getQueryData<RecommendationJob | null>(keys.recommendationJob(noteId!))
+      if (!job) return null
+      try {
+        return await getRecommendationJob(job.id, signal)
+      } catch (e) {
+        if (isApiError(e, 'NOT_FOUND')) return null
+        throw e
+      }
+    },
+    enabled: noteId !== null,
+    staleTime: Infinity,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'pending' ? RECOMMEND_POLL_MS : false,
   })
+}
+
+/**
+ * 추천 카드에 남긴 답 (W3-10·11). 패널과 접힌 패널의 배지(W3-14b)가 함께 쓰도록 캐시에 둔다.
+ * 답은 화면에 바로 반영하고 POST /recommendations/{id}/feedback으로 보낸다(BE에 아직 없어 가짜 서버만).
+ * 보내지 못하면 답을 되돌리고(카드가 다시 보인다) 오류를 던진다. 새로 고치면 캐시는 사라진다.
+ */
+export function useRecommendationAnswers() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: keys.recommendationAnswers,
+    queryFn: (): Record<string, RecommendationAnswer> => ({}),
+    initialData: {},
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+  const answer = useCallback(
+    async (recommendationId: string, action: RecommendationAnswer) => {
+      const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
+        keys.recommendationAnswers,
+      )?.[recommendationId]
+      qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => ({
+        ...prev,
+        [recommendationId]: action,
+      }))
+      try {
+        await sendRecommendationFeedback(recommendationId, action)
+      } catch (e) {
+        qc.setQueryData<Record<string, RecommendationAnswer>>(
+          keys.recommendationAnswers,
+          (prev) => {
+            // 그 사이 다른 답을 골랐으면 그대로 둔다
+            if (prev?.[recommendationId] !== action) return prev
+            const next = { ...prev }
+            if (before === undefined) delete next[recommendationId]
+            else next[recommendationId] = before
+            return next
+          },
+        )
+        throw e
+      }
+    },
+    [qc],
+  )
+  return { answers: data, answer }
+}
+
+/** 추천 작업을 바로 요청한다 (가져오기 트리거). 추천이 꺼져 있으면 보내지 않는다. */
+export function useRequestRecommendations() {
+  const qc = useQueryClient()
+  return useCallback(
+    async (noteId: string) => {
+      if (qc.getQueryData<Capabilities>(keys.capabilities)?.discoveriesEnabled !== true) return
+      try {
+        const job = await requestRecommendationJob(noteId)
+        qc.setQueryData(keys.recommendationJob(noteId), job)
+      } catch {
+        // 추천 실패는 알리지 않는다 (10/30: 실패 비노출). 다음 저장 때 다시 요청한다.
+      }
+    },
+    [qc],
+  )
+}
+
+const recommendTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/**
+ * 저장 트리거: 저장할 때마다 부르면, 마지막 저장 뒤 RECOMMEND_AFTER_SAVE_MS 동안 더 저장하지 않을 때 한 번 요청한다.
+ * 노트를 떠나도 예약은 남는다 (그 노트의 마지막 내용으로 요청).
+ */
+export function useScheduleRecommendations() {
+  const requestNow = useRequestRecommendations()
+  return useCallback(
+    (noteId: string) => {
+      clearTimeout(recommendTimers.get(noteId))
+      recommendTimers.set(
+        noteId,
+        setTimeout(() => {
+          recommendTimers.delete(noteId)
+          void requestNow(noteId)
+        }, RECOMMEND_AFTER_SAVE_MS),
+      )
+    },
+    [requestNow],
+  )
 }
 
 /**
@@ -224,6 +320,38 @@ export function useCreateUntitledNote() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (topicId: string | null) => createUntitledNote(qc, topicId),
+    onSuccess: (note) => {
+      qc.setQueryData(keys.note(note.id), note)
+      void qc.invalidateQueries({ queryKey: keys.noteLists })
+      void qc.invalidateQueries({ queryKey: keys.topics })
+    },
+  })
+}
+
+/** 주제(null이면 미분류)에 있는 노트 제목들. 캐시가 있어도 서버에서 새로 받는다 (가져올 때 번호 붙이기). */
+export function useFetchTitlesIn() {
+  const qc = useQueryClient()
+  return useCallback(
+    async (topicId: string | null) => {
+      const notes = await qc.fetchQuery({
+        queryKey: keys.notesIn(topicId),
+        queryFn: ({ signal }) => listNotes({ topicId }, signal),
+        staleTime: 0,
+      })
+      return new Set(notes.map((n) => n.title))
+    },
+    [qc],
+  )
+}
+
+/**
+ * 가져온 파일 하나로 노트를 만든다 (가져오기). 제목은 앱이 정한 그대로 보내고,
+ * 겹치면 NOTE_TITLE_TAKEN을 그대로 돌려준다 (번호 붙이기는 가져오기 쪽이 한다).
+ */
+export function useImportNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: NoteCreate) => createNote(input),
     onSuccess: (note) => {
       qc.setQueryData(keys.note(note.id), note)
       void qc.invalidateQueries({ queryKey: keys.noteLists })
@@ -334,7 +462,6 @@ export function useDeleteNote() {
     onSuccess: (_, noteId) => {
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
-      qc.removeQueries({ queryKey: keys.noteGraph(noteId) })
       void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })

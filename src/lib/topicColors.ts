@@ -8,9 +8,8 @@ export const TOPIC_SLOTS = 8
  * - topic-1 … topic-8: 주제 하나
  * - topic-other: 9번째 이후 주제 (새 색을 만들지 않고 "기타"로 묶는다)
  * - topic-none: 미분류
- * - topic-mixed: 근거 노트가 여러 주제에 걸친 개념 (주제를 잇는 매개 개념 후보)
  */
-export type TopicColorKey = `topic-${number}` | 'topic-other' | 'topic-none' | 'topic-mixed'
+export type TopicColorKey = `topic-${number}` | 'topic-other' | 'topic-none'
 
 /** 주제 id → 색 칸 번호(1 … TOPIC_SLOTS). 칸이 없는 주제는 빠져 있다 (기타). */
 export type TopicSlots = Readonly<Record<string, number>>
@@ -52,20 +51,11 @@ export function topicColorKeys(
   )
 }
 
-/** 노드의 주제: 근거 노트의 주제가 하나면 그 주제(null은 미분류), 여럿이면 'mixed' */
-export function nodeTopicId(node: GraphNode): string | null | 'mixed' {
-  const ids = new Set(node.notes.map((n) => n.topicId))
-  if (ids.size > 1) return 'mixed'
-  return ids.values().next().value ?? null
-}
-
+/** 페이지 노드의 색 (W3-13: 점 색 = 주제 색). 미분류는 topic-none, 목록에 아직 없는 주제(방금 만든 주제 등)는 기타 */
 export function nodeColorKey(
-  node: GraphNode,
+  node: Pick<GraphNode, 'topicId'>,
   keys: ReadonlyMap<string, TopicColorKey>,
 ): TopicColorKey {
-  const topicId = nodeTopicId(node)
-  if (topicId === 'mixed') return 'topic-mixed'
-  if (topicId === null) return 'topic-none'
-  // 목록에 아직 없는 주제(방금 만든 주제 등)는 기타로 둔다
-  return keys.get(topicId) ?? 'topic-other'
+  if (node.topicId === null) return 'topic-none'
+  return keys.get(node.topicId) ?? 'topic-other'
 }

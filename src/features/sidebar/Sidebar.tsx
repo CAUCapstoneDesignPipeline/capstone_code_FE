@@ -1,4 +1,4 @@
-import { useMemo, useState, type Ref } from 'react'
+import { useMemo, useRef, useState, type Ref } from 'react'
 import type { Topic } from '../../api'
 import { Button, PanelToggleButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
@@ -10,6 +10,8 @@ import {
   useSwapTopicOrder,
   useTopics,
 } from '../../data/queries'
+import { ImportDialog } from '../import/ImportDialog'
+import { summarize, useImportRunner } from '../import/useImportRunner'
 import { moveNoteErrorMessage } from '../../lib/errorMessages'
 import { withRo } from '../../lib/korean'
 import { normalizeName } from '../../lib/names'
@@ -19,6 +21,7 @@ import { DeleteTopicDialog } from './DeleteTopicDialog'
 import type { NoteDrag } from './noteDrag'
 import { SearchResults } from './SearchResults'
 import styles from './Sidebar.module.css'
+import { ThemeToggle } from './ThemeToggle'
 import { TopicNameForm } from './TopicNameForm'
 import { TopicNode } from './TopicNode'
 
@@ -47,7 +50,7 @@ const nodeKey = (topicId: string | null) => topicId ?? 'none'
 const SEARCH_MAX = 100
 const SEARCH_DELAY_MS = 300
 
-/** Figma W1-05 Sidebar: 머리 · 검색 · "주제" · 트리 · 미분류 · (아래) 새 주제 · 새 노트 */
+/** Figma W1-05 Sidebar: 머리 · 검색 · "주제" · 트리 · 미분류 · (아래) 가져오기 · 새 주제 · 새 노트 */
 export function Sidebar(props: Props) {
   const {
     selectedNoteId,
@@ -68,6 +71,14 @@ export function Sidebar(props: Props) {
   const currentNoteId = graphOpen ? null : selectedNoteId
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [deletingTopic, setDeletingTopic] = useState<Topic | null>(null)
+  const [importOpen, setImportOpenState] = useState(false)
+  // 가져오기가 끝났을 때 대화 상자가 열려 있는지 (닫혀 있으면 토스트로 알리고 결과를 지운다, W3-05)
+  const importOpenRef = useRef(false)
+  const setImportOpen = (open: boolean) => {
+    importOpenRef.current = open
+    setImportOpenState(open)
+  }
+  const importer = useImportRunner()
   const [query, setQuery] = useState('')
   const q = normalizeName(useDebouncedValue(query, SEARCH_DELAY_MS))
   const searching = query.trim() !== ''
@@ -182,8 +193,8 @@ export function Sidebar(props: Props) {
           />
         ) : (
           <>
-            <h2 className={styles.sectionLabel}>발견</h2>
-            <ul className={styles.list}>
+            {/* W3-13: 검색 바로 아래 "전체 그래프" (위에 붙던 "발견" 이름은 뺐다) */}
+            <ul className={styles.list} aria-label="그래프">
               <li>
                 <button
                   type="button"
@@ -232,7 +243,20 @@ export function Sidebar(props: Props) {
         )}
       </div>
 
+      {/* Figma W3-01 Sidebar/Import. Markdown 여러 파일 가져오기 (P01·U03) */}
+      <div className={styles.import}>
+        <Button
+          variant="secondary"
+          icon="import"
+          className={styles.importButton}
+          onClick={() => setImportOpen(true)}
+        >
+          가져오기
+        </Button>
+      </div>
+
       <div className={styles.actions}>
+        <ThemeToggle />
         <Button
           variant="secondary"
           icon="plus"
@@ -259,6 +283,26 @@ export function Sidebar(props: Props) {
 
       {deletingTopic && (
         <DeleteTopicDialog topic={deletingTopic} onClose={() => setDeletingTopic(null)} />
+      )}
+      {importOpen && (
+        <ImportDialog
+          run={importer.run}
+          // 열린 노트의 주제에 넣는다. 열린 노트가 없으면 미분류 ("새 노트"와 같다, W3-04)
+          defaultTopicId={selectedTopicId ?? null}
+          onStart={(files, topicId, topicName) =>
+            void importer.start(files, topicId, topicName).then((run) => {
+              if (importOpenRef.current) return
+              const { kind, message } = summarize(run)
+              toast(kind, message)
+              importer.clear()
+            })
+          }
+          onClose={() => setImportOpen(false)}
+          onDone={() => {
+            importer.clear()
+            setImportOpen(false)
+          }}
+        />
       )}
     </nav>
   )

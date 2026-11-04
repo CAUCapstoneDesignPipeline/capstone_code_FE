@@ -366,47 +366,114 @@ describe('노트별 개념·관계 (draft)', () => {
   })
 })
 
-describe('그래프 보기 (draft)', () => {
-  it('노트별 결과를 합치고, 같은 개념은 하나의 노드에 근거 노트를 모은다 (계약 제안: nodes[].notes)', async () => {
+describe('페이지 그래프 (v0.4.0-draft · W3-13)', () => {
+  it('노드는 모든 페이지, 같은 개념을 쓴 두 페이지는 선 1개(공유 키워드 포함)', async () => {
     const net = (await call('POST', '/topics', { name: '네트워크' })).data
     const db = (await call('POST', '/topics', { name: 'DB' })).data
     const a = (await call('POST', '/notes', { title: '재시도', topicId: net.id })).data
     await call('PUT', `/notes/${a.id}`, {
       title: '재시도',
-      body: '**재전송**은 **중복 실행**이 되면 위험하다.',
+      body: '**재전송**은 **중복 실행**이 되면 위험하다. **중복 행**도 생긴다.',
       version: 0,
     })
     const b = (await call('POST', '/notes', { title: '멱등성', topicId: db.id })).data
     await call('PUT', `/notes/${b.id}`, {
       title: '멱등성',
-      body: '**중복 실행**은 **중복 행**을 만들 때문.',
+      body: '**중복 실행**은 **중복 행**을 만들기 때문.',
       version: 0,
     })
+    const lonely = (await call('POST', '/notes', { title: '외톨이', topicId: null })).data
     await analyzeNow(a.id)
     await analyzeNow(b.id)
 
     const g = (await call('GET', '/graph')).data
     expect(g.scope).toBe('all')
-    expect(g.nodes.map((n: { label: string }) => n.label).sort()).toEqual(
-      ['재전송', '중복 실행', '중복 행'].sort(),
+    expect(g.nodes).toEqual(
+      expect.arrayContaining([
+        { id: a.id, title: '재시도', topicId: net.id },
+        { id: b.id, title: '멱등성', topicId: db.id },
+        { id: lonely.id, title: '외톨이', topicId: null },
+      ]),
     )
-    const bridge = g.nodes.find((n: { label: string }) => n.label === '중복 실행')
-    expect(bridge.notes).toEqual([
-      { id: a.id, title: '재시도', topicId: net.id },
-      { id: b.id, title: '멱등성', topicId: db.id },
+    // 공유 키워드가 둘이어도 선은 하나
+    expect(g.edges).toEqual([
+      { sourceId: a.id, targetId: b.id, sharedKeywords: ['중복 실행', '중복 행'] },
     ])
-    expect(g.edges).toHaveLength(2)
-    expect(g.edges[0]).toMatchObject({ origin: 'extracted', status: 'active', asHypothesis: false })
 
     const topic = (await call('GET', `/graph?scope=topic&topicId=${db.id}`)).data
-    expect(topic.nodes).toHaveLength(2)
-    expect(topic.edges).toHaveLength(1)
-    expect((await call('GET', `/graph?scope=note&noteId=${a.id}`)).data.nodes).toHaveLength(2)
+    expect(topic.nodes).toEqual([{ id: b.id, title: '멱등성', topicId: db.id }])
+    expect(topic.edges).toEqual([])
   })
 
-  it('scope가 틀리거나 필요한 id가 없으면 400', async () => {
+  it('scope가 틀리거나 필요한 id가 없으면 400 (scope=note는 v0.4에서 뺐다)', async () => {
     expect(errorCode(await call('GET', '/graph?scope=x'))).toBe('VALIDATION_FAILED')
+    expect(errorCode(await call('GET', '/graph?scope=note'))).toBe('VALIDATION_FAILED')
     expect(errorCode(await call('GET', '/graph?scope=topic'))).toBe('VALIDATION_FAILED')
+  })
+})
+
+describe('추천 (v0.4.0-draft)', () => {
+  async function settledRecommendation(jobId: string) {
+    for (let i = 0; i < 100; i++) {
+      const job = (await call('GET', `/recommendation-jobs/${jobId}`)).data
+      if (job.status === 'completed') return job
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    throw new Error('추천 작업이 끝나지 않음')
+  }
+
+  it('같은 키워드를 쓴 다른 노트가 있으면 근거 A·B(원문 위치 포함)로 추천한다', async () => {
+    const a = (await call('POST', '/notes', { title: '재시도 정책' })).data
+    const bodyA = '# 재시도\n클라이언트는 **재전송**한다.'
+    await call('PUT', `/notes/${a.id}`, { title: '재시도 정책', body: bodyA, version: 0 })
+    const b = (await call('POST', '/notes', { title: '멱등성' })).data
+    const bodyB = '**재전송**해도 결과가 같다.'
+    await call('PUT', `/notes/${b.id}`, { title: '멱등성', body: bodyB, version: 0 })
+
+    const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
+    expect(created.status).toBe(202)
+    expect(created.data).toMatchObject({ noteId: a.id, status: 'pending', recommendations: [] })
+    // 끝나기 전에 다시 요청하면 같은 작업
+    expect((await call('POST', `/notes/${a.id}/recommendation-jobs`)).data.id).toBe(created.data.id)
+
+    const job = await settledRecommendation(created.data.id)
+    expect(job.recommendations).toHaveLength(1)
+    const [r] = job.recommendations
+    expect(r.evidenceA).toEqual({
+      noteId: a.id,
+      noteTitle: '재시도 정책',
+      noteVersion: 1,
+      startOffset: bodyA.indexOf('클라이언트'),
+      endOffset: bodyA.length,
+      quote: '클라이언트는 **재전송**한다.',
+    })
+    expect(r.evidenceB).toMatchObject({ noteId: b.id, startOffset: 0, quote: bodyB })
+    expect(r.relatedKeywords).toEqual(['재전송'])
+    expect(r.externalKnowledge.sourceUrl).toMatch(/^https:/)
+  })
+
+  it('추천 카드에 답하면 204, 잘못된 답은 400, 없는 추천은 404', async () => {
+    const a = (await call('POST', '/notes', { title: 'A', body: '**공유**한다.' })).data
+    await call('POST', '/notes', { title: 'B', body: '**공유**된다.' })
+    const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
+    const [r] = (await settledRecommendation(created.data.id)).recommendations
+    expect(
+      (await call('POST', `/recommendations/${r.id}/feedback`, { action: 'known' })).status,
+    ).toBe(204)
+    expect(
+      errorCode(await call('POST', `/recommendations/${r.id}/feedback`, { action: 'nope' })),
+    ).toBe('VALIDATION_FAILED')
+    expect((await call('POST', '/recommendations/nope/feedback', { action: 'known' })).status).toBe(
+      404,
+    )
+  })
+
+  it('이어질 노트가 없으면 completed + 빈 배열, 없는 작업·노트는 404', async () => {
+    const a = (await call('POST', '/notes', { title: '혼자', body: '**외톨이**' })).data
+    const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
+    expect((await settledRecommendation(created.data.id)).recommendations).toEqual([])
+    expect((await call('GET', '/recommendation-jobs/nope')).status).toBe(404)
+    expect((await call('POST', '/notes/nope/recommendation-jobs')).status).toBe(404)
   })
 })
 
@@ -415,7 +482,7 @@ describe('AI 기능 여부 (AI-off 계약)', () => {
     expect((await call('GET', '/capabilities', undefined, false)).data).toEqual({
       analysisEnabled: true,
       graphEnabled: true,
-      discoveriesEnabled: false,
+      discoveriesEnabled: true,
     })
   })
 

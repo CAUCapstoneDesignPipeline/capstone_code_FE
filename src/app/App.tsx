@@ -3,11 +3,18 @@ import { Button, PanelToggleButton } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useToast } from '../components/toastContext'
-import { useCapabilities, useCreateUntitledNote } from '../data/queries'
+import type { RecommendationEvidence } from '../api'
+import {
+  useCapabilities,
+  useCreateUntitledNote,
+  useRecommendationAnswers,
+  useRecommendations,
+} from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
-import { NotePane } from '../features/note/NotePane'
+import { NotePane, type EvidenceRequest } from '../features/note/NotePane'
 import { RecommendPanel } from '../features/recommend/RecommendPanel'
 import { Sidebar } from '../features/sidebar/Sidebar'
+import { remainingRecommendations } from '../lib/recommendations'
 import styles from './App.module.css'
 import { useCollapsible } from './useCollapsible'
 
@@ -17,13 +24,12 @@ const GraphView = lazy(() =>
 )
 
 /** 가운데 화면: 노트 편집기 또는 전체 그래프 */
-type Target = { kind: 'note'; noteId: string } | { kind: 'graph' }
+/** viaEvidence: 추천 카드의 근거를 눌러 가는 이동 (패널은 원래 추천을 그대로 보인다, W3-12) */
+type Target = { kind: 'note'; noteId: string; viaEvidence?: boolean } | { kind: 'graph' }
 
 export function App() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
   const [graphOpen, setGraphOpen] = useState(false)
-  /** 오른쪽 패널의 "개념·관계" 탭 자리. 열린 노트(NotePane)가 여기에 그래프 패널을 그린다. */
-  const [graphPanelSlot, setGraphPanelSlot] = useState<HTMLDivElement | null>(null)
   const {
     collapsed: sidebarCollapsed,
     setCollapsed: setSidebarCollapsed,
@@ -51,12 +57,31 @@ export function App() {
   const clearSelection = useCallback(() => setSelectedNoteId(null), [])
   /** 저장 안 된 내용이 있어 확인을 기다리는 이동 */
   const [leaving, setLeaving] = useState<{ to: Target; reason: string } | null>(null)
+  /** 추천 카드에서 누른 근거 (W3-12). 그 노트가 열리면 편집기가 문장을 강조한다. seq는 같은 근거를 다시 눌렀을 때 구분한다 */
+  const [evidenceRequest, setEvidenceRequest] = useState<EvidenceRequest | null>(null)
+  /** 오른쪽 패널이 추천을 보이는 노트. 보통은 연 노트지만, 근거로 이동하면 바꾸지 않는다 (카드가 패널에 그대로 남는다) */
+  const [panelNoteId, setPanelNoteId] = useState<string | null>(null)
+
+  // W3-14b: 패널이 접힌 동안 새 추천이 오면 펴기 버튼에 답하지 않은 추천 수 배지. 펴면 본 것으로 하고 배지를 지운다.
+  // 패널이 저절로 열리지는 않는다.
+  const panelJob = useRecommendations(graphOpen ? null : panelNoteId)
+  const { answers } = useRecommendationAnswers()
+  const finishedJob = panelJob.data?.status === 'completed' ? panelJob.data : null
+  const [seenJobId, setSeenJobId] = useState<string | null>(null)
+  if (!panelCollapsed && !graphOpen && finishedJob && finishedJob.id !== seenJobId) {
+    setSeenJobId(finishedJob.id)
+  }
+  const newRecommendations =
+    panelCollapsed && finishedJob && finishedJob.id !== seenJobId
+      ? remainingRecommendations(finishedJob.recommendations, answers).length
+      : 0
 
   function show(target: Target) {
     if (target.kind === 'graph') {
       setGraphOpen(true)
     } else {
       setSelectedNoteId(target.noteId)
+      if (!target.viaEvidence) setPanelNoteId(target.noteId)
       setGraphOpen(false)
     }
   }
@@ -71,6 +96,12 @@ export function App() {
   }
 
   const selectNote = (noteId: string) => go({ kind: 'note', noteId })
+
+  /** 근거로 이동 (W3-12): 노트를 열고(저장 안 된 내용이 있으면 먼저 묻는다) 근거 문장을 강조한다 */
+  function openEvidence(evidence: RecommendationEvidence) {
+    setEvidenceRequest((prev) => ({ evidence, seq: (prev?.seq ?? 0) + 1 }))
+    go({ kind: 'note', noteId: evidence.noteId, viaEvidence: true })
+  }
 
   /** 새 노트는 겹치지 않는 기본 제목("제목 없음", "제목 없음 1", …)으로 만들고 바로 연다. topicId가 null이면 미분류 */
   function createNoteIn(topicId: string | null) {
@@ -120,10 +151,19 @@ export function App() {
           <PanelToggleButton
             ref={expandPanelRef}
             icon="panel-right-open"
-            label="패널 펼치기"
+            label={
+              newRecommendations > 0
+                ? `패널 펼치기 · 새 추천 ${newRecommendations}개`
+                : '패널 펼치기'
+            }
             className={`${styles.expandButton} ${styles.expandPanel}`}
             onClick={() => setPanelCollapsed(false)}
           />
+        )}
+        {panelCollapsed && !graphOpen && newRecommendations > 0 && (
+          <span className={styles.expandBadge} aria-hidden>
+            {newRecommendations}
+          </span>
         )}
         {graphOpen ? (
           // 그래프 화면 파일을 못 받으면(오프라인, 새 배포로 옛 파일이 사라짐) 앱 전체 대신 이 자리만 알린다.
@@ -144,19 +184,21 @@ export function App() {
         ) : (
           <NotePane
             noteId={selectedNoteId}
+            evidenceRequest={
+              evidenceRequest?.evidence.noteId === selectedNoteId ? evidenceRequest : null
+            }
             registerLeaveGuard={registerLeaveGuard}
             onCreateNote={() => createNoteIn(null)}
             onCreateTopic={() => setAddingTopic(true)}
             onNoteGone={clearSelection}
-            graphPanelSlot={graphPanelSlot}
           />
         )}
       </main>
-      {/* 노트를 열지 않아도 보인다. 숨겨도 내리지 않아 챗봇 대화가 남는다. */}
+      {/* 노트를 열지 않아도 보인다. 그래프 화면에서는 숨긴다 (W3-13). 숨겨도 내리지 않아 챗봇 대화가 남는다. */}
       <div className={styles.panel} hidden={panelHidden}>
         <RecommendPanel
-          noteOpen={selectedNoteId !== null && !graphOpen}
-          graphPanelSlotRef={setGraphPanelSlot}
+          noteId={graphOpen ? null : panelNoteId}
+          onOpenEvidence={openEvidence}
           onCollapse={() => setPanelCollapsed(true)}
           collapseRef={collapsePanelRef}
         />
@@ -168,7 +210,11 @@ export function App() {
           description={`${leaving.reason} ${leaving.to.kind === 'graph' ? '그래프로' : '다른 노트로'} 옮기면 이 노트에서 고친 내용이 사라집니다. 필요한 내용은 복사해 두세요.`}
           confirmLabel="버리고 이동"
           cancelLabel="계속 편집"
-          onCancel={() => setLeaving(null)}
+          onCancel={() => {
+            // 근거로 이동하려다 취소했으면 그 근거도 잊는다 (나중에 그 노트를 열 때 강조하지 않게)
+            setEvidenceRequest(null)
+            setLeaving(null)
+          }}
           onConfirm={() => {
             show(leaving.to)
             setLeaving(null)

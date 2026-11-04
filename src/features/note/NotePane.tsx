@@ -1,23 +1,31 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
-import { isApiError } from '../../api'
+import { useEffect, useRef } from 'react'
+import { isApiError, type RecommendationEvidence } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
 import { keys, useCapabilities, useNote, useNoteAnalysis } from '../../data/queries'
 import { NoteEditor, type LeaveGuard, type NoteEditorHandle } from '../editor/NoteEditor'
-import { NoteGraphPanel, type ShowEvidence } from '../graph/NoteGraphPanel'
 import styles from './NotePane.module.css'
+
+/** 추천 카드에서 누른 근거 (W3-12). seq가 바뀌면 다시 강조한다 */
+export interface EvidenceRequest {
+  evidence: RecommendationEvidence
+  seq: number
+}
+
+/** W3-12b: 노트를 열었지만 근거 문장을 찾지 못했을 때 */
+export const EVIDENCE_MISSING_MESSAGE =
+  '근거 문장이 지금 노트에 없습니다. 분석한 뒤 노트가 바뀌었습니다.'
 
 interface Props {
   noteId: string | null
+  /** 이 노트에서 강조할 근거. 없으면 null */
+  evidenceRequest?: EvidenceRequest | null
   registerLeaveGuard?: (guard: LeaveGuard | null) => void
   onCreateNote: () => void
   onCreateTopic: () => void
   /** 연 노트가 없어졌을 때 (다른 곳에서 삭제됨, 이 화면에서 삭제함) */
   onNoteGone: () => void
-  /** 오른쪽 패널의 "개념·관계" 탭 자리. 노트를 연 동안 여기에 그래프 패널을 그린다. */
-  graphPanelSlot: HTMLElement | null
 }
 
 export function NotePane({ noteId, ...props }: Props) {
@@ -48,22 +56,14 @@ export function NotePane({ noteId, ...props }: Props) {
 
 function LoadedNote({
   noteId,
+  evidenceRequest,
   registerLeaveGuard,
   onNoteGone,
-  graphPanelSlot,
 }: { noteId: string } & Omit<Props, 'noteId'>) {
   const note = useNote(noteId)
-  // 편집기 상단 막대와 그래프 패널이 함께 쓴다. 폴링이 한 번만 돌도록 여기서 한 번 부른다.
-  const capabilities = useCapabilities()
-  const analysisEnabled = capabilities?.analysisEnabled === true
-  const graphEnabled = capabilities?.graphEnabled === true
+  // 편집기 상단 막대가 분석 상태를 보여 준다. 분석이 꺼져 있으면 부르지 않고 결과도 넘기지 않는다 (AI-off).
+  const analysisEnabled = useCapabilities()?.analysisEnabled === true
   const analysis = useNoteAnalysis(noteId, analysisEnabled)
-  // 패널에서 고른 근거를 편집기에 강조한다 (F-GRA-03)
-  const editorRef = useRef<NoteEditorHandle>(null)
-  const showEvidence = useCallback<ShowEvidence>(
-    (evidence) => editorRef.current?.showEvidence(evidence) ?? null,
-    [],
-  )
   const qc = useQueryClient()
   const toast = useToast()
   const missing = !note.data && isApiError(note.error, 'NOT_FOUND')
@@ -77,29 +77,31 @@ function LoadedNote({
     onNoteGone()
   }, [missing, toast, qc, onNoteGone])
 
+  // 근거로 이동 (W3-12·12b): 편집기가 생긴 뒤 근거 문장을 강조한다. 위치가 밀렸으면 가장 가까운 같은 문장,
+  // 같은 문장이 없으면 강조하지 않고 알린다. 편집기가 다시 만들어지면(개발 모드 StrictMode 등) 다시 강조하고,
+  // 알림은 같은 요청(seq)마다 한 번만 띄운다.
+  const editorRef = useRef<NoteEditorHandle>(null)
+  const toastedSeq = useRef<number | null>(null)
+  const loaded = note.data !== undefined
+  useEffect(() => {
+    if (!loaded || !evidenceRequest) return
+    const result = editorRef.current?.showEvidence(evidenceRequest.evidence)
+    if (result === 'missing' && toastedSeq.current !== evidenceRequest.seq) {
+      toastedSeq.current = evidenceRequest.seq
+      toast('info', EVIDENCE_MISSING_MESSAGE)
+    }
+  }, [loaded, evidenceRequest, toast])
+
   // 한 번 불러온 뒤에는 이후 오류가 나도 편집기를 유지한다 (편집 중인 내용을 지우지 않는다).
   if (note.data) {
     return (
-      <>
-        <NoteEditor
-          ref={editorRef}
-          note={note.data}
-          registerLeaveGuard={registerLeaveGuard}
-          onDeleted={onNoteGone}
-          analysis={analysisEnabled ? analysis.data : undefined}
-        />
-        {/* 편집기·분석 연결은 여기 두고, 그리는 자리만 오른쪽 패널의 탭이다 */}
-        {graphEnabled &&
-          graphPanelSlot &&
-          createPortal(
-            <NoteGraphPanel
-              noteId={noteId}
-              job={analysisEnabled ? analysis.data : undefined}
-              onShowEvidence={showEvidence}
-            />,
-            graphPanelSlot,
-          )}
-      </>
+      <NoteEditor
+        ref={editorRef}
+        note={note.data}
+        registerLeaveGuard={registerLeaveGuard}
+        onDeleted={onNoteGone}
+        analysis={analysisEnabled ? analysis.data : undefined}
+      />
     )
   }
   return (

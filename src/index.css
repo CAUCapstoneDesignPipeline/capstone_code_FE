@@ -11,6 +11,8 @@
   --color-surface-muted: #e6e5e0;
   --color-surface-emphasis: #ebeae5;
   --color-surface-selected: #e1e0db;
+  /** 카드·말풍선처럼 바탕 위로 떠 보이는 면 (Figma에는 흰색 값으로만 있다) */
+  --color-surface-raised: #fff;
   /** 텍스트 링크 전용. 버튼·강조에 쓰지 않는다 */
   --color-accent-link: #f54e00;
   --color-border-ghost: rgb(38 37 30 / 0.2);
@@ -80,6 +82,39 @@
   color: var(--color-ink);
   background: var(--color-canvas);
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+
+/*
+ * 다크 테마 (안, Figma 미정). <html data-theme="dark">일 때 색 토큰만 바꾼다. 테마 고르기는 src/lib/theme.ts.
+ * 밝은 테마와 같은 따뜻한 회색 계열을 뒤집고, 주제 색은 어두운 canvas 위 대비가 3:1 이상이 되게 밝혔다.
+ */
+:root[data-theme='dark'] {
+  --color-canvas: #1c1b18;
+  --color-ink: #ecebe6;
+  --color-ink-muted: rgb(236 235 230 / 0.6);
+  --color-surface-card: #24231f;
+  --color-surface-muted: #302f2a;
+  --color-surface-emphasis: #2b2a26;
+  --color-surface-selected: #3a3934;
+  --color-surface-raised: #282723;
+  --color-accent-link: #ff7a3d;
+  --color-border-ghost: rgb(236 235 230 / 0.2);
+  --color-border-subtle: rgb(236 235 230 / 0.1);
+  --color-scrim: rgb(0 0 0 / 0.5);
+
+  --color-topic-1: #5b9cf0;
+  --color-topic-2: #f08257;
+  --color-topic-3: #2fc48f;
+  --color-topic-4: #f2b33a;
+  --color-topic-5: #ef94b8;
+  --color-topic-6: #3fae3f;
+  --color-topic-7: #9585f0;
+  --color-topic-8: #f06b6a;
+  --color-topic-other: #9c9b92;
+  --color-topic-none: #5a5952;
+
+  color-scheme: dark;
 }
 
 *,

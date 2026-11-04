@@ -32,54 +32,6 @@
   outline: none;
 }
 
-/*
- * 탭: 추천 | 개념·관계. 노트를 열었을 때만 보인다 (Figma에 없어 사이드바 트리의 고른 줄과 같은 모양으로 정했다).
- */
-.tabs {
-  display: flex;
-  flex: none;
-  gap: var(--space-4);
-  margin-top: calc(-1 * var(--space-8));
-}
-
-.tab {
-  flex: 1;
-  height: var(--layout-row-height);
-  padding: 0 var(--space-8);
-  border: none;
-  border-radius: var(--radius-card);
-  background: none;
-  color: var(--color-ink-muted);
-  font: var(--text-ui-label-strong);
-}
-
-.tab:hover {
-  background: var(--color-surface-emphasis);
-}
-
-.tab[aria-selected='true'] {
-  background: var(--color-surface-selected);
-  color: var(--color-ink);
-}
-
-.tab:focus-visible {
-  outline: 2px solid var(--color-ink);
-  outline-offset: -2px;
-}
-
-/* 탭 내용: 남는 높이를 쓴다. 챗봇은 이 안에서 대화만 스크롤한다 */
-.tabPanel {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: var(--space-16);
-  min-height: 0;
-}
-
-.tabPanel[hidden] {
-  display: none;
-}
-
 /* Recommend/Body: 항목 사이 8 */
 .body {
   display: flex;
@@ -143,7 +95,7 @@
   font: var(--text-ui-body-sm);
 }
 
-/* Recommend/Conclusion: 흰 바탕, border-subtle, 모서리 8, 여백 12, 사이 4 (흰색·모서리 8은 토큰이 없어 Figma 값 그대로) */
+/* Recommend/Conclusion: 흰 바탕(surface-raised), border-subtle, 모서리 8, 여백 12, 사이 4 (모서리 8은 토큰이 없어 Figma 값 그대로) */
 .conclusion {
   display: flex;
   flex-direction: column;
@@ -151,7 +103,7 @@
   padding: var(--space-12);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-surface-raised);
 }
 
 .conclusionText {
@@ -182,7 +134,130 @@
   font-size: 13px;
 }
 
-.recorded {
+/* 근거를 누르면 노트를 열고 문장을 강조한다 (W3-12). 누른 근거는 surface-selected */
+.evidenceButton {
+  width: 100%;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.evidenceButton:hover {
+  background: var(--color-surface-selected);
+}
+
+.evidenceButton[aria-pressed='true'] {
+  background: var(--color-surface-selected);
+}
+
+.evidenceButton:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+/* 헤더 오른쪽: 분석 중 표시 (W3-07) · 넘기기 (W3-09) */
+.status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+.pager {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+  font: var(--text-ui-caption);
+}
+
+.pagerButton {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pagerButton:disabled {
+  color: var(--color-ink-muted);
+  cursor: default;
+}
+
+.pagerButton:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+.pagerCount {
+  color: var(--color-ink-muted);
+}
+
+/* W3-07 자리 표시 */
+.skeleton {
+  display: block;
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+}
+
+.skeletonLabel {
+  width: 60px;
+  height: 12px;
+}
+
+.skeletonBlock {
+  height: 64px;
+}
+
+.skeletonConclusion {
+  height: 80px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+/* W3-08 없음: 패널 가운데 */
+.empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font: var(--text-ui-body-sm-strong);
+}
+
+.emptyText {
   margin: 0;
   color: var(--color-ink-muted);
   font: var(--text-ui-caption);

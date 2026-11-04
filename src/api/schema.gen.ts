@@ -16,6 +16,10 @@ export interface paths {
         /**
          * uploadSourceFile (개발 계약 채택)
          * @description PNG/JPEG/PDF 실제내용 검증. 파일10MiB/20페이지/25MP. PDF는300DPI×UserUnit(누락1) 기준 raw inherited MediaBox와CropBox 각각의 width/height를ceil한 픽셀곱으로검사한다. 무한/음수/뒤집힌기하와초과는거부하고 내부이미지픽셀도별도검사한다. geometry정책은development/ocr-contract-review.md를따른다. 실제OCR품질보장아님.
+         *
+         *     TBD: 가져오기 지원 포맷. 현재 구현은 PNG/JPEG/PDF(OCR)이다. Markdown·텍스트·DOCX·HTML 같은 문서 파일을 받을지는 BE 결정이 필요하다.
+         *
+         *     가져오기 흐름은 업로드 → POST /conversions → GET /conversions/{id} polling → GET /conversions/{id}/result → confirm이다.
          */
         post: operations["uploadSourceFile"];
         delete?: never;
@@ -90,7 +94,12 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** getConversionResult (개발 계약 채택) */
+        /**
+         * getConversionResult (개발 계약 채택)
+         * @description 변환이 끝난 Markdown을 확정 전에 보여 준다. 사용자가 고친 뒤 confirm으로 페이지를 만든다.
+         *     0.4.0-draft: 응답을 BE↔AI 내부 모양(DraftConversionResponse)에서 공개용 ConversionResult로 바꿨다.
+         *     ownerId·attemptId·contractRevision·engineRevision·costMicrounits·sourceSha256·mappings는 FE가 쓰지 않으므로 빼 달라는 요청이다.
+         */
         get: operations["getConversionResult"];
         put?: never;
         post?: never;
@@ -111,7 +120,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** confirmConversion (개발 계약 채택) */
+        /**
+         * confirmConversion (개발 계약 채택)
+         * @description 변환 결과로 페이지(노트)를 만든다. 응답의 noteId가 새 페이지다.
+         *     0.4.0-draft: 확정이 성공하면 FE가 POST /notes/{noteId}/recommendation-jobs로 추천 작업을 요청한다(가져오기 트리거).
+         *     confirm 자체는 추천 작업을 만들지 않는다.
+         *     나중으로 미룬 기능: OCR 가져오기와 함께 미뤘다. 지금 가져오기는 POST /notes를 쓴다(api/fe-draft-notes.md 8장 "나중에 할 일" 참고).
+         */
         post: operations["confirmConversion"];
         delete?: never;
         options?: never;
@@ -130,7 +145,7 @@ export interface paths {
          * AI 기능 사용 가능 여부
          * @description 인증 없이 공개하는 기능 여부만 반환한다. AI-off 구현은 세 값 모두 false다.
          *     개인 정보·내부 주소·모델/인증 정보는 포함하지 않는다. 잘못된 Bearer 헤더도 이 공개 조회에는 사용하지 않는다.
-         *     기본 false를 유지한다. local/test true는 후속 채택 계약과 실제 구현·설정 검증을 필요로 하며 운영 true는 별도 승인 대상이다.
+         *     기본 false를 유지한다. 세 값은 같은 설정·필수 profile readiness 판정을 반영하며 readiness 전체 deadline은 재시도 포함3초다. 잘못된설정·중단파일·readiness실패는모두false. 운영true는release gate와별도실행승인대상이다.
          */
         get: operations["getCapabilities"];
         put?: never;
@@ -418,6 +433,8 @@ export interface paths {
          *     error.details.current에 서버의 현재 노트가 들어 있다. 성공하면 version이 1 늘어난다.
          *     "다른 곳의 내용 불러오기"를 고르면 앱은 details.current를 편집기에 채운다.
          *     "내 내용으로 덮어쓰기"(이후 추가)는 같은 제목·본문을 details.current.version으로 다시 보낸다.
+         *     0.4.0-draft: 페이지 저장은 추천 트리거다. PUT 자체는 추천 작업을 만들지 않고 응답 모양도 그대로다.
+         *     저장이 성공하면 FE가 POST /notes/{noteId}/recommendation-jobs를 부른다. 자동 저장마다 부르지 않으며 호출 시점은 FE가 정한다.
          */
         put: operations["updateNote"];
         post?: never;
@@ -465,6 +482,7 @@ export interface paths {
         };
         /**
          * 노트의 최근 분석 작업 (F-ANL-01, W2-02)
+         * @deprecated
          * @description 인증·정규 UUID·현재 사용자 소유를 확인한 뒤 가장 최근 실제 작업을 준다. 분석한 적이 없으면 job이 null이다.
          *     AI-off여도 과거 작업의 id·noteVersion·status·시간을 보존한다. createdAt 내림차순, 동률은 id 내림차순이다.
          *     작업 생성·상태 변경·폴링 예약은 하지 않는다. 선택 필드 errorMessage는 AI-off 조회에서 생략해 내부 error_message 원문을 공개하지 않는다.
@@ -474,6 +492,7 @@ export interface paths {
         put?: never;
         /**
          * 분석 요청 (명시적 분석)
+         * @deprecated
          * @description AI-off의 기존 인증/소유 확인 후503 AI_UNAVAILABLE/NOT_DEPLOYED와 무작업 생성 규칙은 유지한다. 활성 local/test 개발은 명시 POST만 접수하며 노트 저장/이동/확정으로 자동 실행하지 않는다. 같은 노트의 active 작업은 기존 job을202로 반환한다. 예산/profile/readiness 설정이 맞지 않으면 fail-closed503이다.
          */
         post: operations["requestNoteAnalysis"];
@@ -494,6 +513,7 @@ export interface paths {
         };
         /**
          * 노트별 개념·관계 (F-GRA-03, W2-01, W2-07)
+         * @deprecated
          * @description 전체 그래프에서 이 노트를 근거로 가진 부분만 골라 준다. 따로 저장한 "노트 그래프"가 아니다.
          *     relations[].evidence에는 이 노트의 원문 구간만 넣는다.
          */
@@ -514,9 +534,17 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 그래프 보기 (F-VIZ-01, W2-08)
-         * @description scope=all이면 전체, topic이면 그 주제 노트를 근거로 가진 부분, note면 그 노트를 근거로 가진 부분.
-         *     추출·확정·근거 소실 관계를 origin·status로 구분해 준다.
+         * 페이지 그래프 보기 (FE 그래프, 10/30)
+         * @description 사용자용 그래프. 노드는 페이지(노트), 엣지는 같은 키워드를 하나 이상 공유하는 두 페이지 사이의 선 1개다.
+         *     공유 키워드가 여러 개여도 엣지는 1개이고, 무방향이며 같은 쌍은 한 번만 준다.
+         *     관계 유형·origin·status는 주지 않는다. 생성된 지식(사용자가 모르는 지식)은 이 그래프에 넣지 않는다.
+         *     scope=all이면 사용자의 모든 페이지, topic이면 그 주제의 페이지와 그 페이지들 사이의 엣지만 준다.
+         *     공유 키워드가 없는 페이지도 노드로 준다(고립 노드).
+         *     0.4.0-draft: 개념 노드·관계 엣지 모양에서 바꿨다. scope=note와 includeLost는 뺐다.
+         *     TBD: 엣지 계산 주체. FE 선호안 — BE 결정 필요: BE가 BE·AI 그래프에서 계산해 내려준다.
+         *     FE 계산으로 정하면 이 응답은 페이지별 키워드 목록을 주는 모양으로 바뀐다.
+         *     TBD: 페이지가 많을 때의 응답 크기·속도(10/30: 느리면 다른 방법 검토).
+         *     TBD: topics 유지 여부. 주제를 없애면 scope=topic과 topicId도 뺀다.
          */
         get: operations["getGraph"];
         put?: never;
@@ -536,7 +564,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** 관계 한 건과 근거 (간선을 누를 때, W2-08·W2-09) */
+        /**
+         * 관계 한 건과 근거 (간선을 누를 때, W2-08·W2-09)
+         * @deprecated
+         */
         get: operations["getRelation"];
         put?: never;
         post?: never;
@@ -553,7 +584,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 관계 유형 목록 (닫힌 목록, 후보 수정 창에서 사용) */
+        /**
+         * 관계 유형 목록 (닫힌 목록, 후보 수정 창에서 사용)
+         * @deprecated
+         */
         get: operations["listRelationTypes"];
         put?: never;
         post?: never;
@@ -572,6 +606,7 @@ export interface paths {
         };
         /**
          * 후보 목록 (F-CAN-01, W2-03)
+         * @deprecated
          * @description 사용자 소유 결과. 계산 판정·soundness·사용자 검토·최신성을 분리한다. 기본 추천은 검증된 두 문서 독립 기여/conclusion/sound/current만 최대5개, held/rejected/known/hypothesis 제외.
          */
         get: operations["listCandidates"];
@@ -594,6 +629,7 @@ export interface paths {
         };
         /**
          * 후보 상세 (F-CAN-01, W2-04·W2-05)
+         * @deprecated
          * @description 사용자 소유 결과. 계산 판정·soundness·사용자 검토·최신성을 분리한다. 기본 추천은 검증된 두 문서 독립 기여/conclusion/sound/current만 최대5개, held/rejected/known/hypothesis 제외.
          */
         get: operations["getCandidate"];
@@ -618,6 +654,7 @@ export interface paths {
         put?: never;
         /**
          * 후보 승인·수정·기각 (F-REV-01, W2-04·W2-05·W2-06)
+         * @deprecated
          * @description 현재 projection과 append-only event를 원자적으로 갱신한다. expectedRevision과 idempotencyKey 필수. accept는soundness를 바꾸지 않고 자동confirmed relation을 만들지 않는다. modify는 새revision·unchecked로 바꾸며 기존 검사 승계 금지. 동일key/payload 재시도는 같은 event 반환; 다른payload·stale revision409.
          */
         post: operations["reviewCandidate"];
@@ -636,11 +673,121 @@ export interface paths {
         };
         /**
          * 검토 이력 (F-REV-01, F-EVAL-04)
+         * @deprecated
          * @description 최근 검토순.
          */
         get: operations["listReviews"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notes/{noteId}/recommendation-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: components["parameters"]["NoteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 추천 작업 요청 (사용자가 모르는 지식)
+         * @description 이 페이지의 현재 내용으로 추천(사용자가 모르는 지식) 작업을 만들고 작업 id를 준다. 결과는 GET /recommendation-jobs/{jobId}로 받는다.
+         *     트리거는 노트 저장(PUT /notes/{noteId} 성공 뒤), 또는 가져오기로 노트를 만든 뒤(POST /notes)다. FE가 그 뒤에 이 요청을 보낸다.
+         *     자동 저장마다 보내지 않는다. 호출 빈도(예: 편집이 멈춘 뒤, 페이지를 떠날 때)는 FE가 정한다.
+         *     같은 페이지에 아직 끝나지 않은 작업이 있으면 새로 만들지 않고 그 작업을 준다(202).
+         *     생성에 LLM을 쓰므로 비동기다. 생성 실패·보류·결과 없음은 오류가 아니라 빈 결과로 끝나는 작업으로 알린다(10/30: 실패 비노출).
+         *     TBD: AI가 꺼져 있을 때의 응답(202 + 빈 결과 작업 vs 503 AI_UNAVAILABLE). FE는 GET /capabilities가 꺼짐이면 이 요청을 보내지 않는다.
+         */
+        post: operations["requestRecommendationJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recommendation-jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description POST /notes/{noteId}/recommendation-jobs가 준 작업 id */
+                jobId: components["parameters"]["RecommendationJobId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 추천 작업 결과 조회 (polling)
+         * @description status가 pending이면 아직 만드는 중이고, completed면 끝났다. completed가 되면 FE는 polling을 멈춘다.
+         *     completed의 recommendations가 비어 있으면 보여 줄 추천이 없는 것이다.
+         *     실패·보류·결과 없음·더 새 저장으로 대체됨은 모두 completed + 빈 배열로 준다. 사유는 FE에 주지 않는다(10/30).
+         *     TBD: 수신 방식 polling vs SSE. FE 선호안 — BE 결정 필요: polling으로 시작한다. 간격은 FE가 정한다.
+         *     TBD: 작업이 오래 끝나지 않을 때 BE가 completed + 빈 배열로 닫는 시간 기준.
+         *     TBD: 끝난 작업을 얼마나 보관하는지(보관이 끝나면 404).
+         */
+        get: operations["getRecommendationJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recommendations/{recommendationId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 추천 카드 id (Recommendation.id) */
+                recommendationId: components["parameters"]["RecommendationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 추천 피드백 (이해함 · 알고 있던 내용 · 이해가 안 됨)
+         * @description 추천 카드의 버튼 3개에 대응한다.
+         *     - understood ("이해함"): 시스템 그래프(BE·AI 그래프)에 반영한다. TBD: 페이지(문서)에 반영할 위치와 방식(P의 페이지·Q의 페이지·새 페이지, 사용자 직접 수정·AI 추가)은 나중에 결정한다.
+         *     - known ("알고 있던 내용"): 버린다(discard). TBD: 같은 조합 재추천을 막기 위해 거절 기록을 남길지(다음 주 결정).
+         *     - confused ("이해가 안 됨"): 그래프에 반영하지 않는다. FE는 챗봇 화면으로 넘어간다(챗봇은 TBD·보류).
+         *     BE는 내부에서 #11의 검토 이벤트로 매핑할 수 있다. 예: understood → accept + learning=new_understanding, known → reject + reason=already_known.
+         *     매핑과 revision·멱등 키 관리는 BE가 맡는다. FE는 보내지 않는다.
+         *     TBD: 같은 추천에 피드백을 다시 보낼 때의 처리(같은 action 재전송, 다른 action으로 변경).
+         */
+        post: operations["sendRecommendationFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recommendations/{recommendationId}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 추천 카드 id (Recommendation.id) */
+                recommendationId: components["parameters"]["RecommendationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 챗봇 (TBD · 보류)
+         * @description TBD: 챗봇은 보류다. 이 operation은 자리만 잡아 둔다. 요청·응답 모양, 대화 저장 여부, 스트리밍 여부는 정하지 않았다.
+         *     10/30 회의 기준: "이해가 안 됨"을 누르면 넘어가며, 근거 A·근거 B·외부 지식을 컨텍스트로 넘기고 챗봇이 쉽게 풀어 설명한다.
+         *     화면은 FE가 만들고 대화 응답은 BE·AI가 맡는다.
+         */
+        post: operations["chatAboutRecommendation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -741,10 +888,16 @@ export interface components {
         DraftConversionConfirmation: {
             expectedResultRevision: number;
             idempotencyKey: string;
+            /** @description Java trim 후 NFC 정규화한 제목의 코드 포인트가 1..200이어야 한다. raw JSON 문자열 길이 제한이 아니다. */
             title: string;
             /** Format: uuid */
             topicId: string | null;
+            /** @description NFC 정규화 후 최대 50,000 코드 포인트. expectedMarkdownSha256는 이 제출 NFC 본문의 SHA-256이다. raw JSON 문자열 길이 제한이 아니다. */
             markdown: string;
+            /**
+             * @description 제출하는 NFC Markdown 본문의 SHA-256.
+             *     TBD: FE가 본문을 고친 뒤 NFC 정규화와 SHA-256을 직접 계산해야 한다. 본문을 이미 함께 보내므로 이 필드가 꼭 필요한지 BE 결정이 필요하다.
+             */
             expectedMarkdownSha256: string;
         };
         DraftConversionConfirmed: {
@@ -1146,24 +1299,249 @@ export interface components {
             concepts: components["schemas"]["ConceptInNote"][];
             relations: components["schemas"]["Relation"][];
         };
+        /**
+         * @description FE 그래프(사용자용, 10/30). 노드 = 페이지, 엣지 = 같은 키워드를 공유하는 두 페이지 사이의 선 1개.
+         *     0.4.0-draft: 개념 노드·관계 엣지(type·origin·status·asHypothesis)에서 바꿨다.
+         * @example {
+         *       "scope": "all",
+         *       "nodes": [
+         *         {
+         *           "id": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+         *           "title": "재시도 정책",
+         *           "topicId": "5b20c1d4-8f2a-4e61-9b3a-2d7f0c9e1a44"
+         *         },
+         *         {
+         *           "id": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+         *           "title": "멱등성",
+         *           "topicId": "5b20c1d4-8f2a-4e61-9b3a-2d7f0c9e1a44"
+         *         },
+         *         {
+         *           "id": "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
+         *           "title": "인덱스",
+         *           "topicId": null
+         *         }
+         *       ],
+         *       "edges": [
+         *         {
+         *           "sourceId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+         *           "targetId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+         *           "sharedKeywords": [
+         *             "재시도",
+         *             "HTTP 메서드"
+         *           ]
+         *         }
+         *       ]
+         *     }
+         */
         Graph: {
             /** @enum {string} */
-            scope: "all" | "topic" | "note";
-            nodes: components["schemas"]["ConceptRef"][];
-            edges: {
-                /** Format: uuid */
-                id: string;
-                /** Format: uuid */
-                sourceId: string;
-                /** Format: uuid */
-                targetId: string;
-                type: components["schemas"]["RelationTypeRef"];
-                /** @enum {string} */
-                origin: "extracted" | "confirmed";
-                /** @enum {string} */
-                status: "active" | "evidence_lost";
-                asHypothesis: boolean;
-            }[];
+            scope: "all" | "topic";
+            nodes: components["schemas"]["GraphNode"][];
+            edges: components["schemas"]["GraphEdge"][];
+        };
+        /**
+         * @description 페이지(노트) 하나. 공유 키워드가 없는 페이지도 노드로 준다.
+         * @example {
+         *       "id": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+         *       "title": "재시도 정책",
+         *       "topicId": "5b20c1d4-8f2a-4e61-9b3a-2d7f0c9e1a44"
+         *     }
+         */
+        GraphNode: {
+            /**
+             * Format: uuid
+             * @description 노트 id
+             */
+            id: string;
+            title: string;
+            /**
+             * Format: uuid
+             * @description null이면 미분류. FE가 주제별 색을 칠할 때 쓴다. TBD topics 유지 여부
+             */
+            topicId: string | null;
+        };
+        /**
+         * @description 같은 키워드에 개념을 넣은 두 페이지 사이의 선 1개. 공유 키워드가 여러 개여도 1개이고 무방향이다.
+         *     sourceId·targetId의 순서에는 의미가 없다.
+         * @example {
+         *       "sourceId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+         *       "targetId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+         *       "sharedKeywords": [
+         *         "재시도",
+         *         "HTTP 메서드"
+         *       ]
+         *     }
+         */
+        GraphEdge: {
+            /**
+             * Format: uuid
+             * @description 노트 id
+             */
+            sourceId: string;
+            /**
+             * Format: uuid
+             * @description 노트 id
+             */
+            targetId: string;
+            /** @description 선택 필드. 두 페이지가 공유하는 키워드 이름. 없으면 FE는 선에 라벨을 붙이지 않는다 */
+            sharedKeywords?: string[];
+        };
+        /**
+         * @description 추천(사용자가 모르는 지식) 작업. pending이면 만드는 중, completed면 끝났다.
+         *     실패·보류·결과 없음은 completed + 빈 recommendations로 준다(10/30: 실패 비노출).
+         * @example {
+         *       "id": "3f6c2a10-7d4e-4b8a-9c21-5e0f1a2b3c4d",
+         *       "noteId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+         *       "status": "pending",
+         *       "recommendations": [],
+         *       "createdAt": "2026-10-31T05:12:00Z",
+         *       "completedAt": null
+         *     }
+         */
+        RecommendationJob: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description 작업을 요청한 페이지
+             */
+            noteId: string;
+            /** @enum {string} */
+            status: "pending" | "completed";
+            /** @description completed일 때만 채운다. pending이면 빈 배열 */
+            recommendations: components["schemas"]["Recommendation"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            completedAt: string | null;
+        };
+        /**
+         * @description 추천 카드 하나. "A의 문장(페이지 P) + B의 문장(페이지 Q) + 외부 지식 → 결론" (10/30, Figma W3-02).
+         *     TBD: 결과가 "새 키워드"인지 "기존 키워드의 새 개념"인지 구분하는 방식(다음 주 결정). 결정 전에는 구분 필드를 넣지 않는다.
+         *     TBD: 새 키워드의 source에 인터넷 URL을 넣을지. externalKnowledge.sourceUrl을 카드에 보여 주는 것과는 별개다.
+         * @example {
+         *       "id": "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e",
+         *       "evidenceA": {
+         *         "noteId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+         *         "noteTitle": "재시도 정책",
+         *         "noteVersion": 3,
+         *         "startOffset": 9,
+         *         "endOffset": 38,
+         *         "quote": "클라이언트는 응답 시간이 초과되면 요청을 재전송한다."
+         *       },
+         *       "evidenceB": {
+         *         "noteId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+         *         "noteTitle": "멱등성",
+         *         "noteVersion": 3,
+         *         "startOffset": 6,
+         *         "endOffset": 42,
+         *         "quote": "멱등한 연산은 여러 번 실행해도 한 번 실행한 것과 결과가 같다."
+         *       },
+         *       "externalKnowledge": {
+         *         "summary": "PUT·DELETE는 멱등 메서드로 정의되며, 실패 시 자동으로 재시도해도 된다.",
+         *         "sourceUrl": "https://www.rfc-editor.org/rfc/rfc9110"
+         *       },
+         *       "conclusion": "타임아웃 뒤 재전송된 요청이 중복 행을 만들지 않으려면, 쓰기 요청을 멱등하게 설계해야 한다.",
+         *       "relatedKeywords": [
+         *         "재시도",
+         *         "멱등성"
+         *       ]
+         *     }
+         */
+        Recommendation: {
+            /** Format: uuid */
+            id: string;
+            evidenceA: components["schemas"]["RecommendationEvidence"];
+            evidenceB: components["schemas"]["RecommendationEvidence"];
+            externalKnowledge: components["schemas"]["ExternalKnowledge"];
+            /** @description LLM이 만든 결론 */
+            conclusion: string;
+            /** @description 관련 키워드 이름. 비어 있을 수 있다 */
+            relatedKeywords: string[];
+        };
+        /**
+         * @description 근거 문장 하나와 출처 페이지. quote는 페이지 원문 그대로다(LLM이 다시 쓴 문장이 아니다).
+         *     startOffset·endOffset은 noteVersion 시점 본문(NFC Markdown)의 UTF-16 코드 단위 위치이며 end는 포함하지 않는다(EvidenceSpan과 같은 기준, E1).
+         *     FE는 근거를 누르면 그 페이지를 열고 이 위치의 문장을 강조한다(W3-12). 본문이 바뀌어 위치가 밀렸으면 가장 가까운 같은 문장을,
+         *     같은 문장이 없으면 강조 없이 알린다(W3-12b).
+         * @example {
+         *       "noteId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+         *       "noteTitle": "재시도 정책",
+         *       "noteVersion": 3,
+         *       "startOffset": 9,
+         *       "endOffset": 38,
+         *       "quote": "클라이언트는 응답 시간이 초과되면 요청을 재전송한다."
+         *     }
+         */
+        RecommendationEvidence: {
+            /**
+             * Format: uuid
+             * @description 출처 페이지(노트) id
+             */
+            noteId: string;
+            /** @description 출처 페이지 제목 */
+            noteTitle: string;
+            /** @description 근거를 고른 시점의 페이지 version */
+            noteVersion: number;
+            startOffset: number;
+            endOffset: number;
+            quote: string;
+        };
+        /**
+         * @description 생성에 쓴 외부 지식(인터넷)과 출처 URL. 카드에서 링크로 연다.
+         *     TBD: 외부 지식이 여러 개일 수 있는지(지금은 1개).
+         * @example {
+         *       "summary": "PUT·DELETE는 멱등 메서드로 정의되며, 실패 시 자동으로 재시도해도 된다.",
+         *       "sourceUrl": "https://www.rfc-editor.org/rfc/rfc9110"
+         *     }
+         */
+        ExternalKnowledge: {
+            /** @description 외부 지식 내용 */
+            summary: string;
+            /**
+             * Format: uri
+             * @description 출처 URL (http·https)
+             */
+            sourceUrl: string;
+        };
+        /**
+         * @description 추천 카드 버튼. understood = 이해함, known = 알고 있던 내용, confused = 이해가 안 됨.
+         * @example {
+         *       "action": "understood"
+         *     }
+         */
+        RecommendationFeedback: {
+            /** @enum {string} */
+            action: "understood" | "known" | "confused";
+        };
+        /**
+         * @description 가져오기 변환 결과(공개용). 확정 전에 FE가 미리 보고 고친다.
+         *     0.4.0-draft: DraftConversionResponse(BE↔AI 내부 모양)에서 FE가 쓰는 값만 남겼다.
+         * @example {
+         *       "conversionId": "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d",
+         *       "resultRevision": 1,
+         *       "markdown": "# 재시도 정책\n클라이언트는 응답 시간이 초과되면 요청을 재전송한다.",
+         *       "markdownSha256": "9f2c4e1a7b3d5f6081a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718",
+         *       "pages": [
+         *         {
+         *           "page": 1,
+         *           "status": "converted",
+         *           "errorCode": null
+         *         }
+         *       ]
+         *     }
+         */
+        ConversionResult: {
+            /** Format: uuid */
+            conversionId: string;
+            /** @description confirm의 expectedResultRevision으로 보낸다 */
+            resultRevision: number;
+            /** @description 변환된 Markdown (NFC) */
+            markdown: string;
+            /** @description 본문을 고치지 않고 확정할 때 expectedMarkdownSha256으로 보낸다 */
+            markdownSha256: string;
+            /** @description 원본 쪽별 변환 상태. 실패한 쪽이 있으면 FE가 알린다 */
+            pages: components["schemas"]["DraftConversionPage"][];
         };
         /** @description DB 테이블 candidate */
         CandidateSummary: {
@@ -1590,6 +1968,40 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description 없는 추천 작업, 다른 사용자의 작업, 또는 보관 기간이 지난 작업 (문구 안) */
+        RecommendationJobNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_FOUND",
+                 *         "message": "추천 작업을 찾을 수 없습니다."
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description 없는 추천 또는 다른 사용자의 추천 (문구 안) */
+        RecommendationNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_FOUND",
+                 *         "message": "추천을 찾을 수 없습니다."
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description 요청이 규칙에 맞지 않음 (예 scope=topic인데 topicId 없음, modify인데 modification 없음) */
         ValidationFailed: {
             headers: {
@@ -1622,6 +2034,10 @@ export interface components {
         TopicId: string;
         NoteId: string;
         CandidateId: string;
+        /** @description POST /notes/{noteId}/recommendation-jobs가 준 작업 id */
+        RecommendationJobId: string;
+        /** @description 추천 카드 id (Recommendation.id) */
+        RecommendationId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1919,13 +2335,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 사용자 채택 개발 계약 */
+            /** @description 변환 결과 (확정 전) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DraftConversionResponse"];
+                    "application/json": components["schemas"]["ConversionResult"];
                 };
             };
             400: components["responses"]["ValidationFailed"];
@@ -2669,13 +3085,9 @@ export interface operations {
     getGraph: {
         parameters: {
             query?: {
-                scope?: "all" | "topic" | "note";
+                scope?: "all" | "topic";
                 /** @description scope=topic일 때 필수. 'none'이면 미분류 */
                 topicId?: string;
-                /** @description scope=note일 때 필수 */
-                noteId?: string;
-                /** @description 근거 소실 관계를 넣을지 */
-                includeLost?: boolean;
             };
             header?: never;
             path?: never;
@@ -2694,7 +3106,8 @@ export interface operations {
             };
             400: components["responses"]["ValidationFailed"];
             401: components["responses"]["Unauthenticated"];
-            404: components["responses"]["NotFound"];
+            404: components["responses"]["TopicNotFound"];
+            500: components["responses"]["Internal"];
         };
     };
     getRelation: {
@@ -2854,6 +3267,142 @@ export interface operations {
             400: components["responses"]["ValidationFailed"];
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    requestRecommendationJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: components["parameters"]["NoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 작업을 만들었거나 이미 진행 중인 작업 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "3f6c2a10-7d4e-4b8a-9c21-5e0f1a2b3c4d",
+                     *       "noteId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
+                     *       "status": "pending",
+                     *       "recommendations": [],
+                     *       "createdAt": "2026-10-31T05:12:00Z",
+                     *       "completedAt": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RecommendationJob"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NoteNotFoundOnGet"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getRecommendationJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description POST /notes/{noteId}/recommendation-jobs가 준 작업 id */
+                jobId: components["parameters"]["RecommendationJobId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 작업 상태와 결과 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationJob"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["RecommendationJobNotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    sendRecommendationFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 추천 카드 id (Recommendation.id) */
+                recommendationId: components["parameters"]["RecommendationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecommendationFeedback"];
+            };
+        };
+        responses: {
+            /** @description 반영됨 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description action이 없거나 허용 값이 아님 (문구 안) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_FAILED",
+                     *         "message": "응답을 다시 선택하세요.",
+                     *         "details": {
+                     *           "fields": [
+                     *             {
+                     *               "field": "action",
+                     *               "reason": "invalid"
+                     *             }
+                     *           ]
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["RecommendationNotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    chatAboutRecommendation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 추천 카드 id (Recommendation.id) */
+                recommendationId: components["parameters"]["RecommendationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            401: components["responses"]["Unauthenticated"];
+            /** @description TBD. 아직 제공하지 않음 */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
 }
