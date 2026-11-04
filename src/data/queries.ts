@@ -5,7 +5,7 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   createNote,
   createTopic,
@@ -30,6 +30,7 @@ import {
   type Note,
   type NoteCreate,
   type NoteSummary,
+  type Recommendation,
   type RecommendationJob,
   type Topic,
   type TopicCreate,
@@ -55,8 +56,12 @@ export const keys = {
   graph: ['graph'] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
+  /** 노트별로 추천 패널에 쌓인 카드 (보이는 카드 + 대기 카드)와 보고 있는 카드 */
+  recommendationDeck: (noteId: string) => ['recommendationDeck', noteId] as const,
   /** 이 화면에서 추천 카드에 남긴 답 (추천 id → 답) */
   recommendationAnswers: ['recommendationAnswers'] as const,
+  /** 아직 전송 중인 답의 추천 id (추천 id → 전송 중인 요청 수) */
+  recommendationSending: ['recommendationSending'] as const,
   capabilities: ['capabilities'] as const,
 }
 
@@ -176,10 +181,63 @@ export function useRecommendations(noteId: string | null) {
   })
 }
 
+/** 노트별로 추천 패널에 쌓인 카드 (11/04 회의). 새로 고치면 사라진다 */
+export interface RecommendationDeck {
+  /** 쌓인 카드 전체. 기본은 BE 순서, 단 보고 있는 카드와 그 앞은 고정 (mergeRecommendations) */
+  cards: Recommendation[]
+  /** 보고 있는 카드. 아직 넘기지 않았으면 null (첫 카드) */
+  currentId: string | null
+  /** cards에 마지막으로 합친 추천 작업. 같은 작업은 두 번 합치지 않는다 */
+  jobId: string | null
+  /** 마지막으로 합칠 때 다룬 추천 수 (mergeRecommendations의 offered). 합칠 때만 정한다 */
+  offered: number
+}
+
+const EMPTY_DECK: RecommendationDeck = {
+  cards: [],
+  currentId: null,
+  jobId: null,
+  offered: 0,
+}
+
+/**
+ * 노트별 추천 카드 목록 (11/04 회의). 새 작업이 분석 중이어도 쌓인 카드를 그대로 보이고,
+ * 작업이 끝나면 새 결과를 합친다. 패널과 접힌 패널의 배지(W3-14b)가 함께 쓰도록 캐시(메모리)에만 둔다.
+ */
+export function useRecommendationDeck(noteId: string | null) {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: keys.recommendationDeck(noteId ?? ''),
+    queryFn: () => EMPTY_DECK,
+    initialData: EMPTY_DECK,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+  const update = useCallback(
+    (change: (deck: RecommendationDeck) => RecommendationDeck) => {
+      if (noteId === null) return
+      qc.setQueryData<RecommendationDeck>(keys.recommendationDeck(noteId), (prev) =>
+        change(prev ?? EMPTY_DECK),
+      )
+    },
+    [qc, noteId],
+  )
+  /** 효과 안에서 쓴다: 렌더 뒤 바뀐 최신 값 */
+  const read = useCallback(
+    () =>
+      (noteId === null
+        ? undefined
+        : qc.getQueryData<RecommendationDeck>(keys.recommendationDeck(noteId))) ?? EMPTY_DECK,
+    [qc, noteId],
+  )
+  return { deck: noteId === null ? EMPTY_DECK : data, update, read }
+}
+
 /**
  * 추천 카드에 남긴 답 (W3-10·11). 패널과 접힌 패널의 배지(W3-14b)가 함께 쓰도록 캐시에 둔다.
  * 답은 화면에 바로 반영하고 POST /recommendations/{id}/feedback으로 보낸다(BE에 아직 없어 가짜 서버만).
  * 보내지 못하면 답을 되돌리고(카드가 다시 보인다) 오류를 던진다. 새로 고치면 캐시는 사라진다.
+ * sending은 아직 전송 중인 답의 추천 id다. 추천을 합칠 때 확정되지 않은 답의 카드를 남기는 데 쓴다.
  */
 export function useRecommendationAnswers() {
   const qc = useQueryClient()
@@ -190,8 +248,25 @@ export function useRecommendationAnswers() {
     staleTime: Infinity,
     gcTime: Infinity,
   })
+  const { data: sendingIds } = useQuery({
+    queryKey: keys.recommendationSending,
+    queryFn: (): Record<string, number> => ({}),
+    initialData: {},
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+  const sending = useMemo(() => new Set(Object.keys(sendingIds)), [sendingIds])
   const answer = useCallback(
     async (recommendationId: string, action: RecommendationAnswer) => {
+      // 같은 카드에 답이 겹쳐도(예: '이해가 안 됨' 전송 중에 '이해함') 마지막 요청이 끝날 때까지 전송 중으로 센다
+      const setSending = (delta: 1 | -1) =>
+        qc.setQueryData<Record<string, number>>(keys.recommendationSending, (prev) => {
+          const next = { ...prev }
+          const count = (next[recommendationId] ?? 0) + delta
+          if (count > 0) next[recommendationId] = count
+          else delete next[recommendationId]
+          return next
+        })
       const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
         keys.recommendationAnswers,
       )?.[recommendationId]
@@ -199,9 +274,13 @@ export function useRecommendationAnswers() {
         ...prev,
         [recommendationId]: action,
       }))
+      setSending(1)
       try {
         await sendRecommendationFeedback(recommendationId, action)
+        setSending(-1)
       } catch (e) {
+        // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
+        // 추천을 합칠 때 카드가 빠질 수 있다.
         qc.setQueryData<Record<string, RecommendationAnswer>>(
           keys.recommendationAnswers,
           (prev) => {
@@ -213,12 +292,13 @@ export function useRecommendationAnswers() {
             return next
           },
         )
+        setSending(-1)
         throw e
       }
     },
     [qc],
   )
-  return { answers: data, answer }
+  return { answers: data, sending, answer }
 }
 
 /** 추천 작업을 바로 요청한다 (가져오기 트리거). 추천이 꺼져 있으면 보내지 않는다. */
@@ -462,6 +542,9 @@ export function useDeleteNote() {
     onSuccess: (_, noteId) => {
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
+      // 노트별 추천 카드는 세션 내내 메모리에 두므로, 지운 노트의 것은 함께 버린다
+      qc.removeQueries({ queryKey: keys.recommendationJob(noteId) })
+      qc.removeQueries({ queryKey: keys.recommendationDeck(noteId) })
       void qc.invalidateQueries({ queryKey: keys.graph })
       void qc.invalidateQueries({ queryKey: keys.noteLists })
       void qc.invalidateQueries({ queryKey: keys.topics })

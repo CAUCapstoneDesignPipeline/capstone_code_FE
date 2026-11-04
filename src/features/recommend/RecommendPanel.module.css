@@ -158,7 +158,14 @@
   outline-offset: 1px;
 }
 
-/* 헤더 오른쪽: 분석 중 표시 (W3-07) · 넘기기 (W3-09) */
+/* W3-16: 쌓인 카드가 있을 때 헤더 아래 줄의 분석 중 표시 (AnalysisStatus 모양). 알약 안쪽 여백만큼 당겨 제목과 왼쪽을 맞춘다 */
+.statusRow {
+  display: flex;
+  flex: none;
+  margin: calc(-1 * var(--space-8)) 0 0 calc(-1 * var(--space-8));
+}
+
+/* 헤더 오른쪽: 분석 중 표시 (W3-07, 카드가 없을 때) · 넘기기 (W3-09) */
 .status {
   display: inline-flex;
   flex: none;
