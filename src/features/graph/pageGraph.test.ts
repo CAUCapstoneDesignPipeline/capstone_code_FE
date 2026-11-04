@@ -28,14 +28,22 @@ describe('edgeKey', () => {
 describe('initialPositions', () => {
   it('같은 그래프면 늘 같은 시작 위치 (열 때마다 바뀌지 않음)', () => {
     const nodes = [page('n1', 't1'), page('n2', 't1'), page('n3', null)]
-    const a = initialPositions(nodes, ['t1', null])
-    const b = initialPositions([...nodes].reverse(), ['t1', null])
+    const a = initialPositions(nodes)
+    const b = initialPositions([...nodes].reverse())
     expect([...a.entries()].sort()).toEqual([...b.entries()].sort())
   })
 
-  it('주제 묶음마다 가로로 떨어져 있다', () => {
-    const pos = initialPositions([page('n1', 't1'), page('n2', 't2')], ['t1', 't2'])
-    expect(pos.get('n2')!.x - pos.get('n1')!.x).toBeGreaterThan(100)
+  it('주제로 묶지 않는다: 주제가 바뀌어도 위치는 id로만 정해진다', () => {
+    const a = initialPositions([page('n1', 't1'), page('n2', 't1')])
+    const b = initialPositions([page('n1', 't2'), page('n2', null)])
+    expect(b).toEqual(a)
+  })
+
+  it('모든 페이지가 페이지 수에 맞춘 한 원 안에 있다', () => {
+    const nodes = Array.from({ length: 25 }, (_, i) => page(`n${i}`, i % 2 ? 't1' : 't2'))
+    const pos = initialPositions(nodes)
+    expect(pos.size).toBe(25)
+    for (const p of pos.values()) expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(120 * 5)
   })
 
   it('unitHash는 0 이상 1 미만', () => {

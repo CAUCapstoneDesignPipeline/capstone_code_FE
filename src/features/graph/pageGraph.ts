@@ -8,11 +8,6 @@ export function edgeKey(edge: Pick<GraphEdge, 'sourceId' | 'targetId'>): string 
   return `${a}|${b}`
 }
 
-/** 주제 묶음(compound node) id. 미분류는 'none' */
-export function groupId(topicId: string | null): string {
-  return `topic:${topicId ?? 'none'}`
-}
-
 /** 문자열 → 0 이상 1 미만의 고정된 수 (FNV-1a). 같은 id면 열 때마다 같은 값이다. */
 export function unitHash(text: string): number {
   let h = 0x811c9dc5
@@ -23,29 +18,29 @@ export function unitHash(text: string): number {
   return (h >>> 0) / 0x100000000
 }
 
-const GROUP_GAP = 360
+/** 페이지 하나가 차지하는 시작 넓이의 기준. 페이지가 많을수록 시작 원이 커진다 */
 const NODE_SPREAD = 120
 
 /**
  * 배치의 시작 위치 (W3-13: 열 때마다 바뀌지 않게 시작값을 고정한다).
- * 주제 묶음은 주제 순서대로 가로로 놓고, 페이지는 id로 정한 각도·거리에 둔다. 같은 그래프면 늘 같은 값이다.
+ * 모든 페이지를 한 원 안에 id로 정한 각도·거리로 둔다. 원의 반지름은 페이지 수의 제곱근에 비례한다.
+ * 노드 순서와 주제에 관계없이 id만 보므로 같은 그래프면 늘 같은 값이다.
  */
 export function initialPositions(
   nodes: readonly GraphNode[],
-  topicOrder: readonly (string | null)[],
 ): Map<string, { x: number; y: number }> {
-  const groupIndex = new Map(topicOrder.map((t, i) => [t, i]))
+  const radius = NODE_SPREAD * Math.sqrt(nodes.length)
   const out = new Map<string, { x: number; y: number }>()
   for (const n of nodes) {
-    const g = groupIndex.get(n.topicId) ?? topicOrder.length
     const angle = unitHash(n.id) * 2 * Math.PI
-    const r = NODE_SPREAD * (0.4 + 0.6 * unitHash(`${n.id}:r`))
-    out.set(n.id, { x: g * GROUP_GAP + r * Math.cos(angle), y: r * Math.sin(angle) })
+    // 제곱근을 써서 원 안에 고르게 퍼지게 한다 (가운데로 몰리지 않게)
+    const r = radius * Math.sqrt(unitHash(`${n.id}:r`))
+    out.set(n.id, { x: r * Math.cos(angle), y: r * Math.sin(angle) })
   }
   return out
 }
 
-/** 그래프에 나온 주제를 주제 목록 순서로. 미분류는 맨 뒤, 목록에 없는 주제(방금 만든 주제 등)는 그 앞 */
+/** 그래프에 나온 주제를 주제 목록 순서로 (범례 순서). 미분류는 맨 뒤, 목록에 없는 주제(방금 만든 주제 등)는 그 앞 */
 export function topicsInGraph(
   nodes: readonly GraphNode[],
   topics: readonly Topic[],
