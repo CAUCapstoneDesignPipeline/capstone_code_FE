@@ -5,7 +5,7 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   createNote,
   createTopic,
@@ -60,6 +60,8 @@ export const keys = {
   recommendationDeck: (noteId: string) => ['recommendationDeck', noteId] as const,
   /** 이 화면에서 추천 카드에 남긴 답 (추천 id → 답) */
   recommendationAnswers: ['recommendationAnswers'] as const,
+  /** 아직 전송 중인 답의 추천 id (추천 id → true) */
+  recommendationSending: ['recommendationSending'] as const,
   capabilities: ['capabilities'] as const,
 }
 
@@ -187,9 +189,16 @@ export interface RecommendationDeck {
   currentId: string | null
   /** cards에 마지막으로 합친 추천 작업. 같은 작업은 두 번 합치지 않는다 */
   jobId: string | null
+  /** 마지막으로 합친 뒤 답이 확정돼 뺀 카드가 있는지 (모두 답했을 때 W3-11을 보이려고) */
+  answeredSinceMerge: boolean
 }
 
-const EMPTY_DECK: RecommendationDeck = { cards: [], currentId: null, jobId: null }
+const EMPTY_DECK: RecommendationDeck = {
+  cards: [],
+  currentId: null,
+  jobId: null,
+  answeredSinceMerge: false,
+}
 
 /**
  * 노트별 추천 카드 목록 (11/04 회의). 새 작업이 분석 중이어도 쌓인 카드를 그대로 보이고,
@@ -228,6 +237,7 @@ export function useRecommendationDeck(noteId: string | null) {
  * 추천 카드에 남긴 답 (W3-10·11). 패널과 접힌 패널의 배지(W3-14b)가 함께 쓰도록 캐시에 둔다.
  * 답은 화면에 바로 반영하고 POST /recommendations/{id}/feedback으로 보낸다(BE에 아직 없어 가짜 서버만).
  * 보내지 못하면 답을 되돌리고(카드가 다시 보인다) 오류를 던진다. 새로 고치면 캐시는 사라진다.
+ * sending은 아직 전송 중인 답의 추천 id다. 추천을 합칠 때 확정되지 않은 답의 카드를 남기는 데 쓴다.
  */
 export function useRecommendationAnswers() {
   const qc = useQueryClient()
@@ -238,8 +248,23 @@ export function useRecommendationAnswers() {
     staleTime: Infinity,
     gcTime: Infinity,
   })
+  const { data: sendingIds } = useQuery({
+    queryKey: keys.recommendationSending,
+    queryFn: (): Record<string, true> => ({}),
+    initialData: {},
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+  const sending = useMemo(() => new Set(Object.keys(sendingIds)), [sendingIds])
   const answer = useCallback(
     async (recommendationId: string, action: RecommendationAnswer) => {
+      const setSending = (on: boolean) =>
+        qc.setQueryData<Record<string, true>>(keys.recommendationSending, (prev) => {
+          const next = { ...prev }
+          if (on) next[recommendationId] = true
+          else delete next[recommendationId]
+          return next
+        })
       const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
         keys.recommendationAnswers,
       )?.[recommendationId]
@@ -247,9 +272,12 @@ export function useRecommendationAnswers() {
         ...prev,
         [recommendationId]: action,
       }))
+      setSending(true)
       try {
         await sendRecommendationFeedback(recommendationId, action)
+        setSending(false)
       } catch (e) {
+        setSending(false)
         qc.setQueryData<Record<string, RecommendationAnswer>>(
           keys.recommendationAnswers,
           (prev) => {
@@ -266,7 +294,7 @@ export function useRecommendationAnswers() {
     },
     [qc],
   )
-  return { answers: data, answer }
+  return { answers: data, sending, answer }
 }
 
 /** 추천 작업을 바로 요청한다 (가져오기 트리거). 추천이 꺼져 있으면 보내지 않는다. */

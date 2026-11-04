@@ -22,6 +22,7 @@ import {
   currentIndex,
   mergeRecommendations,
   newRecommendationsToast,
+  removeRecommendation,
   splitRecommendations,
   type RecommendationAnswer,
 } from '../../lib/recommendations'
@@ -62,7 +63,7 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   const off = capabilities?.discoveriesEnabled === false
   const job = useRecommendations(off ? null : noteId)
   const noteTitle = useNote(noteId ?? '', noteId !== null).data?.title ?? ''
-  const { answers, answer } = useRecommendationAnswers()
+  const { answers, sending, answer } = useRecommendationAnswers()
   const toast = useToast()
   const { deck, update, read } = useRecommendationDeck(off ? null : noteId)
   const completedJob = job.data?.status === 'completed' ? job.data : null
@@ -73,7 +74,10 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
   // 답한 카드는 빼고(W3-10·11) 앞 5장만 보인다. 나머지는 대기하다 카드가 빠지면 끝에 붙는다.
   const { visible: list, waiting } = splitRecommendations(deck.cards, answers)
   const allAnswered =
-    list.length === 0 && (deck.cards.length > 0 || (completedJob?.recommendations.length ?? 0) > 0)
+    list.length === 0 &&
+    (deck.cards.length > 0 ||
+      deck.answeredSinceMerge ||
+      (completedJob?.recommendations.length ?? 0) > 0)
 
   // 여러 개면 한 장씩 (W3-09). 기본은 BE 순서, 단 지금 보고 있는 카드와 그 앞은 고정, 최대 5장.
   // 보고 있는 카드는 노트별로 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패),
@@ -95,13 +99,19 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
       viewing,
       completedJob.recommendations,
       answers,
+      sending,
     )
-    update(() => ({ cards: merged.cards, currentId: viewing, jobId: completedJob.id }))
+    update(() => ({
+      cards: merged.cards,
+      currentId: viewing,
+      jobId: completedJob.id,
+      answeredSinceMerge: false,
+    }))
     // 처음 받을 때는 카드가 곧 보이므로 알리지 않는다
     if (before.cards.length > 0 && merged.added > 0) {
       toast('info', newRecommendationsToast(merged.added))
     }
-  }, [completedJob, answers, read, update, toast])
+  }, [completedJob, answers, sending, read, update, toast])
 
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
   // 추천으로 돌아갔다 와도 대화를 이어 간다.
@@ -124,8 +134,19 @@ export function RecommendPanel({ noteId, onOpenEvidence, onCollapse, collapseRef
     // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (W3-10)
     // 보이는 카드의 마지막이었으면 그 자리에 붙는 대기 카드를 본다
     if (id !== 'confused') show(cardAfterAnswer([...list, ...waiting], current.id))
-    answer(current.id, id).then(
-      () => message && toast('info', message),
+    const answeredId = current.id
+    answer(answeredId, id).then(
+      () => {
+        // 확정된 답의 카드는 쌓인 카드에서 뺀다. 전송 중에는 남겨 두어(화면에선 숨김) 실패하면 제자리로 돌아온다
+        if (id !== 'confused') {
+          update((d) => ({
+            ...d,
+            cards: removeRecommendation(d.cards, answeredId),
+            answeredSinceMerge: true,
+          }))
+        }
+        if (message) toast('info', message)
+      },
       // 보내지 못하면 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
       () => toast('error', id === 'confused' ? CONFUSED_FAILED_TOAST : ANSWER_FAILED_TOAST),
     )

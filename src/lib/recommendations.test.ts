@@ -6,6 +6,7 @@ import {
   mergeRecommendations,
   newRecommendationsToast,
   remainingRecommendations,
+  removeRecommendation,
   splitRecommendations,
 } from './recommendations'
 
@@ -154,5 +155,55 @@ describe('mergeRecommendations (11/04 회의)', () => {
     expect(added).toBe(2)
     expect(mergeRecommendations(before, 'a', [rec('b')], {}).added).toBe(0)
     expect(newRecommendationsToast(2)).toBe('새 추천 2개')
+  })
+
+  describe('답을 전송하는 중에 합칠 때', () => {
+    // a, b, c, d 중 b에 '이해함'을 눌러 전송 중 → 같은 자리에 온 c를 보는 중
+    const before = ['a', 'b', 'c', 'd'].map((id) => rec(id))
+    const sending = new Set(['b'])
+    const answered = { b: 'understood' } as const
+    const incoming = [rec('d'), rec('b', 'b 새 결론'), rec('x')]
+
+    it('전송 중인 답의 카드는 덱에 남고, 화면에서는 숨긴다', () => {
+      const { cards } = mergeRecommendations(before, 'c', incoming, answered, sending)
+      expect(ids(cards)).toEqual(['a', 'b', 'c', 'd', 'x'])
+      expect(ids(splitRecommendations(cards, answered).visible)).toEqual(['a', 'c', 'd', 'x'])
+    })
+
+    it('전송이 실패하면(답이 되돌려지면) 원래 자리로 돌아온다', () => {
+      const { cards } = mergeRecommendations(before, 'c', incoming, answered, sending)
+      const restored = splitRecommendations(cards, {}).visible
+      expect(ids(restored)).toEqual(['a', 'b', 'c', 'd', 'x'])
+      // 내용은 새 결과로 갱신되어 있다
+      expect(restored[1].conclusion).toBe('b 새 결론')
+      // 보던 카드는 그대로
+      expect(restored[currentIndex(restored, 'c')].id).toBe('c')
+    })
+
+    it('전송이 성공하면 덱에서 빠지고, 다음에 합칠 때도 다시 들어오지 않는다', () => {
+      const { cards } = mergeRecommendations(before, 'c', incoming, answered, sending)
+      const after = removeRecommendation(cards, 'b')
+      expect(ids(after)).toEqual(['a', 'c', 'd', 'x'])
+      // 확정된 답(sending에 없음)은 새 결과에 있어도 넣지 않는다
+      expect(ids(mergeRecommendations(after, 'c', incoming, answered).cards)).toEqual([
+        'a',
+        'c',
+        'd',
+        'x',
+      ])
+    })
+
+    it('보고 있는 카드 뒤에 있던 전송 중 카드는 새 결과에 없어도 바로 뒤에 남는다', () => {
+      // 마지막 카드 d에 답해 전송 중 → 앞 카드 c를 보는 중. 새 결과에 d가 없다
+      const { cards } = mergeRecommendations(
+        before,
+        'c',
+        [rec('x'), rec('a')],
+        { d: 'known' },
+        new Set(['d']),
+      )
+      expect(ids(cards)).toEqual(['a', 'b', 'c', 'd', 'x'])
+      expect(ids(splitRecommendations(cards, {}).visible)).toEqual(['a', 'b', 'c', 'd', 'x'])
+    })
   })
 })

@@ -45,8 +45,11 @@ export function splitRecommendations(
  * 새 추천 작업이 끝났을 때 쌓인 카드와 새 결과를 합친다 (11/04 회의).
  * - 앞부분 고정: 보고 있는 카드와 그 앞(이미 넘겨 본 카드)은 자리와 순서를 그대로 둔다.
  *   같은 id가 새 결과에 있으면 내용(결론·근거 등)만 새 것으로 바꾸고, 없어도 남긴다.
- * - 뒤쪽: 나머지는 새 결과의 BE 순서(점수 순)대로 다시 채운다. 이미 답한 카드('이해가 안 됨' 제외)는 넣지 않는다.
+ * - 뒤쪽: 나머지는 새 결과의 BE 순서(점수 순)대로 다시 채운다. 답이 확정된 카드('이해가 안 됨' 제외)는 넣지 않는다.
  *   그래서 새 결과에 없는 뒤쪽 카드는 빠진다. 같은 추천은 BE가 같은 id로 주므로 id로 중복을 거른다.
+ * - 전송 중인 답(sending)의 카드는 확정되지 않았으므로 원래 자리에 남긴다 (화면에서는 답으로 숨긴다).
+ *   고정 구간 안에 있으면 그 자리에, 보고 있는 카드 뒤에 있었으면 바로 뒤에 둔다. 전송이 실패해 답이 되돌려지면
+ *   그 자리에 다시 보이고("카드를 다시 넣었습니다"), 성공하면 removeRecommendation으로 뺀다.
  * cards는 쌓인 카드 전체(보이는 카드 + 대기 카드)다. 결과에서 보이는 카드는 splitRecommendations로 나눈다.
  * added는 이전 목록(대기 포함)에 없던 id 수다 ("새 추천 N개").
  */
@@ -55,21 +58,35 @@ export function mergeRecommendations(
   currentId: string | null,
   incoming: readonly Recommendation[],
   answers: Readonly<Record<string, RecommendationAnswer>>,
+  sending: ReadonlySet<string> = new Set(),
 ): { cards: Recommendation[]; added: number } {
-  const { visible } = splitRecommendations(cards, answers)
+  const confirmed = (id: string) => isDone(answers[id]) && !sending.has(id)
   const fresh = new Map(incoming.map((r) => [r.id, r]))
-  const pinnedCount = visible.findIndex((r) => r.id === currentId) + 1
-  const pinned = visible.slice(0, pinnedCount).map((r) => fresh.get(r.id) ?? r)
+  const latest = (r: Recommendation) => fresh.get(r.id) ?? r
+  // 보고 있는 카드는 보이는 카드여야 한다. 고정 구간은 쌓인 카드에서 그 카드까지 (숨긴 전송 중 카드 포함)
+  const viewing = splitRecommendations(cards, answers).visible.some((r) => r.id === currentId)
+  const end = viewing ? cards.findIndex((r) => r.id === currentId) + 1 : 0
 
-  const out = [...pinned]
-  const ids = new Set(pinned.map((r) => r.id))
-  for (const r of incoming) {
-    if (ids.has(r.id) || isDone(answers[r.id])) continue
+  const out: Recommendation[] = []
+  const ids = new Set<string>()
+  const push = (r: Recommendation) => {
+    if (ids.has(r.id)) return
     ids.add(r.id)
-    out.push(r)
+    out.push(latest(r))
   }
+  for (const r of cards.slice(0, end)) if (!confirmed(r.id)) push(r)
+  for (const r of cards.slice(end)) if (sending.has(r.id)) push(r)
+  for (const r of incoming) if (!confirmed(r.id)) push(r)
   const before = new Set(cards.map((r) => r.id))
   return { cards: out, added: out.filter((r) => !before.has(r.id)).length }
+}
+
+/** 답 전송이 성공해 확정된 카드를 쌓인 카드에서 뺀다 */
+export function removeRecommendation(
+  cards: readonly Recommendation[],
+  id: string,
+): Recommendation[] {
+  return cards.filter((r) => r.id !== id)
 }
 
 /** 새 카드가 들어왔을 때 알림 (11/04 회의) */
