@@ -52,7 +52,6 @@ export function GraphView({ onOpenNote }: Props) {
           <>
             <GraphCanvas
               graph={data}
-              topics={topicList}
               colorKeys={colorKeys}
               selectedEdge={edge ? selectedEdge : null}
               onTapNode={onOpenNote}
