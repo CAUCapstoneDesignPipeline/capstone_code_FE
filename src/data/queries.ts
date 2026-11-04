@@ -257,48 +257,56 @@ export function useRecommendationAnswers() {
   })
   const sending = useMemo(() => new Set(Object.keys(sendingIds)), [sendingIds])
   const answer = useCallback(
-    async (recommendationId: string, action: RecommendationAnswer) => {
-      // 같은 카드에 답이 겹쳐도(예: '이해가 안 됨' 전송 중에 '이해함') 마지막 요청이 끝날 때까지 전송 중으로 센다
-      const setSending = (delta: 1 | -1) =>
-        qc.setQueryData<Record<string, number>>(keys.recommendationSending, (prev) => {
-          const next = { ...prev }
-          const count = (next[recommendationId] ?? 0) + delta
-          if (count > 0) next[recommendationId] = count
-          else delete next[recommendationId]
-          return next
-        })
-      const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
-        keys.recommendationAnswers,
-      )?.[recommendationId]
-      qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => ({
-        ...prev,
-        [recommendationId]: action,
-      }))
-      setSending(1)
-      try {
-        await sendRecommendationFeedback(recommendationId, action)
-        setSending(-1)
-      } catch (e) {
-        // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
-        // 추천을 합칠 때 카드가 빠질 수 있다.
-        qc.setQueryData<Record<string, RecommendationAnswer>>(
-          keys.recommendationAnswers,
-          (prev) => {
-            // 그 사이 다른 답을 골랐으면 그대로 둔다
-            if (prev?.[recommendationId] !== action) return prev
-            const next = { ...prev }
-            if (before === undefined) delete next[recommendationId]
-            else next[recommendationId] = before
-            return next
-          },
-        )
-        setSending(-1)
-        throw e
-      }
-    },
+    (recommendationId: string, action: RecommendationAnswer) =>
+      submitRecommendationAnswer(qc, recommendationId, action),
     [qc],
   )
   return { answers: data, sending, answer }
+}
+
+/**
+ * 추천 카드에 답한다 (useRecommendationAnswers의 answer). 답을 바로 캐시에 반영하고 보낸다.
+ * 실패하면(409 포함) 답을 되돌려 답 기록에 남기지 않고 오류를 던진다. 409(근거가 바뀐 추천)를 어떻게 보일지는 부른 쪽이 정한다.
+ */
+export async function submitRecommendationAnswer(
+  qc: QueryClient,
+  recommendationId: string,
+  action: RecommendationAnswer,
+): Promise<void> {
+  // 같은 카드에 답이 겹쳐도(예: '이해가 안 됨' 전송 중에 '이해함') 마지막 요청이 끝날 때까지 전송 중으로 센다
+  const setSending = (delta: 1 | -1) =>
+    qc.setQueryData<Record<string, number>>(keys.recommendationSending, (prev) => {
+      const next = { ...prev }
+      const count = (next[recommendationId] ?? 0) + delta
+      if (count > 0) next[recommendationId] = count
+      else delete next[recommendationId]
+      return next
+    })
+  const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
+    keys.recommendationAnswers,
+  )?.[recommendationId]
+  qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => ({
+    ...prev,
+    [recommendationId]: action,
+  }))
+  setSending(1)
+  try {
+    await sendRecommendationFeedback(recommendationId, action)
+    setSending(-1)
+  } catch (e) {
+    // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
+    // 추천을 합칠 때 카드가 빠질 수 있다.
+    qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => {
+      // 그 사이 다른 답을 골랐으면 그대로 둔다
+      if (prev?.[recommendationId] !== action) return prev
+      const next = { ...prev }
+      if (before === undefined) delete next[recommendationId]
+      else next[recommendationId] = before
+      return next
+    })
+    setSending(-1)
+    throw e
+  }
 }
 
 /** 추천 작업을 바로 요청한다 (가져오기 트리거). 추천이 꺼져 있으면 보내지 않는다. */

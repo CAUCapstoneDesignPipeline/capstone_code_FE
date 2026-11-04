@@ -1,7 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { flushSync } from 'react-dom'
-import type { NoteSummary, Recommendation, RecommendationEvidence } from '../../api'
+import {
+  isRecommendationStale,
+  type NoteSummary,
+  type Recommendation,
+  type RecommendationEvidence,
+} from '../../api'
+import { Banner } from '../../components/Banner'
 import { Button, PanelToggleButton } from '../../components/Button'
 import { Icon } from '../../components/Icon'
 import { useToast } from '../../components/toastContext'
@@ -20,8 +26,14 @@ import {
   cardAfterAnswer,
   CONFUSED_FAILED_TOAST,
   mergeRecommendations,
-  newRecommendationsToast,
+  isAnswerable,
+  leaveRecommendation,
+  markStale,
+  mergeToast,
   removeRecommendation,
+  STALE_ANSWER_TOAST,
+  STATUS_NOTICE,
+  statusOf,
   splitRecommendations,
   viewingIndex,
   type RecommendationAnswer,
@@ -84,7 +96,17 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
   const index = viewingIndex(list, waiting, deck.currentId)
   const current = list[index] ?? null
   const show = (currentId: string | null) => update((d) => ({ ...d, currentId }))
-  const goTo = (i: number) => show(list[i]?.id ?? null)
+  // 근거가 바뀌었거나 지워진 카드(stale·evidence_lost)를 보다가 다른 카드로 가면 그 카드를 뺀다 (11/04 회의).
+  // 빈 자리는 대기 카드가 채운다.
+  const goTo = (i: number) => {
+    const target = list[i]?.id ?? null
+    const leaving = current?.id ?? null
+    update((d) => ({
+      ...d,
+      cards: leaving === null ? d.cards : leaveRecommendation(d.cards, leaving),
+      currentId: target,
+    }))
+  }
 
   // 작업이 끝나면 쌓인 카드와 합친다. 처음 받으면 BE 순서대로 앞 5장을 보이고 첫 카드를 본다.
   useEffect(() => {
@@ -106,9 +128,9 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
     }))
     // 처음 받을 때(합친 적이 없을 때)는 카드가 곧 보이므로 알리지 않는다.
     // 패널이 숨어 있으면 펴기 버튼의 배지(W3-14b)가 알린다.
-    if (before.jobId !== null && merged.added > 0 && !hidden) {
-      toast('info', newRecommendationsToast(merged.added))
-    }
+    // 새 revision으로 내용이 바뀐 카드가 있으면, 보고 있는 카드가 아니어도 "내용이 갱신되었습니다"를 함께 알린다.
+    const message = mergeToast(merged.added, merged.refreshed)
+    if (before.jobId !== null && message && !hidden) toast('info', message)
   }, [completedJob, answers, sending, hidden, read, update, toast])
 
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
@@ -127,7 +149,8 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
 
   /** 답하면 이 카드는 빠지고 같은 자리에 다음 카드가 온다. '이해가 안 됨'은 카드를 남기고 챗봇으로 */
   function respond(id: RecommendationAnswer) {
-    if (!current) return
+    // 막힌 카드(stale·evidence_lost)에는 답하지 않는다 (버튼도 막혀 있다)
+    if (!current || !isAnswerable(current)) return
     const message = ANSWER_TOAST[id]
     // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (W3-10)
     // 보이는 카드의 마지막이었으면 그 자리에 붙는 대기 카드를 본다
@@ -141,8 +164,18 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
         }
         if (message) toast('info', message)
       },
-      // 보내지 못하면 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
-      () => toast('error', id === 'confused' ? CONFUSED_FAILED_TOAST : ANSWER_FAILED_TOAST),
+      (e: unknown) => {
+        // 409: 근거가 바뀐 추천에는 답할 수 없다 (11/04 회의). 답은 이미 되돌려졌다(답 기록에 남지 않는다).
+        // 카드를 stale로 바꾸고 그 카드를 다시 보여 이유를 알린다. 챗봇으로 넘어갔으면 추천으로 돌아온다.
+        if (isRecommendationStale(e)) {
+          update((d) => ({ ...d, cards: markStale(d.cards, answeredId), currentId: answeredId }))
+          if (id === 'confused') setView('recommend')
+          toast('error', STALE_ANSWER_TOAST)
+          return
+        }
+        // 그 밖의 실패: 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
+        toast('error', id === 'confused' ? CONFUSED_FAILED_TOAST : ANSWER_FAILED_TOAST)
+      },
     )
     if (id !== 'confused') return
     if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
@@ -294,9 +327,13 @@ function RecommendView({
   onOpenEvidence: (side: 'a' | 'b', evidence: RecommendationEvidence) => void
 }) {
   const { evidenceA, evidenceB, externalKnowledge } = recommendation
+  // 근거가 바뀌었거나(stale) 지워진(evidence_lost) 카드: 카드 위에 알리고 답 버튼을 모두 막는다 (11/04 회의)
+  const notice = STATUS_NOTICE[statusOf(recommendation)]
+  const locked = !isAnswerable(recommendation)
   return (
     <>
       <div className={styles.body}>
+        {notice && <Banner kind="alert" title={notice.title} description={notice.description} />}
         <section className={styles.section} aria-labelledby="recommend-a">
           <h3 id="recommend-a" className={styles.label}>
             근거 A
@@ -347,6 +384,7 @@ function RecommendView({
               key={r.id}
               variant={r.variant}
               className={styles.action}
+              disabled={locked}
               onClick={() => onRespond(r.id)}
             >
               {r.label}
