@@ -85,7 +85,7 @@ export function useImportRunner() {
           const title = numberedTitle(base, taken)
           try {
             const note = await importNote.mutateAsync({ title, topicId, body: file.body ?? '' })
-            void requestRecommendations(note.id)
+            void requestRecommendations(note.id, note.version)
             taken.add(title)
             patch(file.key, { status: 'done', title, renamed: title !== base })
             break
