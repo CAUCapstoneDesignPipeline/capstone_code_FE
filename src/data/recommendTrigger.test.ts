@@ -7,12 +7,14 @@ import {
   type SavedSource,
 } from './recommendTrigger'
 
-/** NoteSaver 대신 쓴다. edit()은 바로 저장된 것으로 친다(saved=false로 두면 저장 대기). */
+/** NoteSaver 대신 쓴다. unsaved=true면 저장 대기(보내는 중 포함), stuck=true면 저장이 멈춘 상태 */
 class FakeSaver implements SavedSource {
   version = 1
   unsaved = false
+  stuck = false
   flush = vi.fn()
-  hasUnsavedChanges = () => this.unsaved
+  hasUnsavedChanges = () => this.unsaved || this.stuck
+  hasStuckChanges = () => this.stuck
   getVersion = () => this.version
 }
 
@@ -102,9 +104,83 @@ describe('추천 요청 시점 (11/04: 마지막 입력 후 5초, 계속 입력 
   it('A 노트 입력 직후 B 노트로 옮기면 5초 뒤 A만 1번, B는 0번 요청한다', async () => {
     const a = new FakeSaver()
     typeAndSave('a', a)
-    // B를 열기만 한다: 입력이 없으므로 트리거를 부르지 않는다
+    // B를 열기만 한다: B의 편집기(저장 상태)는 있지만 입력이 없어 onInput을 부르지 않는다.
+    // 열 때 떠나는 A의 flush 등으로 저장 알림이 와도 B는 요청하지 않는다.
+    const b = new FakeSaver()
+    trigger.onSaved('b', b.version)
+    await vi.advanceTimersByTimeAsync(RECOMMEND_IDLE_MS)
+    expect(request.mock.calls).toEqual([['a']])
     await vi.advanceTimersByTimeAsync(RECOMMEND_MAX_INTERVAL_MS)
     expect(request.mock.calls).toEqual([['a']])
+    expect(b.flush).not.toHaveBeenCalled()
+  })
+
+  it('저장 중에 타이머가 끝나면 그 저장의 version을 요청하고, 남은 내용이 저장되면 5초 뒤 최신 version을 요청한다', async () => {
+    const a = new FakeSaver()
+    const requested: Array<{ at: number; version: number }> = []
+    request.mockImplementation(async () => {
+      requested.push({ at: Date.now(), version: a.version })
+    })
+    // 저장 A가 느린 네트워크로 가는 중에 입력을 더 하고 멈췄다
+    a.unsaved = true
+    trigger.onInput('a', a)
+    await vi.advanceTimersByTimeAsync(RECOMMEND_IDLE_MS)
+    expect(a.flush).toHaveBeenCalledTimes(1)
+    expect(request).not.toHaveBeenCalled()
+
+    // 저장 A가 끝났다. 그 뒤 입력은 아직 저장 전이다.
+    const savedAt = Date.now()
+    a.version = 2
+    trigger.onSaved('a', 2)
+    await vi.advanceTimersByTimeAsync(0)
+    // 남은 입력이 저장됐다 (saveAgain)
+    a.version = 3
+    a.unsaved = false
+    trigger.onSaved('a', 3)
+    await vi.advanceTimersByTimeAsync(RECOMMEND_IDLE_MS)
+
+    expect(requested).toEqual([
+      { at: savedAt, version: 2 },
+      { at: savedAt + RECOMMEND_IDLE_MS, version: 3 },
+    ])
+  })
+
+  it('잘못된 제목으로 저장이 멈춘 뒤 고쳐 입력하면 마지막 입력 5초 뒤 1번만 요청한다', async () => {
+    const a = new FakeSaver()
+    a.stuck = true
+    trigger.onInput('a', a)
+    await vi.advanceTimersByTimeAsync(RECOMMEND_IDLE_MS)
+    expect(request).not.toHaveBeenCalled()
+    expect(a.flush).not.toHaveBeenCalled()
+
+    // 제목을 고치고 이어서 입력한다. 1초 자동 저장이 입력 중간에 끝난다.
+    a.stuck = false
+    typeAndSave('a', a)
+    await vi.advanceTimersByTimeAsync(2_000)
+    typeAndSave('a', a)
+    await vi.advanceTimersByTimeAsync(RECOMMEND_IDLE_MS - 1)
+    expect(request).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(request).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(RECOMMEND_MAX_INTERVAL_MS)
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it('지운 노트는 남은 타이머가 요청하지 않는다', async () => {
+    const a = new FakeSaver()
+    typeAndSave('a', a)
+    trigger.forget('a')
+    trigger.onSaved('a', a.version)
+    await vi.advanceTimersByTimeAsync(RECOMMEND_MAX_INTERVAL_MS)
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('로그아웃하면 모든 노트의 타이머를 버린다', async () => {
+    typeAndSave('a', new FakeSaver())
+    typeAndSave('b', new FakeSaver())
+    trigger.clear()
+    await vi.advanceTimersByTimeAsync(RECOMMEND_MAX_INTERVAL_MS)
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('가져오기로 만든 노트마다 1번 요청하고, 바로 뒤 같은 version이면 다시 요청하지 않는다', async () => {

@@ -20,6 +20,7 @@ import {
   listNotes,
   listTopics,
   moveNote,
+  onSessionChange,
   orderConflictCurrent,
   reorderTopics,
   requestRecommendationJob,
@@ -313,34 +314,28 @@ const recommendTriggers = new WeakMap<QueryClient, RecommendTrigger>()
 /**
  * 추천 요청 시점을 정하는 트리거 (11/04 회의: 마지막 입력 후 RECOMMEND_IDLE_MS, 계속 입력 중이면 RECOMMEND_MAX_INTERVAL_MS마다).
  * 상태는 QueryClient마다 하나라 노트를 옮기거나 편집기가 사라져도 이전 노트의 타이머가 남는다.
- * 추천이 꺼져 있으면(--ai-off 등) 보내지 않는다.
+ * 가져오기 트리거는 requestNow(만든 노트의 version을 넘겨 바로 뒤의 중복 요청을 막는다).
+ * 추천이 꺼져 있으면(--ai-off 등) 보내지 않고, 실패는 알리지 않는다 (10/30: 실패 비노출).
+ * 로그아웃·로그인 만료 때 모든 타이머를 버린다(그 뒤의 요청은 어차피 UNAUTHENTICATED다).
  */
 export function useRecommendTrigger(): RecommendTrigger {
   const qc = useQueryClient()
   let trigger = recommendTriggers.get(qc)
   if (!trigger) {
-    trigger = createRecommendTrigger({
+    const created = createRecommendTrigger({
       enabled: () => qc.getQueryData<Capabilities>(keys.capabilities)?.discoveriesEnabled === true,
       request: async (noteId) => {
         const job = await requestRecommendationJob(noteId)
         qc.setQueryData(keys.recommendationJob(noteId), job)
       },
     })
-    recommendTriggers.set(qc, trigger)
+    onSessionChange((session) => {
+      if (!session) created.clear()
+    })
+    recommendTriggers.set(qc, created)
+    trigger = created
   }
   return trigger
-}
-
-/**
- * 추천 작업을 바로 요청한다 (가져오기 트리거). 만든 노트의 version을 같이 넘겨 바로 뒤의 중복 요청을 막는다.
- * 실패는 알리지 않는다 (10/30: 실패 비노출).
- */
-export function useRequestRecommendations() {
-  const trigger = useRecommendTrigger()
-  return useCallback(
-    (noteId: string, version: number) => trigger.requestNow(noteId, version),
-    [trigger],
-  )
 }
 
 /**
@@ -539,9 +534,12 @@ export function useMoveNote() {
 
 export function useDeleteNote() {
   const qc = useQueryClient()
+  const recommendTrigger = useRecommendTrigger()
   return useMutation({
     mutationFn: (noteId: string) => deleteNote(noteId),
     onSuccess: (_, noteId) => {
+      // 지운 노트에 남은 추천 타이머가 요청하지 않게 한다
+      recommendTrigger.forget(noteId)
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
       // 노트별 추천 카드는 세션 내내 메모리에 두므로, 지운 노트의 것은 함께 버린다
