@@ -1,17 +1,16 @@
 import cytoscape, { type Core, type NodeSingular } from 'cytoscape'
 import fcose from 'cytoscape-fcose'
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import type { Graph, Topic } from '../../api'
+import type { Graph } from '../../api'
 import { useTheme, type Theme } from '../../lib/theme'
 import { nodeColorKey, TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import styles from './GraphView.module.css'
-import { edgeKey, groupId, initialPositions, topicLabel, topicsInGraph } from './pageGraph'
+import { edgeKey, initialPositions, placeNear, sortedById, type Box } from './pageGraph'
 
 cytoscape.use(fcose)
 
 interface Props {
   graph: Graph
-  topics: readonly Topic[]
   colorKeys: ReadonlyMap<string, TopicColorKey>
   /** 고른 선 (edgeKey). 없으면 null */
   selectedEdge: string | null
@@ -25,7 +24,6 @@ const MAX_FIT_ZOOM = 1
 const NEW_NODE_GAP = 80
 const NODE_HEIGHT = 30
 const NODE_FONT_SIZE = 13
-const GROUP_FONT_SIZE = 12
 /** 페이지 알약: 왼쪽 여백 12 + 점 8 + 간격 8 + 글자 + 오른쪽 여백 12 */
 const NODE_CHROME = 40
 const DOT = 8
@@ -86,9 +84,7 @@ const COLOR_KEYS: TopicColorKey[] = [
 
 function graphStyle(theme: Theme): cytoscape.StylesheetJson {
   const ink = resolveColor('color-ink', theme)
-  const inkMuted = splitAlpha(resolveColor('color-ink-muted', theme))
   const canvas = resolveColor('color-canvas', theme)
-  const card = resolveColor('color-surface-card', theme)
   const ghost = splitAlpha(resolveColor('color-border-ghost', theme))
   const font = getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim()
   const dotStyle = {
@@ -100,34 +96,6 @@ function graphStyle(theme: Theme): cytoscape.StylesheetJson {
     'background-position-y': '50%',
   } as const
   return [
-    // 주제 묶음: 점선 테두리 상자, 왼쪽 위에 주제 이름 (W3-13)
-    {
-      selector: 'node.group',
-      style: {
-        shape: 'round-rectangle',
-        'corner-radius': '4px',
-        'background-color': card,
-        'border-width': 1,
-        'border-style': 'dashed',
-        'border-color': ghost.color,
-        'border-opacity': ghost.opacity,
-        padding: '32px',
-        label: 'data(label)',
-        color: inkMuted.color,
-        'text-opacity': inkMuted.opacity,
-        'font-family': font || 'sans-serif',
-        'font-size': GROUP_FONT_SIZE,
-        'text-valign': 'top',
-        'text-halign': 'center',
-        'text-margin-y': 26,
-        // 점(왼쪽 12 + 8) 뒤 8에서 글자가 시작한다
-        'text-margin-x': (ele: NodeSingular) =>
-          -ele.outerWidth() / 2 + (ele.data('labelWidth') as number) / 2 + 28,
-        ...dotStyle,
-        'background-position-x': 12,
-        'background-position-y': 13,
-      },
-    },
     // 페이지: 알약 + 주제 색 점 + 제목
     {
       selector: 'node.page',
@@ -181,11 +149,11 @@ function graphStyle(theme: Theme): cytoscape.StylesheetJson {
 
 /**
  * 페이지 그래프 그림 (Figma W3-13, Cytoscape.js + fcose). 노드는 페이지, 선은 같은 키워드를 공유하는 두 페이지 (방향 없음).
- * 같은 주제의 페이지는 주제 묶음(compound node) 안에 모은다. 처음에는 id로 정한 시작 위치에서 fcose로 배치해
- * 같은 그래프면 열 때마다 같은 그림이다. 이후 다시 받으면 있던 페이지는 그 자리에 두고 새 페이지만 이웃 옆에 놓는다.
+ * 주제(폴더)로 묶지 않고 모든 페이지를 한 판에 둔다. 주제는 노드 점 색과 범례로만 나타낸다.
+ * 처음에는 id로 정한 시작 위치에서 fcose로 배치해 같은 그래프면 열 때마다 같은 그림이다. 이후 다시 받으면 있던 페이지는 그 자리에 두고 새 페이지만 이웃 옆에 놓는다.
  */
 export function GraphCanvas(props: Props) {
-  const { graph, topics, colorKeys, selectedEdge } = props
+  const { graph, colorKeys, selectedEdge } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   const handlers = useRef({ onTapNode: props.onTapNode, onTapEdge: props.onTapEdge })
@@ -204,7 +172,7 @@ export function GraphCanvas(props: Props) {
     cy.on('tap', 'node.page', (e) => handlers.current.onTapNode(e.target.id()))
     cy.on('tap', 'edge', (e) => handlers.current.onTapEdge(e.target.id()))
     cy.on('tap', (e) => {
-      if (e.target === cy || e.target.hasClass?.('group')) handlers.current.onTapEdge(null)
+      if (e.target === cy) handlers.current.onTapEdge(null)
     })
     cyRef.current = cy
     // Cytoscape는 창 크기만 지켜본다. 사이드바를 접고 펴서 칸만 커지거나 줄어도 다시 잰다.
@@ -227,8 +195,6 @@ export function GraphCanvas(props: Props) {
     const cy = cyRef.current
     if (!cy) return
     const firstDraw = cy.elements().empty()
-    const order = topicsInGraph(graph.nodes, topics)
-    const groupIds = new Set(order.map(groupId))
     const nodeIds = new Set(graph.nodes.map((n) => n.id))
     const edgeIds = new Set(graph.edges.map(edgeKey))
     const added: NodeSingular[] = []
@@ -240,36 +206,20 @@ export function GraphCanvas(props: Props) {
       cy.nodes('.page')
         .filter((n) => !nodeIds.has(n.id()))
         .remove()
-      for (const topicId of order) {
-        const id = groupId(topicId)
-        const label = topicLabel(topics, topicId)
-        const data = { id, label, labelWidth: textWidth(label, GROUP_FONT_SIZE) }
-        const colorKey = topicId === null ? 'topic-none' : (colorKeys.get(topicId) ?? 'topic-other')
-        const existing = cy.getElementById(id)
-        if (existing.nonempty()) existing.data({ ...data, colorKey })
-        else cy.add({ group: 'nodes', data: { ...data, colorKey }, classes: 'group' })
-      }
-      for (const n of graph.nodes) {
+      // id 순으로 넣는다. 응답의 노드·선 순서가 달라도 fcose에 같은 순서로 들어가 같은 그림이 나온다.
+      for (const n of sortedById(graph.nodes, (node) => node.id)) {
         const data = {
           id: n.id,
           label: n.title,
           colorKey: nodeColorKey(n, colorKeys),
           width: textWidth(n.title, NODE_FONT_SIZE) + NODE_CHROME,
         }
-        const parent = groupId(n.topicId)
         const existing = cy.getElementById(n.id)
-        if (existing.nonempty()) {
-          existing.data(data)
-          // 다른 주제로 옮긴 페이지는 그 주제 묶음으로 옮긴다
-          if (existing.data('parent') !== parent) existing.move({ parent })
-        } else {
-          added.push(cy.add({ group: 'nodes', data: { ...data, parent }, classes: 'page' }))
-        }
+        // 다른 주제로 옮긴 페이지는 자리는 그대로, 점 색(colorKey)만 바뀐다
+        if (existing.nonempty()) existing.data(data)
+        else added.push(cy.add({ group: 'nodes', data, classes: 'page' }))
       }
-      cy.nodes('.group')
-        .filter((g) => !groupIds.has(g.id()))
-        .remove()
-      for (const e of graph.edges) {
+      for (const e of sortedById(graph.edges, edgeKey)) {
         const id = edgeKey(e)
         if (cy.getElementById(id).nonempty()) continue
         if (nodeIds.has(e.sourceId) && nodeIds.has(e.targetId)) {
@@ -279,7 +229,7 @@ export function GraphCanvas(props: Props) {
     })
 
     if (firstDraw) {
-      const start = initialPositions(graph.nodes, order)
+      const start = initialPositions(graph.nodes)
       cy.nodes('.page').forEach((n) => {
         const p = start.get(n.id())
         if (p) n.position(p)
@@ -292,9 +242,6 @@ export function GraphCanvas(props: Props) {
         packComponents: false,
         nodeRepulsion: 6000,
         idealEdgeLength: 100,
-        nestingFactor: 0.1,
-        gravityCompound: 1,
-        gravityRangeCompound: 1.5,
         padding: 40,
       } as cytoscape.LayoutOptions).run()
       // 페이지가 적으면 화면에 맞추느라 크게 확대된다. 글자가 본문보다 커지지 않게 막는다.
@@ -304,25 +251,32 @@ export function GraphCanvas(props: Props) {
       }
       return
     }
-    // 새 페이지: 이미 자리가 있는 이웃 옆에, 없으면 같은 주제 묶음 옆에, 그것도 없으면 화면 가운데
+    // 새 페이지: 이미 자리가 있는 이웃 옆에, 이웃이 없으면 화면 가운데. 다른 페이지와 겹치면 빈자리를 찾는다.
     const unplaced = new Set(added.map((n) => n.id()))
     const extent = cy.extent()
+    const boxOf = (n: NodeSingular): Box => ({
+      ...n.position(),
+      width: n.data('width') as number,
+      height: NODE_HEIGHT,
+    })
+    const taken = cy
+      .nodes('.page')
+      .filter((n) => !unplaced.has(n.id()))
+      // '.page' 셀렉터로 고른 노드뿐이다
+      .map((n) => boxOf(n as NodeSingular))
     added.forEach((node, i) => {
-      const anchor =
-        (node.neighborhood('node.page').filter((m) => !unplaced.has(m.id()))[0] as
-          NodeSingular | undefined) ??
-        (node.siblings().filter((m) => !unplaced.has(m.id()))[0] as NodeSingular | undefined)
+      const anchor = node.neighborhood('node.page').filter((m) => !unplaced.has(m.id()))[0] as
+        NodeSingular | undefined
       const center = anchor
         ? anchor.position()
         : { x: (extent.x1 + extent.x2) / 2, y: (extent.y1 + extent.y2) / 2 }
       const angle = (i * 2 * Math.PI) / Math.max(added.length, 6)
-      node.position({
-        x: center.x + NEW_NODE_GAP * Math.cos(angle),
-        y: center.y + NEW_NODE_GAP * Math.sin(angle),
-      })
+      const size = { width: node.data('width') as number, height: NODE_HEIGHT }
+      node.position(placeNear(center, angle, size, taken, NEW_NODE_GAP))
+      taken.push(boxOf(node))
       unplaced.delete(node.id())
     })
-  }, [graph, topics, colorKeys])
+  }, [graph, colorKeys])
 
   // 고른 선과 두 끝 페이지 표시 (W3-13b)
   useEffect(() => {
