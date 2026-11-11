@@ -20,6 +20,7 @@ import {
   listNotes,
   listTopics,
   moveNote,
+  onSessionChange,
   orderConflictCurrent,
   reorderTopics,
   requestRecommendationJob,
@@ -38,6 +39,7 @@ import {
 } from '../api'
 import { createAnalysisPoller, isAnalysisActive } from '../lib/analysisPoll'
 import { resolveCapabilities } from '../lib/capabilities'
+import { createRecommendTrigger, type RecommendTrigger } from './recommendTrigger'
 import type { RecommendationAnswer } from '../lib/recommendations'
 import { nextUntitledTitle } from '../lib/names'
 
@@ -151,8 +153,6 @@ export function useGraph(enabled: boolean) {
   return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal), enabled })
 }
 
-/** 저장한 뒤 이만큼 더 고치지 않으면 추천을 요청한다 (자동 저장마다 LLM을 돌리지 않게, docs PR #17) */
-export const RECOMMEND_AFTER_SAVE_MS = 5000
 /** 추천 작업 polling 간격 (FE 선호안: 작업 ID + polling) */
 export const RECOMMEND_POLL_MS = 2000
 
@@ -257,88 +257,85 @@ export function useRecommendationAnswers() {
   })
   const sending = useMemo(() => new Set(Object.keys(sendingIds)), [sendingIds])
   const answer = useCallback(
-    async (recommendationId: string, action: RecommendationAnswer) => {
-      // 같은 카드에 답이 겹쳐도(예: '이해가 안 됨' 전송 중에 '이해함') 마지막 요청이 끝날 때까지 전송 중으로 센다
-      const setSending = (delta: 1 | -1) =>
-        qc.setQueryData<Record<string, number>>(keys.recommendationSending, (prev) => {
-          const next = { ...prev }
-          const count = (next[recommendationId] ?? 0) + delta
-          if (count > 0) next[recommendationId] = count
-          else delete next[recommendationId]
-          return next
-        })
-      const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
-        keys.recommendationAnswers,
-      )?.[recommendationId]
-      qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => ({
-        ...prev,
-        [recommendationId]: action,
-      }))
-      setSending(1)
-      try {
-        await sendRecommendationFeedback(recommendationId, action)
-        setSending(-1)
-      } catch (e) {
-        // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
-        // 추천을 합칠 때 카드가 빠질 수 있다.
-        qc.setQueryData<Record<string, RecommendationAnswer>>(
-          keys.recommendationAnswers,
-          (prev) => {
-            // 그 사이 다른 답을 골랐으면 그대로 둔다
-            if (prev?.[recommendationId] !== action) return prev
-            const next = { ...prev }
-            if (before === undefined) delete next[recommendationId]
-            else next[recommendationId] = before
-            return next
-          },
-        )
-        setSending(-1)
-        throw e
-      }
-    },
+    (recommendationId: string, action: RecommendationAnswer) =>
+      submitRecommendationAnswer(qc, recommendationId, action),
     [qc],
   )
   return { answers: data, sending, answer }
 }
 
-/** 추천 작업을 바로 요청한다 (가져오기 트리거). 추천이 꺼져 있으면 보내지 않는다. */
-export function useRequestRecommendations() {
-  const qc = useQueryClient()
-  return useCallback(
-    async (noteId: string) => {
-      if (qc.getQueryData<Capabilities>(keys.capabilities)?.discoveriesEnabled !== true) return
-      try {
-        const job = await requestRecommendationJob(noteId)
-        qc.setQueryData(keys.recommendationJob(noteId), job)
-      } catch {
-        // 추천 실패는 알리지 않는다 (10/30: 실패 비노출). 다음 저장 때 다시 요청한다.
-      }
-    },
-    [qc],
-  )
+/**
+ * 추천 카드에 답한다 (useRecommendationAnswers의 answer). 답을 바로 캐시에 반영하고 보낸다.
+ * 실패하면(409 포함) 답을 되돌려 답 기록에 남기지 않고 오류를 던진다. 409(근거가 바뀐 추천)를 어떻게 보일지는 부른 쪽이 정한다.
+ */
+export async function submitRecommendationAnswer(
+  qc: QueryClient,
+  recommendationId: string,
+  action: RecommendationAnswer,
+): Promise<void> {
+  // 같은 카드에 답이 겹쳐도(예: '이해가 안 됨' 전송 중에 '이해함') 마지막 요청이 끝날 때까지 전송 중으로 센다
+  const setSending = (delta: 1 | -1) =>
+    qc.setQueryData<Record<string, number>>(keys.recommendationSending, (prev) => {
+      const next = { ...prev }
+      const count = (next[recommendationId] ?? 0) + delta
+      if (count > 0) next[recommendationId] = count
+      else delete next[recommendationId]
+      return next
+    })
+  const before = qc.getQueryData<Record<string, RecommendationAnswer>>(
+    keys.recommendationAnswers,
+  )?.[recommendationId]
+  qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => ({
+    ...prev,
+    [recommendationId]: action,
+  }))
+  setSending(1)
+  try {
+    await sendRecommendationFeedback(recommendationId, action)
+    setSending(-1)
+  } catch (e) {
+    // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
+    // 추천을 합칠 때 카드가 빠질 수 있다.
+    qc.setQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers, (prev) => {
+      // 그 사이 다른 답을 골랐으면 그대로 둔다
+      if (prev?.[recommendationId] !== action) return prev
+      const next = { ...prev }
+      if (before === undefined) delete next[recommendationId]
+      else next[recommendationId] = before
+      return next
+    })
+    setSending(-1)
+    throw e
+  }
 }
 
-const recommendTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const recommendTriggers = new WeakMap<QueryClient, RecommendTrigger>()
 
 /**
- * 저장 트리거: 저장할 때마다 부르면, 마지막 저장 뒤 RECOMMEND_AFTER_SAVE_MS 동안 더 저장하지 않을 때 한 번 요청한다.
- * 노트를 떠나도 예약은 남는다 (그 노트의 마지막 내용으로 요청).
+ * 추천 요청 시점을 정하는 트리거 (11/04 회의: 마지막 입력 후 RECOMMEND_IDLE_MS, 계속 입력 중이면 RECOMMEND_MAX_INTERVAL_MS마다).
+ * 상태는 QueryClient마다 하나라 노트를 옮기거나 편집기가 사라져도 이전 노트의 타이머가 남는다.
+ * 가져오기 트리거는 requestNow(만든 노트의 version을 넘겨 바로 뒤의 중복 요청을 막는다).
+ * 추천이 꺼져 있으면(--ai-off 등) 보내지 않고, 실패는 알리지 않는다 (10/30: 실패 비노출).
+ * 로그아웃·로그인 만료 때 모든 타이머를 버린다(그 뒤의 요청은 어차피 UNAUTHENTICATED다).
  */
-export function useScheduleRecommendations() {
-  const requestNow = useRequestRecommendations()
-  return useCallback(
-    (noteId: string) => {
-      clearTimeout(recommendTimers.get(noteId))
-      recommendTimers.set(
-        noteId,
-        setTimeout(() => {
-          recommendTimers.delete(noteId)
-          void requestNow(noteId)
-        }, RECOMMEND_AFTER_SAVE_MS),
-      )
-    },
-    [requestNow],
-  )
+export function useRecommendTrigger(): RecommendTrigger {
+  const qc = useQueryClient()
+  let trigger = recommendTriggers.get(qc)
+  if (!trigger) {
+    const created = createRecommendTrigger({
+      enabled: () => qc.getQueryData<Capabilities>(keys.capabilities)?.discoveriesEnabled === true,
+      request: async (noteId) => {
+        const job = await requestRecommendationJob(noteId)
+        qc.setQueryData(keys.recommendationJob(noteId), job)
+      },
+    })
+    onSessionChange((session) => {
+      if (!session) created.clear()
+    })
+    recommendTriggers.set(qc, created)
+    trigger = created
+  }
+  return trigger
 }
 
 /**
@@ -537,9 +534,12 @@ export function useMoveNote() {
 
 export function useDeleteNote() {
   const qc = useQueryClient()
+  const recommendTrigger = useRecommendTrigger()
   return useMutation({
     mutationFn: (noteId: string) => deleteNote(noteId),
     onSuccess: (_, noteId) => {
+      // 지운 노트에 남은 추천 타이머가 요청하지 않게 한다
+      recommendTrigger.forget(noteId)
       qc.removeQueries({ queryKey: keys.note(noteId) })
       qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
       // 노트별 추천 카드는 세션 내내 메모리에 두므로, 지운 노트의 것은 함께 버린다

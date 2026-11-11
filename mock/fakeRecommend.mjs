@@ -4,7 +4,11 @@
 // 그 키워드가 들어간 문장을 두 노트에서 하나씩 골라 근거 A·B로 삼는다. 외부 지식과 결론은 정해 둔 예시 문장이다.
 // 같은 추천(같은 두 노트 + 같은 키워드)은 다시 분석해도 같은 id다 (BE가 지문으로 묶는 것을 흉내 낸다).
 // 같은 노트를 다시 분석하면(2회차부터) 패널의 합치기(11/04 회의)를 확인할 수 있게 일부러 결과를 흔든다:
-// 같은 id 카드는 결론을 조금 바꾸고, 하나는 빼고(3개 이상일 때), 새 id 카드 3개를 더하고, 순서를 섞는다.
+// 같은 id 카드는 결론을 조금 바꾸고, 역할이 '그대로'인 카드 하나는 빼고, 새 id 카드 3개를 더하고, 순서를 섞는다.
+// 또 근거가 바뀐 카드 처리(11/04 회의)를 확인할 수 있게, 같은 id 카드에 회차마다 돌아가며 역할을 준다
+// (statusRole): stale · evidence_lost · 새 revision(current) · 그대로(current).
+// 이번 회차에 stale이던 카드는 다음 회차에 새 revision으로 돌아온다. evidence_lost였던 카드는 다음 회차에
+// 같은 revision의 current로 오므로 FE에서는 막힌 채로 남는다. 상태(status)와 revision은 계약 반영 전 가정 필드다.
 
 import { createHash, randomUUID } from 'node:crypto'
 
@@ -17,6 +21,17 @@ const keyOf = (/** @type {string} */ label) =>
 const MAX_RECOMMENDATIONS = 8
 /** 다시 분석할 때마다 더하는 새 id 카드 수 */
 const EXTRA_PER_ROUND = 3
+
+/** 같은 id 카드의 역할 순서 (statusRole) */
+const ROLES = /** @type {const} */ (['stale', 'evidence_lost', 'revised', 'current'])
+
+/**
+ * 다시 분석할 때(round > 1) 같은 id 카드 i번째의 역할. 회차마다 두 칸씩 돌아, stale이던 카드가 다음 회차에 revised가 된다.
+ * @param {number} i @param {number} round
+ */
+export function statusRole(i, round) {
+  return ROLES[(i + 2 * round) % ROLES.length]
+}
 
 /** 지문 → UUID 모양의 고정 id. 같은 지문이면 늘 같은 id다 */
 function fingerprintId(/** @type {string} */ text) {
@@ -71,9 +86,11 @@ export function keywordSentences(note) {
 /**
  * 요청한 노트(P)와 다른 노트(Q)가 같은 키워드를 쓰면 추천 하나. 다른 노트와 공유한 키워드마다 하나씩, 최대 8개.
  * round는 이 노트를 몇 번째로 분석하는지다 (1부터). 2회차부터는 위 머리말처럼 결과를 흔든다.
+ * revisions는 추천 id → 마지막으로 준 revision이다. 새 revision을 주면 여기에 적는다.
  * @param {NoteLike} note @param {NoteLike[]} others @param {number} [round]
+ * @param {Map<string, number>} [revisions]
  */
-export function buildRecommendations(note, others, round = 1) {
+export function buildRecommendations(note, others, round = 1, revisions = new Map()) {
   const mine = keywordSentences(note)
   /** @type {{ other: NoteLike, key: string, A: Evidence, B: Evidence, label: string, shared: string[] }[]} */
   const pairs = []
@@ -93,6 +110,7 @@ export function buildRecommendations(note, others, round = 1) {
     /** @type {(typeof pairs)[number]} */ p,
     /** @type {string} */ id,
     /** @type {string} */ conclusion,
+    /** @type {'current' | 'stale' | 'evidence_lost'} */ status = 'current',
   ) => ({
     id,
     evidenceA: p.A,
@@ -100,17 +118,25 @@ export function buildRecommendations(note, others, round = 1) {
     externalKnowledge: EXTERNAL,
     conclusion,
     relatedKeywords: p.shared,
+    status,
+    revision: revisions.get(id) ?? 0,
   })
-  let out = pairs.map((p) =>
-    card(
-      p,
-      fingerprintId(`${note.id}|${p.other.id}|${p.key}`),
-      `'${note.title}'와 '${p.other.title}'는 '${p.label}'로 이어집니다. (가짜 서버의 예시 결론)${again}`,
-    ),
-  )
+  let out = pairs.map((p, i) => {
+    const id = fingerprintId(`${note.id}|${p.other.id}|${p.key}`)
+    const conclusion = `'${note.title}'와 '${p.other.title}'는 '${p.label}'로 이어집니다. (가짜 서버의 예시 결론)${again}`
+    if (round === 1) return card(p, id, conclusion)
+    const role = statusRole(i, round)
+    if (role === 'revised') {
+      const revision = (revisions.get(id) ?? 0) + 1
+      revisions.set(id, revision)
+      return card(p, id, `${conclusion} [근거 갱신 rev ${revision}]`)
+    }
+    return card(p, id, conclusion, role === 'current' ? 'current' : role)
+  })
   if (round > 1 && pairs.length > 0) {
-    // 하나는 이번 결과에서 빠진다
-    if (out.length >= 3) out.splice((round - 2) % out.length, 1)
+    // 역할이 '그대로'(current)인 카드 하나는 이번 결과에서 빠진다 (막힌 카드·갱신 카드는 늘 보이게)
+    const drop = pairs.findIndex((_, i) => statusRole(i, round) === 'current')
+    if (drop >= 0) out.splice(drop, 1)
     // 새 id 카드: 같은 근거를 다른 관점으로 본 예시. 회차마다 id가 새로 생긴다
     for (let i = 0; i < EXTRA_PER_ROUND; i++) {
       const p = pairs[(round + i) % pairs.length]
@@ -145,6 +171,10 @@ export function createRecommendationQueue(deps, options = {}) {
   const feedback = new Map()
   /** @type {Map<string, number>} 노트 → 끝난 추천 작업 수 (다시 분석한 회차) */
   const rounds = new Map()
+  /** @type {Map<string, number>} 추천 id → 마지막으로 준 revision */
+  const revisions = new Map()
+  /** @type {Map<string, string>} 추천 id → 마지막으로 준 상태. current가 아니면 답에 409 */
+  const statuses = new Map()
 
   return {
     /** @param {NoteLike} note */
@@ -166,9 +196,14 @@ export function createRecommendationQueue(deps, options = {}) {
         const current = deps.getNote(note.id)
         const round = (rounds.get(note.id) ?? 0) + 1
         rounds.set(note.id, round)
-        const recommendations = current ? buildRecommendations(current, deps.allNotes(), round) : []
-        // 같은 id로 다시 온 추천은 이미 받은 답을 지우지 않는다
-        for (const r of recommendations) if (!feedback.has(r.id)) feedback.set(r.id, null)
+        const recommendations = current
+          ? buildRecommendations(current, deps.allNotes(), round, revisions)
+          : []
+        for (const r of recommendations) {
+          // 같은 id로 다시 온 추천은 이미 받은 답을 지우지 않는다
+          if (!feedback.has(r.id)) feedback.set(r.id, null)
+          statuses.set(r.id, r.status)
+        }
         jobs.set(job.id, {
           ...job,
           status: 'completed',
@@ -180,14 +215,16 @@ export function createRecommendationQueue(deps, options = {}) {
     },
 
     /**
-     * 추천 카드의 답. 없는 추천이면 false. 같은 추천에 다시 보내면 마지막 답으로 바꾼다
-     * (재전송 처리는 계약에서 TBD). 그래프 반영·거절 기록은 흉내 내지 않는다.
+     * 추천 카드의 답. 없는 추천이면 'missing', 마지막으로 준 상태가 current가 아니면(stale·evidence_lost) 'stale'(409).
+     * 같은 추천에 다시 보내면 마지막 답으로 바꾼다 (재전송 처리는 계약에서 TBD). 그래프 반영·거절 기록은 흉내 내지 않는다.
      * @param {string} recommendationId @param {string} action
+     * @returns {'ok' | 'missing' | 'stale'}
      */
     feedback(recommendationId, action) {
-      if (!feedback.has(recommendationId)) return false
+      if (!feedback.has(recommendationId)) return 'missing'
+      if ((statuses.get(recommendationId) ?? 'current') !== 'current') return 'stale'
       feedback.set(recommendationId, action)
-      return true
+      return 'ok'
     },
 
     /** @param {string} jobId */

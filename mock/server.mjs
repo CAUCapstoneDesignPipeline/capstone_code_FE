@@ -414,8 +414,11 @@ export function createStore(analysisOptions) {
       const action = asObject(input).action
       if (typeof action !== 'string' || !['understood', 'known', 'confused'].includes(action))
         throw invalid('action', 'invalid', '응답을 다시 선택하세요.')
-      if (!recommendations.feedback(id, action))
-        throw new HttpError(404, 'NOT_FOUND', '추천을 찾을 수 없습니다.')
+      const result = recommendations.feedback(id, action)
+      if (result === 'missing') throw new HttpError(404, 'NOT_FOUND', '추천을 찾을 수 없습니다.')
+      // 근거가 바뀐 추천 (11/04 회의, 계약 반영 전). 계약에 맞는 code가 없어 가정한 code를 쓴다 (FE는 409로 판단한다)
+      if (result === 'stale')
+        throw new HttpError(409, 'RECOMMENDATION_STALE', '근거가 바뀌어 답할 수 없습니다.')
     },
 
     /** @param {string} jobId */

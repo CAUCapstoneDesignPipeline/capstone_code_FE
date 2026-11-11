@@ -94,6 +94,9 @@ export class NoteSaver {
 
   getState = (): SaverState => this.state
 
+  /** 서버에 저장된 것으로 아는 마지막 version (근거의 noteVersion과 비교한다) */
+  getVersion = (): number => this.version
+
   // --- 편집기에서 부르는 것 ---
 
   /** 입력이 바뀔 때마다 부른다 */
