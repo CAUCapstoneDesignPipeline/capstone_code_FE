@@ -493,7 +493,7 @@ export interface paths {
         /**
          * 분석 요청 (명시적 분석)
          * @deprecated
-         * @description AI-off의 기존 인증/소유 확인 후503 AI_UNAVAILABLE/NOT_DEPLOYED와 무작업 생성 규칙은 유지한다. 활성 local/test 개발은 명시 POST만 접수하며 노트 저장/이동/확정으로 자동 실행하지 않는다. 같은 노트의 active 작업은 기존 job을202로 반환한다. 예산/profile/readiness 설정이 맞지 않으면 fail-closed503이다.
+         * @description AI-off의 기존 인증/소유 확인 후503 AI_UNAVAILABLE/NOT_DEPLOYED와 무작업 생성 규칙은 유지한다. 활성 local/test 개발은 명시 POST만 접수하며 노트 저장/이동/확정으로 자동 실행하지 않는다. 같은 노트의 active 작업은 기존 job을202로 반환한다. 예산/profile/readiness 설정이 맞지 않으면 fail-closed503이다. 이미 접수된 요청이 다른 노트 수정으로 superseded되면 BE가 추가 POST 없이 같은 노트를 최신 내용으로 한 번 이어 실행한다(연속 3회 대체 시 중단, 실패·시간 초과·취소는 이어 실행하지 않음). 이어 실행 대기 중인 최신 작업은 GET에서 status pending으로 보인다. 이어 실행은 새 자동 실행이 아니라 접수된 명시 요청의 계속이다 (BE 결정 11/11, 팀 회의 확인 전).
          */
         post: operations["requestNoteAnalysis"];
         delete?: never;
@@ -541,10 +541,10 @@ export interface paths {
          *     scope=all이면 사용자의 모든 페이지, topic이면 그 주제의 페이지와 그 페이지들 사이의 엣지만 준다.
          *     공유 키워드가 없는 페이지도 노드로 준다(고립 노드).
          *     0.4.0-draft: 개념 노드·관계 엣지 모양에서 바꿨다. scope=note와 includeLost는 뺐다.
-         *     TBD: 엣지 계산 주체. FE 선호안 — BE 결정 필요: BE가 BE·AI 그래프에서 계산해 내려준다.
-         *     FE 계산으로 정하면 이 응답은 페이지별 키워드 목록을 주는 모양으로 바뀐다.
-         *     TBD: 페이지가 많을 때의 응답 크기·속도(10/30: 느리면 다른 방법 검토).
-         *     TBD: topics 유지 여부. 주제를 없애면 scope=topic과 topicId도 뺀다.
+         *     엣지는 BE가 BE·AI 그래프에서 계산한다. 키워드는 노트마다 그 노트를 포함한 가장 최근 성공 분석에서 추출된 개념이며,
+         *     병합된 개념이나 정규화(NFC·공백·대소문자)한 이름이 같은 개념을 같은 키워드로 본다. sharedKeywords는 항상 준다 (BE 결정 11/11, 팀 회의 확인 전).
+         *     응답 크기는 우선 제한하지 않고 사용자 입력 그대로 한 번에 준다. 실측에서 느리면 페이지 수 제한 기준을 정한다(11/4 결정).
+         *     TBD: topics 유지 여부(FE 확인). 확인 전까지 scope=topic·topicId·GraphNode.topicId를 유지한다.
          */
         get: operations["getGraph"];
         put?: never;
@@ -702,8 +702,9 @@ export interface paths {
          *     트리거는 노트 저장(PUT /notes/{noteId} 성공 뒤), 또는 가져오기로 노트를 만든 뒤(POST /notes)다. FE가 그 뒤에 이 요청을 보낸다.
          *     자동 저장마다 보내지 않는다. 호출 빈도(예: 편집이 멈춘 뒤, 페이지를 떠날 때)는 FE가 정한다.
          *     같은 페이지에 아직 끝나지 않은 작업이 있으면 새로 만들지 않고 그 작업을 준다(202).
-         *     생성에 LLM을 쓰므로 비동기다. 생성 실패·보류·결과 없음은 오류가 아니라 빈 결과로 끝나는 작업으로 알린다(10/30: 실패 비노출).
-         *     TBD: AI가 꺼져 있을 때의 응답(202 + 빈 결과 작업 vs 503 AI_UNAVAILABLE). FE는 GET /capabilities가 꺼짐이면 이 요청을 보내지 않는다.
+         *     생성에 LLM을 쓰므로 비동기다. 실패와 결과 없음은 HTTP 오류가 아니라 작업의 outcome으로 구분한다(11/4 결정, BE #74).
+         *     AI가 꺼져 있으면 requestNoteAnalysis와 같은 503 AI_UNAVAILABLE이고 작업을 만들지 않는다. FE는 GET /capabilities가 꺼짐이면 이 요청을 보내지 않는다 (BE 결정 11/11, 팀 회의 확인 전).
+         *     접수된 작업이 다른 노트 수정으로 대체되면 BE가 최신 내용으로 한 번 이어 실행한다(requestNoteAnalysis 참고).
          */
         post: operations["requestRecommendationJob"];
         delete?: never;
@@ -725,11 +726,14 @@ export interface paths {
         /**
          * 추천 작업 결과 조회 (polling)
          * @description status가 pending이면 아직 만드는 중이고, completed면 끝났다. completed가 되면 FE는 polling을 멈춘다.
-         *     completed의 recommendations가 비어 있으면 보여 줄 추천이 없는 것이다.
-         *     실패·보류·결과 없음·더 새 저장으로 대체됨은 모두 completed + 빈 배열로 준다. 사유는 FE에 주지 않는다(10/30).
-         *     TBD: 수신 방식 polling vs SSE. FE 선호안 — BE 결정 필요: polling으로 시작한다. 간격은 FE가 정한다.
-         *     TBD: 작업이 오래 끝나지 않을 때 BE가 completed + 빈 배열로 닫는 시간 기준.
-         *     TBD: 끝난 작업을 얼마나 보관하는지(보관이 끝나면 404).
+         *     completed이면 outcome으로 끝난 이유를 구분한다(11/4 결정, BE #74):
+         *     - RECOMMENDED: 추천이 1개 이상 있다.
+         *     - NO_RECOMMENDATIONS: 정상 분석 뒤 보여 줄 추천이 없다. 보류·기각만 나온 경우와 연속 대체 상한으로 이어 실행하지 않은 경우를 포함한다.
+         *     - RECOMMENDATION_FAILED: AI 호출·응답 검사 실패, 시간 초과, 취소. 내부 실패 사유는 주지 않는다.
+         *     더 새 저장으로 대체된 작업은 같은 노트의 이어 실행 작업 상태를 따른다(이어 실행 대기 중이면 pending).
+         *     수신 방식은 polling이다. 간격은 FE가 정한다. 추천은 한 작업에 최대 5개이며 evidenceA는 항상 요청한 페이지다.
+         *     접수 후 15분(분석 작업 마감)까지 끝나지 않으면 completed + RECOMMENDATION_FAILED로 닫는다.
+         *     끝난 작업은 페이지가 지워질 때까지 보관한다. 페이지를 지우면 함께 지워져 404다 (BE 결정 11/11, 팀 회의 확인 전).
          */
         get: operations["getRecommendationJob"];
         put?: never;
@@ -755,12 +759,13 @@ export interface paths {
         /**
          * 추천 피드백 (이해함 · 알고 있던 내용 · 이해가 안 됨)
          * @description 추천 카드의 버튼 3개에 대응한다.
-         *     - understood ("이해함"): 시스템 그래프(BE·AI 그래프)에 반영한다. TBD: 페이지(문서)에 반영할 위치와 방식(P의 페이지·Q의 페이지·새 페이지, 사용자 직접 수정·AI 추가)은 나중에 결정한다.
-         *     - known ("알고 있던 내용"): 버린다(discard). TBD: 같은 조합 재추천을 막기 위해 거절 기록을 남길지(다음 주 결정).
-         *     - confused ("이해가 안 됨"): 그래프에 반영하지 않는다. FE는 챗봇 화면으로 넘어간다(챗봇은 TBD·보류).
-         *     BE는 내부에서 #11의 검토 이벤트로 매핑할 수 있다. 예: understood → accept + learning=new_understanding, known → reject + reason=already_known.
+         *     - understood ("이해함"): 시스템 그래프(BE·AI 그래프)에 반영한다(검토 이벤트 accept + learning=new_understanding). 페이지 본문은 바꾸지 않는다.
+         *       TBD: 페이지(문서)에 반영할 위치와 방식은 나중에 결정한다(11/4: 사용자가 허용할 때만).
+         *     - known ("알고 있던 내용"): 버린다(검토 이벤트 reject + reason=already_known). 같은 후보 지문은 다시 추천하지 않는다.
+         *     - confused ("이해가 안 됨"): 그래프에 반영하지 않는다. FE는 챗봇 화면(POST /recommendations/{recommendationId}/chat)으로 넘어간다.
          *     매핑과 revision·멱등 키 관리는 BE가 맡는다. FE는 보내지 않는다.
-         *     TBD: 같은 추천에 피드백을 다시 보낼 때의 처리(같은 action 재전송, 다른 action으로 변경).
+         *     다시 보낼 때 (BE 결정 11/11, 팀 회의 확인 전): 같은 action 재전송은 204. confused 뒤 understood·known은 204.
+         *     understood·known 뒤 다른 action은 409 REVIEW_CONFLICT. freshness가 stale·evidence_lost인 추천에는 어떤 action이든 409 RECOMMENDATION_STALE이며 답을 기록하지 않는다.
          */
         post: operations["sendRecommendationFeedback"];
         delete?: never;
@@ -782,10 +787,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 챗봇 (TBD · 보류)
-         * @description TBD: 챗봇은 보류다. 이 operation은 자리만 잡아 둔다. 요청·응답 모양, 대화 저장 여부, 스트리밍 여부는 정하지 않았다.
-         *     10/30 회의 기준: "이해가 안 됨"을 누르면 넘어가며, 근거 A·근거 B·외부 지식을 컨텍스트로 넘기고 챗봇이 쉽게 풀어 설명한다.
-         *     화면은 FE가 만들고 대화 응답은 BE·AI가 맡는다.
+         * 추천 챗봇 (여러 턴, SSE)
+         * @description "이해가 안 됨"을 누른 추천 카드를 배경 자료로 여러 턴 대화한다 (BE 결정 11/11, 팀 회의 확인 전).
+         *     BE가 추천 id로 카드(결론·근거 A·B·키워드)를 채워 AI에 보낸다. FE는 카드 내용을 다시 보내지 않는다.
+         *     대화는 저장하지 않는다. FE가 매번 지금까지의 messages를 모두 보낸다(새로 고치면 대화가 사라진다).
+         *     응답은 SSE(text/event-stream)다. 이벤트는 start(conversationId) · delta(text) · done(stopReason) · error(code, message, retryable)뿐이다.
+         *     첫 글자가 나오기 전의 오류는 보통의 HTTP 오류로, 글이 나온 뒤의 오류나 중간에 끊긴 스트림은 error 이벤트(code CHAT_INTERRUPTED)로 끝난다.
+         *     FE가 연결을 끊으면 AI 호출도 멈춘다. 한 응답은 최대 3분이다. 카드와 대화가 AI 입력 한도(60,000자)를 넘으면 자르지 않고 413이다.
          */
         post: operations["chatAboutRecommendation"];
         delete?: never;
@@ -1144,7 +1152,7 @@ export interface components {
                  * @description AI_UNAVAILABLE는 승인된 AI-off 공개 계약의 코드다.
                  * @enum {string}
                  */
-                code: "VALIDATION_FAILED" | "UNAUTHENTICATED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "TOPIC_ORDER_CONFLICT" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "CANDIDATE_CLOSED" | "REVIEW_CONFLICT" | "UPLOAD_LIMIT_EXCEEDED" | "UNSUPPORTED_FILE_TYPE" | "CONVERSION_UNAVAILABLE" | "CONVERSION_CONFLICT" | "AI_UNAVAILABLE" | "INTERNAL";
+                code: "VALIDATION_FAILED" | "UNAUTHENTICATED" | "NOT_FOUND" | "TOPIC_NAME_TAKEN" | "TOPIC_ORDER_CONFLICT" | "NOTE_TITLE_TAKEN" | "NOTE_CONFLICT" | "CANDIDATE_CLOSED" | "REVIEW_CONFLICT" | "RECOMMENDATION_STALE" | "UPLOAD_LIMIT_EXCEEDED" | "CHAT_INPUT_TOO_LARGE" | "UNSUPPORTED_FILE_TYPE" | "CONVERSION_UNAVAILABLE" | "CONVERSION_CONFLICT" | "AI_UNAVAILABLE" | "INTERNAL";
                 /** @description 사용자에게 그대로 보여줄 한국어 문장. 문구는 기능명세서 7.1 */
                 message: string;
                 /**
@@ -1388,11 +1396,12 @@ export interface components {
         };
         /**
          * @description 추천(사용자가 모르는 지식) 작업. pending이면 만드는 중, completed면 끝났다.
-         *     실패·보류·결과 없음은 completed + 빈 recommendations로 준다(10/30: 실패 비노출).
+         *     completed의 끝난 이유는 outcome으로 구분한다(11/4 결정, BE #74).
          * @example {
          *       "id": "3f6c2a10-7d4e-4b8a-9c21-5e0f1a2b3c4d",
          *       "noteId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
          *       "status": "pending",
+         *       "outcome": null,
          *       "recommendations": [],
          *       "createdAt": "2026-10-31T05:12:00Z",
          *       "completedAt": null
@@ -1408,6 +1417,11 @@ export interface components {
             noteId: string;
             /** @enum {string} */
             status: "pending" | "completed";
+            /**
+             * @description pending이면 null. 추천 있음 · 추천 없음(보류 포함) · 분석 실패(시간 초과·취소 포함)
+             * @enum {string|null}
+             */
+            outcome: "RECOMMENDED" | "NO_RECOMMENDATIONS" | "RECOMMENDATION_FAILED" | null;
             /** @description completed일 때만 채운다. pending이면 빈 배열 */
             recommendations: components["schemas"]["Recommendation"][];
             /** Format: date-time */
@@ -1419,8 +1433,12 @@ export interface components {
          * @description 추천 카드 하나. "A의 문장(페이지 P) + B의 문장(페이지 Q) + 외부 지식 → 결론" (10/30, Figma W3-02).
          *     TBD: 결과가 "새 키워드"인지 "기존 키워드의 새 개념"인지 구분하는 방식(다음 주 결정). 결정 전에는 구분 필드를 넣지 않는다.
          *     TBD: 새 키워드의 source에 인터넷 URL을 넣을지. externalKnowledge.sourceUrl을 카드에 보여 주는 것과는 별개다.
+         *     id는 후보 지문(사용자 + 근거 페이지 쌍 + 경로 키워드 이름 A-B-C, LLM 결론 제외)으로 정해져 재분석해도 유지된다.
+         *     같은 지문이 다시 나오면 결론·근거가 바뀌었을 때만 revision이 오른다. FE는 id로 중복을 거르고 같은 id면 카드 내용을 바꾼다 (BE 결정 11/11, 팀 회의 확인 전).
          * @example {
          *       "id": "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e",
+         *       "revision": 1,
+         *       "freshness": "current",
          *       "evidenceA": {
          *         "noteId": "8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70",
          *         "noteTitle": "재시도 정책",
@@ -1451,9 +1469,22 @@ export interface components {
         Recommendation: {
             /** Format: uuid */
             id: string;
+            /** @description 결론·근거가 바뀔 때 오른다 */
+            revision: number;
+            /**
+             * @description current: 인용한 근거 문장이 페이지 본문에 그대로 있다.
+             *     evidence_lost: 근거 문장이 하나라도 사라졌거나 페이지가 지워졌다.
+             *     stale: 문장은 있지만 같은 요청 페이지의 더 새 분석에서 다시 나오지 않았거나 분석 정책이 바뀌었다.
+             *     stale·evidence_lost에 답하면 409 RECOMMENDATION_STALE이다. 문장을 되돌려도 current로 돌아오지 않는다 (BE 결정 11/11, 팀 회의 확인 전).
+             * @enum {string}
+             */
+            freshness: "current" | "stale" | "evidence_lost";
+            /** @description 요청한 페이지의 근거 */
             evidenceA: components["schemas"]["RecommendationEvidence"];
+            /** @description 다른 페이지의 근거 */
             evidenceB: components["schemas"]["RecommendationEvidence"];
-            externalKnowledge: components["schemas"]["ExternalKnowledge"];
+            /** @description 외부 지식을 쓰지 않은 결과는 null. 현재 AI 파이프라인은 외부 지식을 만들지 않아 항상 null이다 (BE 결정 11/11, 팀 회의 확인 전) */
+            externalKnowledge: components["schemas"]["ExternalKnowledge"] | null;
             /** @description LLM이 만든 결론 */
             conclusion: string;
             /** @description 관련 키워드 이름. 비어 있을 수 있다 */
@@ -1513,6 +1544,22 @@ export interface components {
         RecommendationFeedback: {
             /** @enum {string} */
             action: "understood" | "known" | "confused";
+        };
+        /**
+         * @description 추천 챗봇 요청. 대화는 저장하지 않으므로 지금까지의 대화를 모두 보낸다.
+         *     messages는 user로 시작하고 user로 끝나며 user·assistant가 번갈아 나온다.
+         */
+        RecommendationChatRequest: {
+            /**
+             * Format: uuid
+             * @description 추적용. 없으면 BE가 만든다. start 이벤트로 돌려준다
+             */
+            conversationId?: string;
+            messages: {
+                /** @enum {string} */
+                role: "user" | "assistant";
+                content: string;
+            }[];
         };
         /**
          * @description 가져오기 변환 결과(공개용). 확정 전에 FE가 미리 보고 고친다.
@@ -3302,6 +3349,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NoteNotFoundOnGet"];
             500: components["responses"]["Internal"];
+            503: components["responses"]["AiUnavailable"];
         };
     };
     getRecommendationJob: {
@@ -3380,6 +3428,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["RecommendationNotFound"];
+            /** @description 최종 답 뒤 다른 답(REVIEW_CONFLICT) 또는 근거가 바뀌거나 사라진 추천(RECOMMENDATION_STALE) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["Internal"];
         };
     };
@@ -3393,15 +3450,82 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "conversationId": "2b1c0d9e-8f7a-4b6c-9d5e-4f3a2b1c0d9e",
+                 *       "messages": [
+                 *         {
+                 *           "role": "user",
+                 *           "content": "멱등하다는 게 무슨 뜻이야?"
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["RecommendationChatRequest"];
+            };
+        };
         responses: {
-            401: components["responses"]["Unauthenticated"];
-            /** @description TBD. 아직 제공하지 않음 */
-            501: {
+            /** @description SSE 스트림 */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example event:start
+                     *     data:{"conversationId":"2b1c0d9e-8f7a-4b6c-9d5e-4f3a2b1c0d9e"}
+                     *
+                     *     event:delta
+                     *     data:{"text":"같은 요청을 여러 번 보내도"}
+                     *
+                     *     event:done
+                     *     data:{"stopReason":"end_turn"}
+                     */
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["RecommendationNotFound"];
+            /** @description 카드와 대화가 AI 입력 한도를 넘음. 새 대화로 다시 시작한다 */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CHAT_INPUT_TOO_LARGE",
+                     *         "message": "대화가 너무 깁니다. 새 대화로 다시 시작해 주세요."
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
+            /** @description AI_UNAVAILABLE. details.reason: NOT_DEPLOYED · CHAT_DISABLED · BUSY · TIMEOUT · UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AI_UNAVAILABLE",
+                     *         "message": "챗봇을 지금 사용할 수 없습니다.",
+                     *         "details": {
+                     *           "reason": "CHAT_DISABLED"
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };

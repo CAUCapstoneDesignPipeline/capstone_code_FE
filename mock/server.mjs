@@ -5,10 +5,11 @@
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
-// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off]
+// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off --external-knowledge]
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
 //   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
-//   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번).
+//   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번). 추천 작업도 outcome RECOMMENDATION_FAILED로 끝난다.
+//   --external-knowledge: 추천에 예시 외부 지식을 넣는다. 기본은 지금 AI처럼 null이다 (AI #19).
 //   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프·추천 경로는 404.
 
 import { randomUUID } from 'node:crypto'
@@ -118,7 +119,11 @@ export function createStore(analysisOptions) {
   )
   const recommendations = createRecommendationQueue(
     { getNote: (id) => notes.get(id), allNotes: () => [...notes.values()], now },
-    { runMs: analysisOptions?.runMs },
+    {
+      runMs: analysisOptions?.runMs,
+      fail: analysisOptions?.fail,
+      external: analysisOptions?.externalKnowledge,
+    },
   )
 
   /** @param {string} id */
@@ -416,9 +421,12 @@ export function createStore(analysisOptions) {
         throw invalid('action', 'invalid', '응답을 다시 선택하세요.')
       const result = recommendations.feedback(id, action)
       if (result === 'missing') throw new HttpError(404, 'NOT_FOUND', '추천을 찾을 수 없습니다.')
-      // 근거가 바뀐 추천 (11/04 회의, 계약 반영 전). 계약에 맞는 code가 없어 가정한 code를 쓴다 (FE는 409로 판단한다)
+      // 근거가 바뀌었거나 사라진 추천 (11/04 회의, docs PR #22). 답을 기록하지 않는다
       if (result === 'stale')
         throw new HttpError(409, 'RECOMMENDATION_STALE', '근거가 바뀌어 답할 수 없습니다.')
+      // 최종 답(understood·known) 뒤 다른 답 (docs PR #22)
+      if (result === 'conflict')
+        throw new HttpError(409, 'REVIEW_CONFLICT', '이미 답한 추천입니다.')
     },
 
     /** @param {string} jobId */
@@ -682,6 +690,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     runMs: numberArg(argv, 'analysis-run', 1500),
     fail: argv.includes('--fail-analysis'),
     off: argv.includes('--ai-off'),
+    externalKnowledge: argv.includes('--external-knowledge'),
   }
   createMockServer({ delayMs, log: true, analysis }).listen(port, '127.0.0.1', () => {
     console.log(`가짜 서버: http://localhost:${port}${delayMs ? ` (응답 지연 ${delayMs}ms)` : ''}`)
