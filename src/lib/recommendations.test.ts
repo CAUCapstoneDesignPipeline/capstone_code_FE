@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { Recommendation } from '../api'
 import {
+  isAnswerable,
+  leaveRecommendation,
+  markStale,
+  mergeToast,
+  REFRESHED_TOAST,
+  revisionOf,
+  STATUS_NOTICE,
+  statusOf,
   viewingIndex,
   cardAfterAnswer,
   currentIndex,
@@ -267,5 +275,134 @@ describe('viewingIndex', () => {
     const merged = mergeRecommendations(cards, '6', [rec('x')], {})
     expect(ids(merged.cards)).toEqual(['1', '2', '3', '4', '5', 'x'])
     expect(merged.currentId).toBe('5')
+  })
+})
+
+describe('근거가 바뀐 카드 (stale · evidence_lost, 11/04 회의)', () => {
+  const card = (
+    id: string,
+    status?: Recommendation['status'],
+    revision?: number,
+    conclusion = `${id} 결론`,
+  ) => ({ id, conclusion, status, revision }) as Recommendation
+  const statuses = (list: readonly Recommendation[]) => list.map((r) => statusOf(r))
+
+  it('없으면 current · revision 0으로 본다', () => {
+    expect(statusOf(rec('a'))).toBe('current')
+    expect(revisionOf(rec('a'))).toBe(0)
+    expect(isAnswerable(rec('a'))).toBe(true)
+    expect(isAnswerable(card('a', 'stale'))).toBe(false)
+    expect(isAnswerable(card('a', 'evidence_lost'))).toBe(false)
+  })
+
+  it('stale·evidence_lost로 오면 내용은 그대로 두고 상태만 바꾼다', () => {
+    const before = [card('a'), card('b'), card('c')]
+    const merged = mergeRecommendations(
+      before,
+      'a',
+      [
+        card('b', 'stale', 0, 'b 바뀐 결론'),
+        card('c', 'evidence_lost', 0, 'c 바뀐 결론'),
+        card('a'),
+      ],
+      {},
+    )
+    expect(ids(merged.cards)).toEqual(['a', 'b', 'c'])
+    expect(statuses(merged.cards)).toEqual(['current', 'stale', 'evidence_lost'])
+    expect(merged.cards.map((r) => r.conclusion)).toEqual(['a 결론', 'b 결론', 'c 결론'])
+    expect(merged.refreshed).toBe(0)
+  })
+
+  it('새 revision의 current로 오면 내용을 바꾸고 current로 되돌린다 (보고 있지 않은 카드도 센다)', () => {
+    const before = [card('a'), card('b', 'stale', 0), card('c', 'evidence_lost', 1)]
+    const merged = mergeRecommendations(
+      before,
+      'a',
+      [card('a'), card('b', 'current', 1, 'b 새 결론'), card('c', 'current', 2, 'c 새 결론')],
+      {},
+    )
+    expect(statuses(merged.cards)).toEqual(['current', 'current', 'current'])
+    expect(merged.cards.map((r) => r.conclusion)).toEqual(['a 결론', 'b 새 결론', 'c 새 결론'])
+    expect(merged.cards.every(isAnswerable)).toBe(true)
+    expect(merged.refreshed).toBe(2)
+  })
+
+  it('revision이 같거나 작은 current로 오면 막힌 카드는 그대로 둔다 (새 revision이 올 때까지)', () => {
+    const before = [card('a'), card('b', 'stale', 1)]
+    const merged = mergeRecommendations(before, 'a', [card('a'), card('b', 'current', 1)], {})
+    expect(statuses(merged.cards)).toEqual(['current', 'stale'])
+    expect(merged.refreshed).toBe(0)
+  })
+
+  it('고정된 카드(보고 있는 카드와 그 앞)도 상태가 바뀌고, 자리는 그대로다', () => {
+    const before = [card('a'), card('b'), card('c'), card('d')]
+    // c를 보는 중. 새 결과는 순서가 다르고 a는 evidence_lost, c는 stale, b는 새 revision
+    const merged = mergeRecommendations(
+      before,
+      'c',
+      [
+        card('d'),
+        card('c', 'stale'),
+        card('x'),
+        card('a', 'evidence_lost'),
+        card('b', 'current', 1, 'b 새 결론'),
+      ],
+      {},
+    )
+    expect(ids(merged.cards)).toEqual(['a', 'b', 'c', 'd', 'x'])
+    expect(statuses(merged.cards)).toEqual([
+      'evidence_lost',
+      'current',
+      'stale',
+      'current',
+      'current',
+    ])
+    expect(merged.cards[1].conclusion).toBe('b 새 결론')
+    expect(merged.currentId).toBe('c')
+    expect(merged.refreshed).toBe(1)
+  })
+
+  it('처음 보는 id가 막힌 상태로 오면 넣지 않는다 (새 추천으로 세지 않는다)', () => {
+    const merged = mergeRecommendations([card('a')], 'a', [card('a'), card('y', 'stale')], {})
+    expect(ids(merged.cards)).toEqual(['a'])
+    expect(merged.added).toBe(0)
+  })
+
+  it('막힌 카드에서 다른 카드로 넘어가면 빠지고, 빈 자리는 대기 카드가 채운다', () => {
+    const cards = [card('1'), card('2', 'stale'), card('3'), card('4'), card('5'), card('6')]
+    expect(ids(splitRecommendations(cards, {}).visible)).toEqual(['1', '2', '3', '4', '5'])
+    const after = leaveRecommendation(cards, '2')
+    const { visible, waiting } = splitRecommendations(after, {})
+    expect(ids(visible)).toEqual(['1', '3', '4', '5', '6'])
+    expect(waiting).toEqual([])
+    // evidence_lost도 같다
+    expect(ids(leaveRecommendation([card('a', 'evidence_lost'), card('b')], 'a'))).toEqual(['b'])
+  })
+
+  it('current 카드(새 revision으로 돌아온 카드 포함)에서 넘어가면 빼지 않는다', () => {
+    const cards = [card('a', 'current', 1), card('b')]
+    expect(ids(leaveRecommendation(cards, 'a'))).toEqual(['a', 'b'])
+    expect(ids(leaveRecommendation(cards, 'x'))).toEqual(['a', 'b'])
+  })
+
+  it('409면 그 카드를 stale로 바꾼다. 내용과 자리는 그대로', () => {
+    const cards = [card('a'), card('b'), card('c')]
+    const after = markStale(cards, 'b')
+    expect(ids(after)).toEqual(['a', 'b', 'c'])
+    expect(statuses(after)).toEqual(['current', 'stale', 'current'])
+    expect(after[1].conclusion).toBe('b 결론')
+  })
+
+  it('합친 뒤 알림: 새 추천과 내용 갱신을 한 문장으로, 없으면 null', () => {
+    expect(mergeToast(2, 0)).toBe('새 추천 2개')
+    expect(mergeToast(0, 1)).toBe(REFRESHED_TOAST)
+    expect(mergeToast(2, 1)).toBe(`새 추천 2개 · ${REFRESHED_TOAST}`)
+    expect(mergeToast(0, 0)).toBeNull()
+  })
+
+  it('상태 표시 문구', () => {
+    expect(STATUS_NOTICE.stale?.title).toBe('근거가 바뀌었습니다')
+    expect(STATUS_NOTICE.evidence_lost?.title).toBe('근거 문장이 삭제되었습니다')
+    expect(STATUS_NOTICE.current).toBeUndefined()
   })
 })

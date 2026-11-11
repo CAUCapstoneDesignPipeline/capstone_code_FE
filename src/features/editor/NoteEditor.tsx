@@ -74,7 +74,8 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
   const [bodyDoc, setBodyDoc] = useState({ key: 0, text: note.body })
   const bodyRef = useRef<MarkdownEditorHandle>(null)
   useImperativeHandle(ref, () => ({
-    showEvidence: (evidence) => bodyRef.current?.showEvidence(evidence) ?? null,
+    // 지금 노트의 저장된 version과 비교해, 분석한 뒤 저장된 적이 있으면 강조하지 않는다
+    showEvidence: (evidence) => bodyRef.current?.showEvidence(evidence, saver.getVersion()) ?? null,
   }))
   const [loadError, setLoadError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)

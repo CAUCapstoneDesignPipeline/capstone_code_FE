@@ -18,8 +18,14 @@ import { tablePreview } from './tablePreview'
 
 export interface MarkdownEditorHandle {
   focus: () => void
-  /** 근거 문장을 강조하고 그 자리로 스크롤한다. null이면 강조를 지운다. 찾은 결과를 돌려준다. */
-  showEvidence: (evidence: EvidenceSpanLike | null) => EvidenceLocation['kind'] | null
+  /**
+   * 근거 문장을 강조하고 그 자리로 스크롤한다. null이면 강조를 지운다. 찾은 결과를 돌려준다.
+   * docVersion(지금 노트의 저장된 version)이 근거의 noteVersion과 다르면 강조하지 않는다 (outdated).
+   */
+  showEvidence: (
+    evidence: EvidenceSpanLike | null,
+    docVersion?: number,
+  ) => EvidenceLocation['kind'] | null
 }
 
 interface Props {
@@ -48,15 +54,16 @@ export function MarkdownEditor(props: Props) {
       view.focus()
       view.dispatch({ selection: { anchor: 0 } })
     },
-    showEvidence: (evidence) => {
+    showEvidence: (evidence, docVersion) => {
       const view = viewRef.current
       if (!view) return null
       if (!evidence) {
         view.dispatch({ effects: setEvidenceHighlight.of(null) })
         return null
       }
-      const at = locateEvidence(view.state.doc.toString(), evidence)
-      if (at.kind === 'missing') {
+      const at = locateEvidence(view.state.doc.toString(), evidence, docVersion)
+      // 찾은 위치가 없으면(missing·outdated) 강조를 지운다
+      if (!('from' in at)) {
         view.dispatch({ effects: setEvidenceHighlight.of(null) })
       } else {
         view.dispatch({
