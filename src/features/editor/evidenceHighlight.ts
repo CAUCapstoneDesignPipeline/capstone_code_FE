@@ -8,6 +8,8 @@ export interface EvidenceSpanLike {
   endOffset: number
   /** 분석 당시 원문 문장 그대로 */
   quote: string
+  /** 분석 당시 노트 version. 있으면 지금 노트의 version과 비교한다 */
+  noteVersion?: number
 }
 
 /**
@@ -15,12 +17,29 @@ export interface EvidenceSpanLike {
  * - exact: 분석 뒤 그 자리가 바뀌지 않음
  * - moved: 본문을 고쳐 위치가 밀렸지만 같은 문장이 있음 (원래 위치에 가장 가까운 것)
  * - missing: 같은 문장이 지금 본문에 없음
+ * - outdated: 분석한 version과 지금 노트의 version이 다름. 강조하지 않고(moved도 하지 않는다) 카드의 quote만 보인다
+ *   (11/04 회의: 근거 문장을 고쳐 저장한 직후는 아직 current일 수 있지만 강조는 하지 않는다)
  */
 export type EvidenceLocation =
-  { kind: 'exact' | 'moved'; from: number; to: number } | { kind: 'missing' }
+  { kind: 'exact' | 'moved'; from: number; to: number } | { kind: 'missing' | 'outdated' }
 
-export function locateEvidence(doc: string, evidence: EvidenceSpanLike): EvidenceLocation {
+/**
+ * docVersion은 지금 열린 노트의 저장된 version이다. 근거의 noteVersion과 다르면 outdated.
+ * 둘 중 하나라도 모르면 비교하지 않고, version이 같으면 지금까지처럼 exact·moved·missing을 가린다.
+ */
+export function locateEvidence(
+  doc: string,
+  evidence: EvidenceSpanLike,
+  docVersion?: number,
+): EvidenceLocation {
   const { startOffset: start, endOffset: end, quote } = evidence
+  if (
+    evidence.noteVersion !== undefined &&
+    docVersion !== undefined &&
+    evidence.noteVersion !== docVersion
+  ) {
+    return { kind: 'outdated' }
+  }
   if (!quote) return { kind: 'missing' }
   if (doc.slice(start, end) === quote) return { kind: 'exact', from: start, to: end }
   let best = -1

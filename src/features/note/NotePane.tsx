@@ -16,6 +16,9 @@ export interface EvidenceRequest {
 /** W3-12b: 노트를 열었지만 근거 문장을 찾지 못했을 때 */
 export const EVIDENCE_MISSING_MESSAGE =
   '근거 문장이 지금 노트에 없습니다. 분석한 뒤 노트가 바뀌었습니다.'
+/** 분석한 뒤 노트가 다시 저장돼(version이 다름) 근거 문장을 강조하지 않을 때 (11/04 회의) */
+export const EVIDENCE_OUTDATED_MESSAGE =
+  '분석한 뒤 노트가 바뀌어 근거 문장을 표시하지 않습니다. 추천 카드의 문장을 확인하세요.'
 
 interface Props {
   noteId: string | null
@@ -86,9 +89,12 @@ function LoadedNote({
   useEffect(() => {
     if (!loaded || !evidenceRequest) return
     const result = editorRef.current?.showEvidence(evidenceRequest.evidence)
-    if (result === 'missing' && toastedSeq.current !== evidenceRequest.seq) {
+    if (
+      (result === 'missing' || result === 'outdated') &&
+      toastedSeq.current !== evidenceRequest.seq
+    ) {
       toastedSeq.current = evidenceRequest.seq
-      toast('info', EVIDENCE_MISSING_MESSAGE)
+      toast('info', result === 'missing' ? EVIDENCE_MISSING_MESSAGE : EVIDENCE_OUTDATED_MESSAGE)
     }
   }, [loaded, evidenceRequest, toast])
 

@@ -468,27 +468,67 @@ describe('추천 (v0.4.0-draft)', () => {
     )
   })
 
-  it('다시 분석하면 같은 추천은 같은 id(결론은 조금 바뀜), 하나는 빠지고, 새 id가 더해진다', async () => {
-    const a = (await call('POST', '/notes', { title: 'A', body: '**가**와 **나**와 **다**.' })).data
-    await call('POST', '/notes', { title: 'B', body: '**가**와 **나**와 **다**.' })
+  it('다시 분석하면 같은 추천은 같은 id(결론은 조금 바뀜), 그대로인 카드 하나는 빠지고, 새 id가 더해진다', async () => {
+    const a = (await call('POST', '/notes', { title: 'A', body: '**가** **나** **다** **라**' }))
+      .data
+    await call('POST', '/notes', { title: 'B', body: '**가** **나** **다** **라**' })
+    type Rec = { id: string; conclusion: string; status: string; revision: number }
     const run = async () =>
       (
         await settledRecommendation(
           (await call('POST', `/notes/${a.id}/recommendation-jobs`)).data.id,
         )
-      ).recommendations as { id: string; conclusion: string }[]
+      ).recommendations as Rec[]
     const first = await run()
-    const second = await run()
-    expect(first).toHaveLength(3)
+    expect(first).toHaveLength(4)
+    expect(first.every((r) => r.status === 'current' && r.revision === 0)).toBe(true)
     const firstIds = first.map((r) => r.id)
+
+    const second = await run()
     const kept = second.filter((r) => firstIds.includes(r.id))
-    expect(kept).toHaveLength(2)
+    expect(kept).toHaveLength(3)
     expect(kept.every((r) => r.conclusion.includes('2번째 분석'))).toBe(true)
     expect(second.filter((r) => !firstIds.includes(r.id))).toHaveLength(3)
-    // 같은 id로 다시 와도 이미 받은 답은 그대로 받는다
-    expect(
-      (await call('POST', `/recommendations/${kept[0].id}/feedback`, { action: 'known' })).status,
-    ).toBe(204)
+
+    // 2회차 역할: stale · evidence_lost · 새 revision의 current · 그대로(빠짐)
+    const byId = new Map(second.map((r) => [r.id, r]))
+    const stale = byId.get(firstIds[0])!
+    const lost = byId.get(firstIds[1])!
+    const revised = byId.get(firstIds[2])!
+    expect(stale.status).toBe('stale')
+    expect(lost.status).toBe('evidence_lost')
+    expect(revised).toMatchObject({ status: 'current', revision: 1 })
+    expect(byId.has(firstIds[3])).toBe(false)
+
+    // current가 아닌 추천에 답하면 409, current면 204 (같은 id로 다시 와도 답을 받는다)
+    const feedback = (id: string) =>
+      call('POST', `/recommendations/${id}/feedback`, { action: 'known' })
+    for (const blocked of [stale, lost]) {
+      const conflict = await feedback(blocked.id)
+      expect(conflict.status).toBe(409)
+      expect(errorCode(conflict)).toBe('RECOMMENDATION_STALE')
+    }
+    expect((await feedback(revised.id)).status).toBe(204)
+  })
+
+  it('stale이던 추천은 다음 회차에 같은 id의 새 revision(current)으로 온다', async () => {
+    const a = (await call('POST', '/notes', { title: 'A', body: '**가** **나** **다** **라**' }))
+      .data
+    await call('POST', '/notes', { title: 'B', body: '**가** **나** **다** **라**' })
+    const run = async () =>
+      (
+        await settledRecommendation(
+          (await call('POST', `/notes/${a.id}/recommendation-jobs`)).data.id,
+        )
+      ).recommendations as { id: string; status: string; revision: number }[]
+    await run()
+    const second = await run()
+    const third = await run()
+    const staleIds = second.filter((r) => r.status === 'stale').map((r) => r.id)
+    expect(staleIds.length).toBeGreaterThan(0)
+    for (const id of staleIds) {
+      expect(third.find((r) => r.id === id)).toMatchObject({ status: 'current', revision: 1 })
+    }
   })
 
   it('이어질 노트가 없으면 completed + 빈 배열, 없는 작업·노트는 404', async () => {

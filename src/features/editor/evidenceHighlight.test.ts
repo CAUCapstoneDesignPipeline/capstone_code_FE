@@ -65,3 +65,49 @@ describe('강조 표시', () => {
     expect(highlightedRanges(cut)).toEqual([])
   })
 })
+
+describe('근거의 noteVersion과 지금 노트의 version (11/04 회의)', () => {
+  const L = quote.length
+
+  it('version이 다르면 문장이 그 자리에 그대로여도 강조하지 않는다 (outdated)', () => {
+    const doc = `# 제목\n${quote}`
+    const evidence = { startOffset: 5, endOffset: 5 + L, quote, noteVersion: 3 }
+    expect(locateEvidence(doc, evidence, 4)).toEqual({ kind: 'outdated' })
+  })
+
+  it("version이 다르면 위치가 밀린 같은 문장('moved')도 강조하지 않는다", () => {
+    const doc = `추가 ${quote}\n${quote}`
+    const evidence = { startOffset: L + 1, endOffset: 2 * L + 1, quote, noteVersion: 3 }
+    expect(locateEvidence(doc, evidence, 4)).toEqual({ kind: 'outdated' })
+  })
+
+  it('version이 같으면 지금까지처럼 exact · moved · missing', () => {
+    expect(
+      locateEvidence(
+        `# 제목\n${quote}`,
+        { startOffset: 5, endOffset: 5 + L, quote, noteVersion: 3 },
+        3,
+      ),
+    ).toEqual({ kind: 'exact', from: 5, to: 5 + L })
+    expect(
+      locateEvidence(
+        `추가 ${quote}\n${quote}`,
+        { startOffset: L + 1, endOffset: 2 * L + 1, quote, noteVersion: 3 },
+        3,
+      ),
+    ).toEqual({ kind: 'moved', from: L + 4, to: 2 * L + 4 })
+    expect(
+      locateEvidence('다른 문장', { startOffset: 0, endOffset: L, quote, noteVersion: 3 }, 3),
+    ).toEqual({
+      kind: 'missing',
+    })
+  })
+
+  it('둘 중 하나라도 version을 모르면 비교하지 않는다', () => {
+    const doc = `# 제목\n${quote}`
+    expect(locateEvidence(doc, { startOffset: 5, endOffset: 5 + L, quote }, 4).kind).toBe('exact')
+    expect(
+      locateEvidence(doc, { startOffset: 5, endOffset: 5 + L, quote, noteVersion: 3 }).kind,
+    ).toBe('exact')
+  })
+})
