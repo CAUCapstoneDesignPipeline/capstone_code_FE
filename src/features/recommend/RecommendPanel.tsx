@@ -43,7 +43,7 @@ import {
 import { StatusPill } from '../editor/StatusPill'
 import { ChatView } from './ChatView'
 import styles from './RecommendPanel.module.css'
-import { SAMPLE_FIRST_MESSAGE, type ChatMessage } from './sampleChat'
+import { useChatSession } from './useChatSession'
 
 interface Props {
   /** 열린 노트. 그 노트의 가장 최근 추천 작업을 보인다. 없으면 null */
@@ -145,8 +145,9 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
   }, [completedJob, answers, sending, hidden, read, update, toast])
 
   const [view, setView] = useState<'recommend' | 'chat'>('recommend')
-  // 추천으로 돌아갔다 와도 대화를 이어 간다.
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  // 카드별 챗봇 대화. 추천으로 돌아갔다 와도 같은 카드면 대화를 이어 간다. 다른 카드로 열면 새 대화다.
+  // BE가 대화를 저장하지 않아 새로 고치면 사라진다 (docs PR #22).
+  const chat = useChatSession()
   // 누른 근거만 표시한다 (W3-12)
   const [shownEvidence, setShownEvidence] = useState<string | null>(null)
 
@@ -202,11 +203,16 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
       },
     )
     if (id !== 'confused') return
-    if (messages.length === 0) setMessages([SAMPLE_FIRST_MESSAGE])
+    chat.open(answeredId)
     switchView('chat')
   }
 
-  const chatting = view === 'chat' && current !== null
+  // 챗봇은 보고 있는 카드의 대화가 있을 때만 보인다
+  const chatConversation =
+    current !== null && chat.conversation?.recommendationId === current.id
+      ? chat.conversation
+      : null
+  const chatting = view === 'chat' && chatConversation !== null
 
   return (
     <aside className={styles.panel} aria-labelledby="recommend-panel-title">
@@ -262,8 +268,13 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
         </div>
       )}
 
-      {chatting ? (
-        <ChatView recommendation={current} messages={messages} onMessagesChange={setMessages} />
+      {chatting && current ? (
+        <ChatView
+          key={current.id}
+          recommendation={current}
+          session={chat}
+          conversation={chatConversation}
+        />
       ) : current ? (
         <RecommendView
           recommendation={current}

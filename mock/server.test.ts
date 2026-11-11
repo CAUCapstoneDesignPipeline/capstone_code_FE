@@ -11,7 +11,12 @@ let token: string
  * 분석은 analyzeNow(명시적 요청)로 바로 돌린다.
  */
 async function start(
-  analysis: { fail?: boolean; off?: boolean; externalKnowledge?: boolean } = {},
+  analysis: {
+    fail?: boolean
+    off?: boolean
+    externalKnowledge?: boolean
+    chatOff?: boolean
+  } = {},
 ) {
   server = createMockServer({ analysis: { debounceMs: 10_000, runMs: 20, ...analysis } })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -578,6 +583,89 @@ describe('추천 (v0.4.0-draft)', () => {
     })
     expect((await call('GET', '/recommendation-jobs/nope')).status).toBe(404)
     expect((await call('POST', '/notes/nope/recommendation-jobs')).status).toBe(404)
+  })
+})
+
+describe('추천 챗봇 (SSE, docs PR #22)', () => {
+  async function card() {
+    const a = (await call('POST', '/notes', { title: 'A', body: '**공유**한다.' })).data
+    await call('POST', '/notes', { title: 'B', body: '**공유**된다.' })
+    const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
+    for (let i = 0; i < 100; i++) {
+      const job = (await call('GET', `/recommendation-jobs/${created.data.id}`)).data
+      if (job.status === 'completed') return job.recommendations[0] as { id: string }
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    throw new Error('추천 작업이 끝나지 않음')
+  }
+  const chat = async (id: string, body: unknown) => {
+    const res = await fetch(`${base}/recommendations/${id}/chat`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const text = await res.text()
+    return { status: res.status, type: res.headers.get('content-type'), text }
+  }
+  /** SSE 본문 → [event, data] */
+  const events = (text: string) =>
+    text
+      .split('\n\n')
+      .filter(Boolean)
+      .map((block) => {
+        const [e, d] = block.split('\n')
+        return [e.replace('event:', ''), JSON.parse(d.replace('data:', ''))] as const
+      })
+
+  it('start · delta… · done 순서로 보내고, conversationId를 돌려준다', async () => {
+    const r = await card()
+    const res = await chat(r.id, {
+      conversationId: 'c-1',
+      messages: [{ role: 'user', content: '쉽게 풀어 줘' }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.type).toMatch(/^text\/event-stream/)
+    const list = events(res.text)
+    expect(list[0]).toEqual(['start', { conversationId: 'c-1' }])
+    expect(list.at(-1)).toEqual(['done', { stopReason: 'end_turn' }])
+    const deltas = list.filter(([e]) => e === 'delta')
+    expect(deltas.length).toBeGreaterThan(1)
+  })
+
+  it("'끊김'이 든 질문은 글 몇 조각 뒤 CHAT_INTERRUPTED error 이벤트로 끝난다", async () => {
+    const r = await card()
+    const list = events((await chat(r.id, { messages: [{ role: 'user', content: '끊김' }] })).text)
+    expect(list.at(-1)).toEqual([
+      'error',
+      { code: 'CHAT_INTERRUPTED', message: '답변이 중간에 끊겼습니다.', retryable: true },
+    ])
+    expect(list.some(([e]) => e === 'delta')).toBe(true)
+  })
+
+  it('대화 형식이 틀리면 400, 없는 추천은 404, 너무 길면 413', async () => {
+    const r = await card()
+    const u = (content: string) => ({ role: 'user', content })
+    const a = (content: string) => ({ role: 'assistant', content })
+    for (const messages of [[], [a('x')], [u('x'), a('y')], [u('x'), u('y')], [u('')]]) {
+      expect((await chat(r.id, { messages })).status).toBe(400)
+    }
+    expect((await chat('nope', { messages: [u('x')] })).status).toBe(404)
+    const long = Array.from({ length: 17 }, (_, i) => (i % 2 ? a : u)('가'.repeat(4000)))
+    const res = await chat(r.id, { messages: long })
+    expect(res.status).toBe(413)
+    expect(JSON.parse(res.text).error.code).toBe('CHAT_INPUT_TOO_LARGE')
+  })
+
+  it('--chat-off면 503 AI_UNAVAILABLE', async () => {
+    await stop()
+    await start({ chatOff: true })
+    const r = await card()
+    const res = await chat(r.id, { messages: [{ role: 'user', content: 'x' }] })
+    expect(res.status).toBe(503)
+    expect(JSON.parse(res.text).error).toMatchObject({
+      code: 'AI_UNAVAILABLE',
+      details: { reason: 'CHAT_DISABLED' },
+    })
   })
 })
 

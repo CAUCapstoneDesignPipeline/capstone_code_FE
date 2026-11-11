@@ -51,6 +51,9 @@ export type RecommendationOutcome = NonNullable<RecommendationJob['outcome']>
 export type RecommendationEvidence = Schemas['RecommendationEvidence']
 export type ExternalKnowledge = Schemas['ExternalKnowledge']
 export type RecommendationFeedback = Schemas['RecommendationFeedback']
+/** 추천 챗봇 요청 (docs PR #22). 대화는 BE가 저장하지 않아 매번 지금까지의 messages를 모두 보낸다 */
+export type RecommendationChatRequest = Schemas['RecommendationChatRequest']
+export type RecommendationChatMessage = RecommendationChatRequest['messages'][number]
 
 export type AuthProvider = Schemas['AuthProvider']
 export type AuthProviderList = Schemas['AuthProviderList']

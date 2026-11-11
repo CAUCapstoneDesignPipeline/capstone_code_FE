@@ -42,8 +42,7 @@
 ### 미결 항목 (구현하지 않음)
 
 - 분석 버튼 위치 (11/04: 나중에 추가, 다음 회의에서 논의)
-- 챗봇 멀티턴·토큰 스트리밍·중지·시간 제한 (AI 회신 대기)
-- 챗봇 답변 중·실패 상태 화면
+- 챗봇 답변 중·실패 상태의 디자인 (지금은 기존 Banner·말풍선으로 최소한만 보인다, #34)
 - 글꼴
 - 그래프 데이터의 `topics` 유지 여부 (FE가 정할 항목, TODO.md D)
 - 지원 파일 형식 (OCR 이후 논의)
@@ -53,7 +52,9 @@
 
 - 가짜 서버: `npm run mock` (옵션은 [README.md](README.md)와 `mock/server.mjs` 맨 위 주석)
   - `--ai-off`: 지금 BE처럼 `/capabilities`가 모두 false, 분석 503 `AI_UNAVAILABLE`, 그래프·추천 경로 404
-  - `--fail-analysis`: 분석이 모두 실패
+  - `--fail-analysis`: 분석이 모두 실패 (추천 작업도 `RECOMMENDATION_FAILED`)
+  - `--external-knowledge`: 추천에 예시 외부 지식 (기본 `null`)
+  - `--chat-off`: 추천 챗봇 503. 챗봇 질문에 `끊김`을 넣으면 답 중간에 `CHAT_INTERRUPTED`
   - `--delay <ms>`: 모든 응답을 늦춤 (저장 중·요청 겹침 확인)
 - 끝내기 전에 반드시: `npm run typecheck && npm test && npm run lint`
 - 실제 BE(`be` main)에는 그래프·추천·변환 API가 없다(분석도 항상 503). 그래서 "실제 BE에서 동작 확인"이라고 보고하지 않는다. mock에서 확인한 시나리오를 적는다.
