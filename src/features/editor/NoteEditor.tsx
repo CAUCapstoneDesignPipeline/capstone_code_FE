@@ -14,16 +14,11 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { ContextMenu } from '../../components/ContextMenu'
 import { FieldError } from '../../components/FieldError'
 import { useToast } from '../../components/toastContext'
-import {
-  useApplySavedNote,
-  useDeleteNote,
-  useNote,
-  useScheduleRecommendations,
-} from '../../data/queries'
+import { useApplySavedNote, useDeleteNote, useNote, useRecommendTrigger } from '../../data/queries'
 import { AnalysisStatusIndicator } from './AnalysisStatusIndicator'
 import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
 import styles from './NoteEditor.module.css'
-import { NoteSaver, type SaveStatus } from './noteSaver'
+import { NoteSaver, type Draft, type SaveStatus } from './noteSaver'
 import { SaveStatusIndicator } from './SaveStatusIndicator'
 import { TopicDropdown } from './TopicDropdown'
 
@@ -54,18 +49,23 @@ interface Props {
 
 export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref }: Props) {
   const applySavedNote = useApplySavedNote()
-  // 저장은 추천 트리거다 (10/30). 자동 저장마다가 아니라 저장이 멈춘 뒤 한 번 요청한다.
-  const scheduleRecommendations = useScheduleRecommendations()
+  // 입력은 추천 트리거다 (11/04). 입력이 멈추거나 오래 이어지면 저장된 내용으로 요청한다.
+  const recommendTrigger = useRecommendTrigger()
   const [saver] = useState(
     () =>
       new NoteSaver(note, {
         save: updateNote,
         onSaved: (saved) => {
           applySavedNote(saved)
-          scheduleRecommendations(saved.id)
+          recommendTrigger.onSaved(saved.id, saved.version)
         },
       }),
   )
+  /** 제목·본문 입력. 저장과 추천 트리거에 같이 알린다. */
+  const edit = (change: Partial<Draft>) => {
+    saver.edit(change)
+    recommendTrigger.onInput(note.id, saver)
+  }
   const state = useSyncExternalStore(saver.subscribe, saver.getState)
   // 빵부스러기는 마지막으로 저장된 제목을 보여준다 (W1-09).
   const savedTitle = useNote(note.id).data?.title ?? note.title
@@ -231,7 +231,7 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
               value={title}
               onChange={(e) => {
                 setTitle(e.target.value)
-                saver.edit({ title: e.target.value })
+                edit({ title: e.target.value })
               }}
               onFocus={(e) => isNew && e.target.select()}
               onKeyDown={(e) => {
@@ -254,7 +254,7 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
             key={bodyDoc.key}
             ref={bodyRef}
             initialValue={bodyDoc.text}
-            onChange={(text) => saver.edit({ body: text })}
+            onChange={(text) => edit({ body: text })}
             placeholder="내용을 입력하세요"
             ariaLabel="본문"
             autoFocus={!isNew}
