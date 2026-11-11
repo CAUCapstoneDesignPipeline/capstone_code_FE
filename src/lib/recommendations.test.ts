@@ -6,9 +6,7 @@ import {
   markStale,
   mergeToast,
   REFRESHED_TOAST,
-  revisionOf,
-  STATUS_NOTICE,
-  statusOf,
+  FRESHNESS_NOTICE,
   viewingIndex,
   cardAfterAnswer,
   currentIndex,
@@ -19,7 +17,8 @@ import {
   splitRecommendations,
 } from './recommendations'
 
-const rec = (id: string, conclusion = `${id} 결론`) => ({ id, conclusion }) as Recommendation
+const rec = (id: string, conclusion = `${id} 결론`) =>
+  ({ id, conclusion, freshness: 'current', revision: 1 }) as Recommendation
 const ids = (list: readonly Recommendation[]) => list.map((r) => r.id)
 
 describe('remainingRecommendations', () => {
@@ -281,15 +280,13 @@ describe('viewingIndex', () => {
 describe('근거가 바뀐 카드 (stale · evidence_lost, 11/04 회의)', () => {
   const card = (
     id: string,
-    status?: Recommendation['status'],
-    revision?: number,
+    freshness: Recommendation['freshness'] = 'current',
+    revision = 1,
     conclusion = `${id} 결론`,
-  ) => ({ id, conclusion, status, revision }) as Recommendation
-  const statuses = (list: readonly Recommendation[]) => list.map((r) => statusOf(r))
+  ) => ({ id, conclusion, freshness, revision }) as Recommendation
+  const statuses = (list: readonly Recommendation[]) => list.map((r) => r.freshness)
 
-  it('없으면 current · revision 0으로 본다', () => {
-    expect(statusOf(rec('a'))).toBe('current')
-    expect(revisionOf(rec('a'))).toBe(0)
+  it('freshness가 current인 카드만 답할 수 있다', () => {
     expect(isAnswerable(rec('a'))).toBe(true)
     expect(isAnswerable(card('a', 'stale'))).toBe(false)
     expect(isAnswerable(card('a', 'evidence_lost'))).toBe(false)
@@ -345,7 +342,7 @@ describe('근거가 바뀐 카드 (stale · evidence_lost, 11/04 회의)', () =>
         card('c', 'stale'),
         card('x'),
         card('a', 'evidence_lost'),
-        card('b', 'current', 1, 'b 새 결론'),
+        card('b', 'current', 2, 'b 새 결론'),
       ],
       {},
     )
@@ -401,8 +398,8 @@ describe('근거가 바뀐 카드 (stale · evidence_lost, 11/04 회의)', () =>
   })
 
   it('상태 표시 문구', () => {
-    expect(STATUS_NOTICE.stale?.title).toBe('근거가 바뀌었습니다')
-    expect(STATUS_NOTICE.evidence_lost?.title).toBe('근거 문장이 삭제되었습니다')
-    expect(STATUS_NOTICE.current).toBeUndefined()
+    expect(FRESHNESS_NOTICE.stale?.title).toBe('근거가 바뀌었습니다')
+    expect(FRESHNESS_NOTICE.evidence_lost?.title).toBe('근거 문장이 삭제되었습니다')
+    expect(FRESHNESS_NOTICE.current).toBeUndefined()
   })
 })

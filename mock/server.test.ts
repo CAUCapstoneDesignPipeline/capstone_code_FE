@@ -10,7 +10,9 @@ let token: string
  * 저장 후 자동 분석은 테스트 안에서 시작되지 않을 만큼 늦추고(중간 상태를 확인할 수 있게),
  * 분석은 analyzeNow(명시적 요청)로 바로 돌린다.
  */
-async function start(analysis: { fail?: boolean; off?: boolean } = {}) {
+async function start(
+  analysis: { fail?: boolean; off?: boolean; externalKnowledge?: boolean } = {},
+) {
   server = createMockServer({ analysis: { debounceMs: 10_000, runMs: 20, ...analysis } })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -442,13 +444,20 @@ describe('추천 (v0.4.0-draft)', () => {
 
     const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
     expect(created.status).toBe(202)
-    expect(created.data).toMatchObject({ noteId: a.id, status: 'pending', recommendations: [] })
+    expect(created.data).toMatchObject({
+      noteId: a.id,
+      status: 'pending',
+      outcome: null,
+      recommendations: [],
+    })
     // 끝나기 전에 다시 요청하면 같은 작업
     expect((await call('POST', `/notes/${a.id}/recommendation-jobs`)).data.id).toBe(created.data.id)
 
     const job = await settledRecommendation(created.data.id)
+    expect(job.outcome).toBe('RECOMMENDED')
     expect(job.recommendations).toHaveLength(1)
     const [r] = job.recommendations
+    expect(r).toMatchObject({ revision: 1, freshness: 'current' })
     expect(r.evidenceA).toEqual({
       noteId: a.id,
       noteTitle: '재시도 정책',
@@ -459,7 +468,28 @@ describe('추천 (v0.4.0-draft)', () => {
     })
     expect(r.evidenceB).toMatchObject({ noteId: b.id, startOffset: 0, quote: bodyB })
     expect(r.relatedKeywords).toEqual(['재전송'])
+    // 지금 AI는 외부 지식을 만들지 않는다 (AI #19)
+    expect(r.externalKnowledge).toBeNull()
+  })
+
+  it('--external-knowledge면 예시 외부 지식을 준다', async () => {
+    await stop()
+    await start({ externalKnowledge: true })
+    const a = (await call('POST', '/notes', { title: 'A', body: '**공유**한다.' })).data
+    await call('POST', '/notes', { title: 'B', body: '**공유**된다.' })
+    const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
+    const [r] = (await settledRecommendation(created.data.id)).recommendations
     expect(r.externalKnowledge.sourceUrl).toMatch(/^https:/)
+  })
+
+  it('--fail-analysis면 추천 작업은 RECOMMENDATION_FAILED + 빈 배열로 끝난다', async () => {
+    await stop()
+    await start({ fail: true })
+    const a = (await call('POST', '/notes', { title: 'A', body: '**공유**한다.' })).data
+    await call('POST', '/notes', { title: 'B', body: '**공유**된다.' })
+    const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
+    const job = await settledRecommendation(created.data.id)
+    expect(job).toMatchObject({ outcome: 'RECOMMENDATION_FAILED', recommendations: [] })
   })
 
   it('추천 카드에 답하면 204, 잘못된 답은 400, 없는 추천은 404', async () => {
@@ -467,9 +497,17 @@ describe('추천 (v0.4.0-draft)', () => {
     await call('POST', '/notes', { title: 'B', body: '**공유**된다.' })
     const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
     const [r] = (await settledRecommendation(created.data.id)).recommendations
-    expect(
-      (await call('POST', `/recommendations/${r.id}/feedback`, { action: 'known' })).status,
-    ).toBe(204)
+    const send = (action: string) => call('POST', `/recommendations/${r.id}/feedback`, { action })
+    // confused 뒤 최종 답은 204, 같은 답 재전송도 204
+    expect((await send('confused')).status).toBe(204)
+    expect((await send('known')).status).toBe(204)
+    expect((await send('known')).status).toBe(204)
+    // 최종 답 뒤 다른 답은 409 REVIEW_CONFLICT
+    for (const other of ['understood', 'confused']) {
+      const conflict = await send(other)
+      expect(conflict.status).toBe(409)
+      expect(errorCode(conflict)).toBe('REVIEW_CONFLICT')
+    }
     expect(
       errorCode(await call('POST', `/recommendations/${r.id}/feedback`, { action: 'nope' })),
     ).toBe('VALIDATION_FAILED')
@@ -482,7 +520,7 @@ describe('추천 (v0.4.0-draft)', () => {
     const a = (await call('POST', '/notes', { title: 'A', body: '**가** **나** **다** **라**' }))
       .data
     await call('POST', '/notes', { title: 'B', body: '**가** **나** **다** **라**' })
-    type Rec = { id: string; conclusion: string; status: string; revision: number }
+    type Rec = { id: string; conclusion: string; freshness: string; revision: number }
     const run = async () =>
       (
         await settledRecommendation(
@@ -491,7 +529,7 @@ describe('추천 (v0.4.0-draft)', () => {
       ).recommendations as Rec[]
     const first = await run()
     expect(first).toHaveLength(4)
-    expect(first.every((r) => r.status === 'current' && r.revision === 0)).toBe(true)
+    expect(first.every((r) => r.freshness === 'current' && r.revision === 1)).toBe(true)
     const firstIds = first.map((r) => r.id)
 
     const second = await run()
@@ -505,9 +543,9 @@ describe('추천 (v0.4.0-draft)', () => {
     const stale = byId.get(firstIds[0])!
     const lost = byId.get(firstIds[1])!
     const revised = byId.get(firstIds[2])!
-    expect(stale.status).toBe('stale')
-    expect(lost.status).toBe('evidence_lost')
-    expect(revised).toMatchObject({ status: 'current', revision: 1 })
+    expect(stale.freshness).toBe('stale')
+    expect(lost.freshness).toBe('evidence_lost')
+    expect(revised).toMatchObject({ freshness: 'current', revision: 2 })
     expect(byId.has(firstIds[3])).toBe(false)
 
     // current가 아닌 추천에 답하면 409, current면 204 (같은 id로 다시 와도 답을 받는다)
@@ -530,21 +568,24 @@ describe('추천 (v0.4.0-draft)', () => {
         await settledRecommendation(
           (await call('POST', `/notes/${a.id}/recommendation-jobs`)).data.id,
         )
-      ).recommendations as { id: string; status: string; revision: number }[]
+      ).recommendations as { id: string; freshness: string; revision: number }[]
     await run()
     const second = await run()
     const third = await run()
-    const staleIds = second.filter((r) => r.status === 'stale').map((r) => r.id)
+    const staleIds = second.filter((r) => r.freshness === 'stale').map((r) => r.id)
     expect(staleIds.length).toBeGreaterThan(0)
     for (const id of staleIds) {
-      expect(third.find((r) => r.id === id)).toMatchObject({ status: 'current', revision: 1 })
+      expect(third.find((r) => r.id === id)).toMatchObject({ freshness: 'current', revision: 2 })
     }
   })
 
-  it('이어질 노트가 없으면 completed + 빈 배열, 없는 작업·노트는 404', async () => {
+  it('이어질 노트가 없으면 NO_RECOMMENDATIONS + 빈 배열, 없는 작업·노트는 404', async () => {
     const a = (await call('POST', '/notes', { title: '혼자', body: '**외톨이**' })).data
     const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
-    expect((await settledRecommendation(created.data.id)).recommendations).toEqual([])
+    expect(await settledRecommendation(created.data.id)).toMatchObject({
+      outcome: 'NO_RECOMMENDATIONS',
+      recommendations: [],
+    })
     expect((await call('GET', '/recommendation-jobs/nope')).status).toBe(404)
     expect((await call('POST', '/notes/nope/recommendation-jobs')).status).toBe(404)
   })

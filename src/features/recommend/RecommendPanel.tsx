@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { flushSync } from 'react-dom'
 import {
+  isRecommendationAnswered,
   isRecommendationStale,
   type NoteSummary,
   type Recommendation,
@@ -22,6 +23,7 @@ import {
   useTopics,
 } from '../../data/queries'
 import {
+  ALREADY_ANSWERED_TOAST,
   ANSWER_FAILED_TOAST,
   ANSWER_TOAST,
   cardAfterAnswer,
@@ -33,8 +35,7 @@ import {
   mergeToast,
   removeRecommendation,
   STALE_ANSWER_TOAST,
-  STATUS_NOTICE,
-  statusOf,
+  FRESHNESS_NOTICE,
   splitRecommendations,
   viewingIndex,
   type RecommendationAnswer,
@@ -89,6 +90,8 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
   const { visible: list, waiting } = splitRecommendations(deck.cards, answers)
   // 마지막으로 합친 추천이 있었는데 남은 카드가 없으면 모두 답한 것이다 (W3-11)
   const allAnswered = list.length === 0 && deck.offered > 0
+  // 마지막 작업이 분석 실패로 끝났다. 남은 카드가 없으면 "추천 없음"과 다른 실패 화면을 보인다 (11/04 회의)
+  const failed = list.length === 0 && deck.failed
 
   // 여러 개면 한 장씩 (W3-09). 기본은 BE 순서, 단 지금 보고 있는 카드와 그 앞은 고정, 최대 5장.
   // 보고 있는 카드는 노트별로 id로 기억한다. 앞의 카드가 빠지거나(답함) 원래 자리로 돌아와도(전송 실패),
@@ -109,10 +112,17 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
   }
 
   // 작업이 끝나면 쌓인 카드와 합친다. 처음 받으면 BE 순서대로 앞 5장을 보이고 첫 카드를 본다.
+  // 분석 실패로 끝난 작업은 합치지 않는다(쌓인 카드는 그대로). 추천 없음은 빈 결과로 합친다.
   useEffect(() => {
     if (!completedJob) return
     const before = read()
     if (before.jobId === completedJob.id) return
+    if (completedJob.outcome === 'RECOMMENDATION_FAILED') {
+      // 남은 카드가 있으면 카드를 계속 보이고 실패 화면은 띄우지 않는다
+      const remaining = splitRecommendations(before.cards, answers).visible.length
+      update((d) => ({ ...d, jobId: completedJob.id, failed: remaining === 0 }))
+      return
+    }
     const merged = mergeRecommendations(
       before.cards,
       before.currentId,
@@ -125,6 +135,7 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
       currentId: merged.currentId,
       jobId: completedJob.id,
       offered: merged.offered,
+      failed: false,
     }))
     // 처음 받을 때(합친 적이 없을 때)는 카드가 곧 보이므로 알리지 않는다.
     // 패널이 숨어 있으면 펴기 버튼의 배지(W3-14b)가 알린다.
@@ -165,12 +176,25 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
         if (message) toast('info', message)
       },
       (e: unknown) => {
-        // 409: 근거가 바뀐 추천에는 답할 수 없다 (11/04 회의). 답은 이미 되돌려졌다(답 기록에 남지 않는다).
-        // 카드를 stale로 바꾸고 그 카드를 다시 보여 이유를 알린다. 챗봇으로 넘어갔으면 추천으로 돌아온다.
+        // 409 RECOMMENDATION_STALE: 근거가 바뀌었거나 사라진 추천에는 답할 수 없다 (11/04 회의). 답은 이미 되돌려졌다.
+        // 카드를 빼지 않고 stale로 바꿔 그 카드를 다시 보여 이유를 알린다. 챗봇으로 넘어갔으면 추천으로 돌아온다.
         if (isRecommendationStale(e)) {
           update((d) => ({ ...d, cards: markStale(d.cards, answeredId), currentId: answeredId }))
           if (id === 'confused') setView('recommend')
           toast('error', STALE_ANSWER_TOAST)
+          return
+        }
+        // 409 REVIEW_CONFLICT: 다른 창 등에서 이미 최종 답을 남긴 추천이다. 답한 카드로 보고 뺀다.
+        // '이해가 안 됨'으로 챗봇에 넘어갔으면 추천으로 돌아와 다음 카드를 본다.
+        if (isRecommendationAnswered(e)) {
+          update((d) => {
+            const cards = removeRecommendation(d.cards, answeredId)
+            const next =
+              d.currentId === answeredId ? cardAfterAnswer(d.cards, answeredId) : d.currentId
+            return { ...d, cards, currentId: next }
+          })
+          if (id === 'confused') setView('recommend')
+          toast('info', ALREADY_ANSWERED_TOAST)
           return
         }
         // 그 밖의 실패: 카드는 원래 자리로 돌아오고(보던 카드는 그대로, 개수만 는다), '이해가 안 됨'은 챗봇을 그대로 둔다
@@ -252,6 +276,8 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
         />
       ) : pending ? (
         <Analyzing noteTitle={noteTitle} />
+      ) : failed ? (
+        <Failed />
       ) : allAnswered ? (
         <AllAnswered />
       ) : (
@@ -299,6 +325,24 @@ function Empty({ off }: { off: boolean }) {
   )
 }
 
+/**
+ * 추천 · 분석 실패 (11/04 회의): 마지막 작업이 RECOMMENDATION_FAILED로 끝났고 남은 카드가 없을 때.
+ * "추천 없음"(W3-08)과 다르게 보인다. Figma에 화면이 없어 문구는 기존 말투("…하지 못했습니다")를 따랐다.
+ */
+function Failed() {
+  return (
+    <div className={styles.empty}>
+      <Icon name="alert" />
+      <p className={styles.emptyTitle}>분석하지 못했습니다</p>
+      <p className={styles.emptyText}>
+        노트를 저장하거나 가져오면
+        <br />
+        다시 분석합니다.
+      </p>
+    </div>
+  )
+}
+
 /** W3-11 추천 · 모두 확인함: 남은 카드가 없을 때 */
 function AllAnswered() {
   return (
@@ -328,7 +372,7 @@ function RecommendView({
 }) {
   const { evidenceA, evidenceB, externalKnowledge } = recommendation
   // 근거가 바뀌었거나(stale) 지워진(evidence_lost) 카드: 카드 위에 알리고 답 버튼을 모두 막는다 (11/04 회의)
-  const notice = STATUS_NOTICE[statusOf(recommendation)]
+  const notice = FRESHNESS_NOTICE[recommendation.freshness]
   const locked = !isAnswerable(recommendation)
   return (
     <>
@@ -347,12 +391,15 @@ function RecommendView({
             selected={shownEvidence === `${recommendation.id}:b`}
             onOpen={() => onOpenEvidence('b', evidenceB)}
           />
-          <EvidenceQuote
-            kind="external"
-            label="↗"
-            quote={externalKnowledge.summary}
-            url={externalKnowledge.sourceUrl}
-          />
+          {/* 외부 지식을 쓰지 않은 추천은 null이다. 지금 AI는 만들지 않아 항상 숨는다 (AI #19) */}
+          {externalKnowledge && (
+            <EvidenceQuote
+              kind="external"
+              label="↗"
+              quote={externalKnowledge.summary}
+              url={externalKnowledge.sourceUrl}
+            />
+          )}
         </section>
         <span className={styles.arrow} aria-hidden>
           ↓

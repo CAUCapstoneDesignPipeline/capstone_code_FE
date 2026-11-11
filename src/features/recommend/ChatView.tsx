@@ -47,16 +47,21 @@ export function ChatView({ recommendation, messages, onMessagesChange }: Props) 
       kind: '근거 B',
       source: <span className={styles.contextSource}>{recommendation.evidenceB.noteTitle}</span>,
     },
-    {
-      icon: 'external',
-      kind: '외부 지식',
-      source: (
-        <ExternalSourceLink
-          url={recommendation.externalKnowledge.sourceUrl}
-          className={styles.contextSource}
-        />
-      ),
-    },
+    // 외부 지식을 쓰지 않은 추천(null)은 컨텍스트에 넣지 않는다 (AI #19)
+    ...(recommendation.externalKnowledge
+      ? [
+          {
+            icon: 'external' as const,
+            kind: '외부 지식',
+            source: (
+              <ExternalSourceLink
+                url={recommendation.externalKnowledge.sourceUrl}
+                className={styles.contextSource}
+              />
+            ),
+          },
+        ]
+      : []),
   ]
 
   return (
