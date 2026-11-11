@@ -51,7 +51,7 @@
 
 ### B2. 분석 실패와 추천 없음 화면 분리
 
-- [ ] 화면·상태 분기
+- [x] 화면·상태 분기 (#33: docs PR #22의 `RecommendationJob.outcome`으로 구분)
 - [x] BE Issue 초안 (오류 코드) — BE #74
 
 - **근거**: 회의록 20행(BE가 구분해 서로 다른 오류 코드로 전달, FE가 화면을 다르게).
@@ -73,6 +73,7 @@
 
 ### B4. 추천 `status`·`revision`·후보 지문을 계약에 반영
 
+- [x] 계약 반영: BE가 docs PR #22(`docs/8-gcp-operations-handoff`에 병합)로 `freshness`·`revision`·409 `RECOMMENDATION_STALE`·`REVIEW_CONFLICT`를 정했다. FE는 #33에서 맞췄다. 아래는 기록용
 - [ ] docs PR 초안
 - 관련 BE Issue: #75(후보 지문·revision), #77(근거 상태·409). #77 작업 범위에 openapi.yaml 반영이 들어 있어서, 명세 PR을 FE와 BE 중 누가 쓸지는 11/11 회의에서 정함
 
@@ -88,7 +89,7 @@
 형식: 항목 — 담당 — 원자료
 
 - [ ] 분석/추천 호출 경로(`analysis` vs `recommendation-jobs`), 추천 API를 docs `main`에 올릴지 — BE·docs — 회의록 11행, docs PR #17
-- [ ] 분석 실패 / 추천 없음 오류 코드 — BE — 회의록 20행
+- [x] 분석 실패 / 추천 없음 오류 코드 — BE — 회의록 20행 (docs PR #22: `outcome`)
 - [ ] 동시성 S1~S4 — BE — 회의록 38·44~49행
 - [ ] "이해함"의 문서 반영 위치·방식, API — BE·팀 — 회의록 16행, 초안 계약 1495행
 - [ ] 챗봇 멀티턴·스트리밍·중지·시간 제한 — AI 구현 완료, 공개 API는 BE #78 — 회의록 41행
@@ -98,7 +99,7 @@
 - [ ] 추천 카드 중복·순서 제안(후보 지문) 채택 여부 — 팀·BE — 회의록 39·51~64행
 - [ ] 글꼴 — 팀(디자인) — 미확인 (회의록에 없음)
 - [ ] 챗봇 답변 중·실패 상태 디자인 — 팀(디자인) — 미확인 (Figma 확인 안 함)
-- [ ] 추천 status·revision 명세 PR 작성 주체 (FE 초안 vs BE #77) — 팀 — 11/11 회의
+- [x] 추천 status·revision 명세 PR 작성 주체 (FE 초안 vs BE #77) — 팀 — 11/11 회의 (BE가 docs PR #22로 작성)
 
 ## D. FE가 정할 것
 

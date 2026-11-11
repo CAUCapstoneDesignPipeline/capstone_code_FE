@@ -32,28 +32,22 @@ export type Graph = Schemas['Graph']
 export type GraphNode = Schemas['GraphNode']
 export type GraphEdge = Schemas['GraphEdge']
 
-// 사용자가 모르는 지식 추천 (v0.4.0-draft · Figma W3-02·W3-07~09·W3-12)
+// 사용자가 모르는 지식 추천 (v0.4.0-draft · docs PR #22 · Figma W3-02·W3-07~09·W3-12)
 /**
- * 추천 카드의 상태 (11/04 회의). 계약 반영 전 가정 필드다 — openapi.yaml에 아직 없어 FE에서 먼저 가정한다.
- * - current: 그대로 성립한다
- * - stale: 다시 분석한 뒤 근거(키워드·개념)가 바뀌었다. 답하면 409
- * - evidence_lost: 근거 문장이 지워졌다
+ * 추천 카드. id는 후보 지문으로 정해져 다시 분석해도 유지되고, 결론·근거가 바뀌면 revision이 오른다.
+ * externalKnowledge는 외부 지식을 쓰지 않으면 null이다 (지금 AI는 만들지 않아 항상 null).
  */
-export type RecommendationStatus = 'current' | 'stale' | 'evidence_lost'
-
-/** 생성 타입에 계약 반영 전 가정 필드(status·revision)를 덧붙인 추천 */
-export type Recommendation = Schemas['Recommendation'] & {
-  /** 계약 반영 전 가정 필드. 없으면 current로 본다 */
-  status?: RecommendationStatus
-  /**
-   * 계약 반영 전 가정 필드. 없으면 0으로 본다. 같은 추천이 근거만 바뀌고 여전히 성립하면
-   * BE가 같은 id에 더 큰 revision으로 준다.
-   */
-  revision?: number
-}
-export type RecommendationJob = Omit<Schemas['RecommendationJob'], 'recommendations'> & {
-  recommendations: Recommendation[]
-}
+export type Recommendation = Schemas['Recommendation']
+/**
+ * 추천 카드의 근거 상태 (11/04 회의, docs PR #22).
+ * - current: 인용한 근거 문장이 페이지에 그대로 있다
+ * - stale: 문장은 있지만 더 새 분석에서 다시 나오지 않았다. 답하면 409 RECOMMENDATION_STALE
+ * - evidence_lost: 근거 문장이 사라졌거나 페이지가 지워졌다. 답하면 409 RECOMMENDATION_STALE
+ */
+export type RecommendationFreshness = Recommendation['freshness']
+export type RecommendationJob = Schemas['RecommendationJob']
+/** 끝난 추천 작업의 결과 (11/04 결정, BE #74). pending이면 null */
+export type RecommendationOutcome = NonNullable<RecommendationJob['outcome']>
 export type RecommendationEvidence = Schemas['RecommendationEvidence']
 export type ExternalKnowledge = Schemas['ExternalKnowledge']
 export type RecommendationFeedback = Schemas['RecommendationFeedback']

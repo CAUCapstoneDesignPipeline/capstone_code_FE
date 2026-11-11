@@ -141,7 +141,11 @@ export function extractNoteGraph(registry, note, topic) {
 /**
  * @typedef {{ id: string, noteId: string, noteVersion: number, status: 'pending' | 'running' | 'succeeded' | 'failed',
  *   errorMessage: string | null, createdAt: string, startedAt: string | null, finishedAt: string | null }} AnalysisJob
- * @typedef {{ debounceMs?: number, maxDebounceMs?: number, runMs?: number, fail?: boolean, off?: boolean }} AnalysisOptions
+ */
+
+/**
+ * 가짜 서버의 AI 옵션. externalKnowledge는 추천(fakeRecommend.mjs)에 예시 외부 지식을 넣을지다.
+ * @typedef {{ debounceMs?: number, maxDebounceMs?: number, runMs?: number, fail?: boolean, off?: boolean, externalKnowledge?: boolean }} AnalysisOptions
  */
 
 const AI_DOWN_MESSAGE = 'AI 서버에 연결하지 못했습니다.'

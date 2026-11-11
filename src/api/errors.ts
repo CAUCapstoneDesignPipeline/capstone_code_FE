@@ -37,13 +37,19 @@ export function isErrorBody(value: unknown): value is ErrorBody {
 }
 
 /**
- * 추천 답(POST /recommendations/{id}/feedback)이 409: 근거가 바뀐(stale) 추천에는 답할 수 없다 (11/04 회의).
- * 화면은 code로 분기하는 것이 원칙이지만, 계약의 오류 code에 이 경우가 아직 없다(지금 있는 409 code인
- * NOTE_CONFLICT·TOPIC_ORDER_CONFLICT·REVIEW_CONFLICT·CANDIDATE_CLOSED·CONVERSION_CONFLICT는 모두 다른 뜻이다).
- * 그래서 이 엔드포인트의 응답에 한해 HTTP 상태(409)로 판단한다. 계약에 code가 생기면 code로 바꾼다.
+ * 추천 답(POST /recommendations/{id}/feedback)이 409 RECOMMENDATION_STALE: 근거가 바뀌었거나(stale)
+ * 사라진(evidence_lost) 추천에는 답할 수 없다. 답은 기록되지 않는다 (11/04 회의, docs PR #22).
  */
 export function isRecommendationStale(e: unknown): e is ApiError {
-  return e instanceof ApiError && e.status === 409
+  return isApiError(e, 'RECOMMENDATION_STALE')
+}
+
+/**
+ * 추천 답이 409 REVIEW_CONFLICT: 이미 최종 답(understood·known)을 남긴 추천에 다른 답을 보냈다 (docs PR #22).
+ * 다른 창 등에서 이미 답한 카드이므로 답한 카드로 본다.
+ */
+export function isRecommendationAnswered(e: unknown): e is ApiError {
+  return isApiError(e, 'REVIEW_CONFLICT')
 }
 
 /** NOTE_TITLE_TAKEN: 겹치는 제목 목록 (주제 삭제가 막혔을 때 채워진다) */

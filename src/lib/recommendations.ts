@@ -1,4 +1,4 @@
-import type { Recommendation, RecommendationStatus } from '../api'
+import type { Recommendation, RecommendationFreshness } from '../api'
 
 /** 추천 카드의 답 (Figma W3-02 버튼 3개, POST /recommendations/{id}/feedback의 action) */
 export type RecommendationAnswer = 'understood' | 'known' | 'confused'
@@ -57,19 +57,9 @@ export function viewingIndex(
   return 0
 }
 
-/** 추천 카드의 상태. 계약 반영 전 가정 필드라 없으면 current로 본다 */
-export function statusOf(r: Recommendation): RecommendationStatus {
-  return r.status ?? 'current'
-}
-
-/** 추천의 revision. 계약 반영 전 가정 필드라 없으면 0으로 본다 */
-export function revisionOf(r: Recommendation): number {
-  return r.revision ?? 0
-}
-
 /** 답할 수 있는 카드인지. stale·evidence_lost는 목록에 남기되 버튼을 막는다 (11/04 회의) */
 export function isAnswerable(r: Recommendation): boolean {
-  return statusOf(r) === 'current'
+  return r.freshness === 'current'
 }
 
 /**
@@ -84,9 +74,9 @@ function reconcile(
   next: Recommendation | undefined,
 ): { card: Recommendation; refreshed: boolean } {
   if (!next) return { card: old, refreshed: false }
-  const status = statusOf(next)
-  if (status !== 'current') return { card: { ...old, status }, refreshed: false }
-  if (revisionOf(next) > revisionOf(old)) return { card: next, refreshed: true }
+  const { freshness } = next
+  if (freshness !== 'current') return { card: { ...old, freshness }, refreshed: false }
+  if (next.revision > old.revision) return { card: next, refreshed: true }
   if (!isAnswerable(old)) return { card: old, refreshed: false }
   return { card: next, refreshed: false }
 }
@@ -178,9 +168,12 @@ export function leaveRecommendation(
   return leaving && !isAnswerable(leaving) ? removeRecommendation(cards, leavingId) : [...cards]
 }
 
-/** 답이 409로 막혔을 때: 그 카드를 stale로 바꾼다. 내용과 자리는 그대로다 */
+/**
+ * 답이 409 RECOMMENDATION_STALE로 막혔을 때: 그 카드를 stale로 바꾼다. 내용과 자리는 그대로다.
+ * BE는 stale·evidence_lost 중 어느 쪽인지 알려 주지 않으므로, 이미 막혀 있던 카드는 그 상태를 둔다.
+ */
 export function markStale(cards: readonly Recommendation[], id: string): Recommendation[] {
-  return cards.map((r) => (r.id === id ? { ...r, status: 'stale' } : r))
+  return cards.map((r) => (r.id === id && isAnswerable(r) ? { ...r, freshness: 'stale' } : r))
 }
 
 /** 새 카드가 들어왔을 때 알림 (11/04 회의) */
@@ -202,12 +195,15 @@ export function mergeToast(added: number, refreshed: number): string | null {
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
-/** 답이 409로 막혔을 때 (근거가 바뀐 추천) */
+/** 답이 409 REVIEW_CONFLICT일 때: 다른 창 등에서 이미 최종 답을 남긴 추천이라 카드를 뺀다 */
+export const ALREADY_ANSWERED_TOAST = '이미 답한 추천입니다.'
+
+/** 답이 409 RECOMMENDATION_STALE로 막혔을 때 (근거가 바뀐 추천) */
 export const STALE_ANSWER_TOAST = '근거가 바뀌어 답할 수 없습니다'
 
 /** 카드 위에 보이는 상태 (11/04 회의). current면 없다 */
-export const STATUS_NOTICE: Partial<
-  Record<RecommendationStatus, { title: string; description: string }>
+export const FRESHNESS_NOTICE: Partial<
+  Record<RecommendationFreshness, { title: string; description: string }>
 > = {
   stale: {
     title: '근거가 바뀌었습니다',

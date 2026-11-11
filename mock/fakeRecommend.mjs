@@ -8,7 +8,8 @@
 // 또 근거가 바뀐 카드 처리(11/04 회의)를 확인할 수 있게, 같은 id 카드에 회차마다 돌아가며 역할을 준다
 // (statusRole): stale · evidence_lost · 새 revision(current) · 그대로(current).
 // 이번 회차에 stale이던 카드는 다음 회차에 새 revision으로 돌아온다. evidence_lost였던 카드는 다음 회차에
-// 같은 revision의 current로 오므로 FE에서는 막힌 채로 남는다. 상태(status)와 revision은 계약 반영 전 가정 필드다.
+// 같은 revision의 current로 오므로 FE에서는 막힌 채로 남는다. freshness·revision·outcome은 docs PR #22를 따른다.
+// 외부 지식은 지금 AI가 만들지 않아 기본은 null이다 (AI #19). external 옵션을 켜면 예시 외부 지식을 준다.
 
 import { createHash, randomUUID } from 'node:crypto'
 
@@ -86,11 +87,18 @@ export function keywordSentences(note) {
 /**
  * 요청한 노트(P)와 다른 노트(Q)가 같은 키워드를 쓰면 추천 하나. 다른 노트와 공유한 키워드마다 하나씩, 최대 8개.
  * round는 이 노트를 몇 번째로 분석하는지다 (1부터). 2회차부터는 위 머리말처럼 결과를 흔든다.
- * revisions는 추천 id → 마지막으로 준 revision이다. 새 revision을 주면 여기에 적는다.
+ * revisions는 추천 id → 마지막으로 준 revision이다 (처음은 1). 새 revision을 주면 여기에 적는다.
+ * external이면 예시 외부 지식을, 아니면 null을 준다.
  * @param {NoteLike} note @param {NoteLike[]} others @param {number} [round]
- * @param {Map<string, number>} [revisions]
+ * @param {Map<string, number>} [revisions] @param {boolean} [external]
  */
-export function buildRecommendations(note, others, round = 1, revisions = new Map()) {
+export function buildRecommendations(
+  note,
+  others,
+  round = 1,
+  revisions = new Map(),
+  external = false,
+) {
   const mine = keywordSentences(note)
   /** @type {{ other: NoteLike, key: string, A: Evidence, B: Evidence, label: string, shared: string[] }[]} */
   const pairs = []
@@ -110,16 +118,16 @@ export function buildRecommendations(note, others, round = 1, revisions = new Ma
     /** @type {(typeof pairs)[number]} */ p,
     /** @type {string} */ id,
     /** @type {string} */ conclusion,
-    /** @type {'current' | 'stale' | 'evidence_lost'} */ status = 'current',
+    /** @type {'current' | 'stale' | 'evidence_lost'} */ freshness = 'current',
   ) => ({
     id,
+    revision: revisions.get(id) ?? 1,
+    freshness,
     evidenceA: p.A,
     evidenceB: p.B,
-    externalKnowledge: EXTERNAL,
+    externalKnowledge: external ? EXTERNAL : null,
     conclusion,
     relatedKeywords: p.shared,
-    status,
-    revision: revisions.get(id) ?? 0,
   })
   let out = pairs.map((p, i) => {
     const id = fingerprintId(`${note.id}|${p.other.id}|${p.key}`)
@@ -127,7 +135,7 @@ export function buildRecommendations(note, others, round = 1, revisions = new Ma
     if (round === 1) return card(p, id, conclusion)
     const role = statusRole(i, round)
     if (role === 'revised') {
-      const revision = (revisions.get(id) ?? 0) + 1
+      const revision = (revisions.get(id) ?? 1) + 1
       revisions.set(id, revision)
       return card(p, id, `${conclusion} [근거 갱신 rev ${revision}]`)
     }
@@ -155,11 +163,15 @@ export function buildRecommendations(note, others, round = 1, revisions = new Ma
   return out.slice(0, MAX_RECOMMENDATIONS)
 }
 
+/** 최종 답. 이 답 뒤 다른 답은 409 REVIEW_CONFLICT다 (docs PR #22) */
+const FINAL = new Set(['understood', 'known'])
+
 /**
  * 추천 작업. 같은 노트에 끝나지 않은 작업이 있으면 그 작업을 돌려준다. runMs 뒤에 끝난다.
- * 실패·보류·결과 없음은 모두 completed + 빈 배열이다 (10/30: 실패 비노출).
+ * 끝나면 outcome으로 이유를 구분한다 (11/4 결정, BE #74): 추천 있음 RECOMMENDED · 없음 NO_RECOMMENDATIONS.
+ * fail이면 AI 서버가 꺼진 것처럼 RECOMMENDATION_FAILED + 빈 배열로 끝난다 (--fail-analysis).
  * @param {{ getNote: (id: string) => NoteLike | undefined, allNotes: () => NoteLike[], now: () => string }} deps
- * @param {{ runMs?: number }} [options]
+ * @param {{ runMs?: number, fail?: boolean, external?: boolean }} [options]
  */
 export function createRecommendationQueue(deps, options = {}) {
   const runMs = options.runMs ?? 1500
@@ -173,8 +185,8 @@ export function createRecommendationQueue(deps, options = {}) {
   const rounds = new Map()
   /** @type {Map<string, number>} 추천 id → 마지막으로 준 revision */
   const revisions = new Map()
-  /** @type {Map<string, string>} 추천 id → 마지막으로 준 상태. current가 아니면 답에 409 */
-  const statuses = new Map()
+  /** @type {Map<string, string>} 추천 id → 마지막으로 준 freshness. current가 아니면 답에 409 */
+  const freshness = new Map()
 
   return {
     /** @param {NoteLike} note */
@@ -185,6 +197,7 @@ export function createRecommendationQueue(deps, options = {}) {
         id: randomUUID(),
         noteId: note.id,
         status: 'pending',
+        outcome: null,
         recommendations: [],
         createdAt: deps.now(),
         completedAt: null,
@@ -196,17 +209,23 @@ export function createRecommendationQueue(deps, options = {}) {
         const current = deps.getNote(note.id)
         const round = (rounds.get(note.id) ?? 0) + 1
         rounds.set(note.id, round)
-        const recommendations = current
-          ? buildRecommendations(current, deps.allNotes(), round, revisions)
-          : []
+        const recommendations =
+          current && !options.fail
+            ? buildRecommendations(current, deps.allNotes(), round, revisions, options.external)
+            : []
         for (const r of recommendations) {
           // 같은 id로 다시 온 추천은 이미 받은 답을 지우지 않는다
           if (!feedback.has(r.id)) feedback.set(r.id, null)
-          statuses.set(r.id, r.status)
+          freshness.set(r.id, r.freshness)
         }
         jobs.set(job.id, {
           ...job,
           status: 'completed',
+          outcome: options.fail
+            ? 'RECOMMENDATION_FAILED'
+            : recommendations.length > 0
+              ? 'RECOMMENDED'
+              : 'NO_RECOMMENDATIONS',
           recommendations,
           completedAt: deps.now(),
         })
@@ -215,14 +234,18 @@ export function createRecommendationQueue(deps, options = {}) {
     },
 
     /**
-     * 추천 카드의 답. 없는 추천이면 'missing', 마지막으로 준 상태가 current가 아니면(stale·evidence_lost) 'stale'(409).
-     * 같은 추천에 다시 보내면 마지막 답으로 바꾼다 (재전송 처리는 계약에서 TBD). 그래프 반영·거절 기록은 흉내 내지 않는다.
+     * 추천 카드의 답 (docs PR #22). 없는 추천이면 'missing'.
+     * 마지막으로 준 freshness가 current가 아니면(stale·evidence_lost) 어떤 답이든 'stale'(409 RECOMMENDATION_STALE).
+     * 같은 답 재전송·confused 뒤 최종 답은 'ok'(204). 최종 답(understood·known) 뒤 다른 답은 'conflict'(409 REVIEW_CONFLICT).
+     * 그래프 반영·거절 기록은 흉내 내지 않는다.
      * @param {string} recommendationId @param {string} action
-     * @returns {'ok' | 'missing' | 'stale'}
+     * @returns {'ok' | 'missing' | 'stale' | 'conflict'}
      */
     feedback(recommendationId, action) {
       if (!feedback.has(recommendationId)) return 'missing'
-      if ((statuses.get(recommendationId) ?? 'current') !== 'current') return 'stale'
+      if ((freshness.get(recommendationId) ?? 'current') !== 'current') return 'stale'
+      const before = feedback.get(recommendationId)
+      if (before && FINAL.has(before) && before !== action) return 'conflict'
       feedback.set(recommendationId, action)
       return 'ok'
     },

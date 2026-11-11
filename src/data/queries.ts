@@ -191,6 +191,11 @@ export interface RecommendationDeck {
   jobId: string | null
   /** 마지막으로 합칠 때 다룬 추천 수 (mergeRecommendations의 offered). 합칠 때만 정한다 */
   offered: number
+  /**
+   * 마지막 작업이 분석 실패(outcome RECOMMENDATION_FAILED)로 끝났는지 (11/04 회의).
+   * 실패한 작업은 합치지 않으므로 쌓인 카드는 그대로다. 실패 때 남은 카드가 없었으면 true이고 실패 화면을 보인다.
+   */
+  failed: boolean
 }
 
 const EMPTY_DECK: RecommendationDeck = {
@@ -198,6 +203,7 @@ const EMPTY_DECK: RecommendationDeck = {
   currentId: null,
   jobId: null,
   offered: 0,
+  failed: false,
 }
 
 /**
