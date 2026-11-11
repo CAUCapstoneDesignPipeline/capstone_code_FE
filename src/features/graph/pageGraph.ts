@@ -1,5 +1,5 @@
 // 페이지 그래프 (Figma W3-13·W3-13b, GET /graph v0.4.0-draft) 계산. 그리기와 나눠 테스트한다.
-import type { Graph, GraphEdge, GraphNode, Topic } from '../../api'
+import { isApiError, type Graph, type GraphEdge, type GraphNode, type Topic } from '../../api'
 import type { TopicColorKey } from '../../lib/topicColors'
 
 /** 선은 방향이 없다. 두 페이지 id를 정렬해 이어 붙인 값이 선의 id다. */
@@ -132,6 +132,31 @@ export function legendEntries(
     })
   }
   return out
+}
+
+/**
+ * 그래프를 못 불러왔을 때의 안내 (error.code로 나눈다).
+ * VALIDATION_FAILED: 잘못된 scope·topicId (400), NOT_FOUND: 없는 주제 (404). 그 밖은 서버 메시지.
+ */
+export function graphErrorMessage(e: unknown): string {
+  if (isApiError(e, 'VALIDATION_FAILED'))
+    return '그래프를 불러오지 못했습니다. 요청한 범위가 올바르지 않습니다.'
+  if (isApiError(e, 'NOT_FOUND')) return '그래프를 불러오지 못했습니다. 주제를 찾을 수 없습니다.'
+  return `그래프를 불러오지 못했습니다. ${e instanceof Error ? e.message : ''}`.trim()
+}
+
+/** 선 라벨에 이름을 보이는 공유 키워드 수. 넘으면 "외 N개"로 줄인다 */
+const EDGE_LABEL_KEYWORDS = 2
+
+/**
+ * 선에 마우스를 올리거나 고르면 보이는 라벨: 공유 키워드 이름 (BE는 이름순으로 준다).
+ * 많으면 앞 2개 + "외 N개". sharedKeywords가 없거나 비면 라벨을 붙이지 않는다(빈 문자열, 계약).
+ */
+export function edgeLabel(keywords: readonly string[] | undefined): string {
+  if (!keywords || keywords.length === 0) return ''
+  const shown = keywords.slice(0, EDGE_LABEL_KEYWORDS).join(' · ')
+  const rest = keywords.length - EDGE_LABEL_KEYWORDS
+  return rest > 0 ? `${shown} 외 ${rest}개` : shown
 }
 
 /** 고른 선의 카드 내용 (W3-13b). 선이 그래프에서 사라졌으면 null */

@@ -4,7 +4,7 @@ import { useCapabilities, useGraph, useTopics } from '../../data/queries'
 import type { TopicColorKey } from '../../lib/topicColors'
 import { GraphCanvas } from './GraphCanvas'
 import styles from './GraphView.module.css'
-import { legendEntries, selectedEdgeInfo } from './pageGraph'
+import { graphErrorMessage, legendEntries, selectedEdgeInfo } from './pageGraph'
 import { useTopicColorKeys } from './useTopicColorKeys'
 
 interface Props {
@@ -111,7 +111,7 @@ export function GraphView({ onOpenNote }: Props) {
               </p>
             ) : graph.isError ? (
               <div className={styles.emptyBlock} role="alert">
-                <p className={styles.hint}>그래프를 불러오지 못했습니다. {graph.error.message}</p>
+                <p className={styles.hint}>{graphErrorMessage(graph.error)}</p>
                 <Button variant="secondary" onClick={() => graph.refetch()}>
                   다시 시도
                 </Button>

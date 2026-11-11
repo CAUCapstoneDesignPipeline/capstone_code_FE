@@ -12,7 +12,21 @@ export async function getNoteAnalysis(
   return res.job
 }
 
-/** 페이지 그래프 (v0.4.0-draft, Figma W3-13). 노드 = 페이지, 선 = 같은 키워드를 공유하는 두 페이지 */
-export function getGraph(signal?: AbortSignal): Promise<Graph> {
-  return request('GET', '/graph', { query: { scope: 'all' }, signal })
+/**
+ * 그래프 범위. all = 사용자의 모든 페이지, topic = 한 주제의 페이지 (topicId 'none'이면 미분류).
+ * 없는 주제는 404 NOT_FOUND, 잘못된 scope·topicId는 400 VALIDATION_FAILED (BE PR #108).
+ */
+export type GraphScope = { scope: 'all' } | { scope: 'topic'; topicId: string | 'none' }
+
+/**
+ * 페이지 그래프 (v0.4.0-draft · docs PR #22, Figma W3-13). 노드 = 페이지(공유 키워드가 없는 페이지도 온다),
+ * 선 = 같은 키워드를 공유하는 두 페이지 (무방향, 쌍마다 1개, sharedKeywords는 이름순).
+ */
+export function getGraph(
+  scope: GraphScope = { scope: 'all' },
+  signal?: AbortSignal,
+): Promise<Graph> {
+  const query =
+    scope.scope === 'topic' ? { scope: 'topic', topicId: scope.topicId } : { scope: 'all' }
+  return request('GET', '/graph', { query, signal })
 }

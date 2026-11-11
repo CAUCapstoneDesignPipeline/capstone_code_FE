@@ -5,7 +5,7 @@ import type { Graph } from '../../api'
 import { useTheme, type Theme } from '../../lib/theme'
 import { nodeColorKey, TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import styles from './GraphView.module.css'
-import { edgeKey, initialPositions, placeNear, sortedById, type Box } from './pageGraph'
+import { edgeKey, edgeLabel, initialPositions, placeNear, sortedById, type Box } from './pageGraph'
 
 cytoscape.use(fcose)
 
@@ -24,6 +24,8 @@ const MAX_FIT_ZOOM = 1
 const NEW_NODE_GAP = 80
 const NODE_HEIGHT = 30
 const NODE_FONT_SIZE = 13
+/** 선 라벨(공유 키워드) 글자 크기 */
+const EDGE_FONT_SIZE = 11
 /** 페이지 알약: 왼쪽 여백 12 + 점 8 + 간격 8 + 글자 + 오른쪽 여백 12 */
 const NODE_CHROME = 40
 const DOT = 8
@@ -144,6 +146,25 @@ function graphStyle(theme: Theme): cytoscape.StylesheetJson {
       selector: 'edge.selected',
       style: { width: 2, 'line-color': ink, 'line-opacity': 1, 'z-index': 10 },
     },
+    // 마우스를 올리거나 고른 선: 공유 키워드를 선 위에 보인다 (sharedKeywords, 없으면 라벨 없음)
+    {
+      selector: 'edge.hover, edge.selected',
+      style: {
+        label: 'data(label)',
+        color: ink,
+        'font-family': font || 'sans-serif',
+        'font-size': EDGE_FONT_SIZE,
+        'text-background-color': canvas,
+        'text-background-opacity': 1,
+        'text-background-padding': '2px',
+        'text-rotation': 'autorotate',
+        'z-index': 10,
+      },
+    },
+    {
+      selector: 'edge.hover',
+      style: { 'line-color': ink, 'line-opacity': 1 },
+    },
   ]
 }
 
@@ -171,6 +192,13 @@ export function GraphCanvas(props: Props) {
     })
     cy.on('tap', 'node.page', (e) => handlers.current.onTapNode(e.target.id()))
     cy.on('tap', 'edge', (e) => handlers.current.onTapEdge(e.target.id()))
+    // 선에 마우스를 올리면 공유 키워드를 보인다
+    cy.on('mouseover', 'edge', (e) => {
+      e.target.addClass('hover')
+    })
+    cy.on('mouseout', 'edge', (e) => {
+      e.target.removeClass('hover')
+    })
     cy.on('tap', (e) => {
       if (e.target === cy) handlers.current.onTapEdge(null)
     })
@@ -221,9 +249,12 @@ export function GraphCanvas(props: Props) {
       }
       for (const e of sortedById(graph.edges, edgeKey)) {
         const id = edgeKey(e)
-        if (cy.getElementById(id).nonempty()) continue
-        if (nodeIds.has(e.sourceId) && nodeIds.has(e.targetId)) {
-          cy.add({ group: 'edges', data: { id, source: e.sourceId, target: e.targetId } })
+        const label = edgeLabel(e.sharedKeywords)
+        const existing = cy.getElementById(id)
+        // 있던 선은 공유 키워드만 바뀔 수 있다
+        if (existing.nonempty()) existing.data('label', label)
+        else if (nodeIds.has(e.sourceId) && nodeIds.has(e.targetId)) {
+          cy.add({ group: 'edges', data: { id, source: e.sourceId, target: e.targetId, label } })
         }
       }
     })
