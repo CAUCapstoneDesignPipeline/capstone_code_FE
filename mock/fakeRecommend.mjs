@@ -187,6 +187,8 @@ export function createRecommendationQueue(deps, options = {}) {
   const revisions = new Map()
   /** @type {Map<string, string>} 추천 id → 마지막으로 준 freshness. current가 아니면 답에 409 */
   const freshness = new Map()
+  /** @type {Map<string, any>} 추천 id → 마지막으로 준 카드 */
+  const cards = new Map()
 
   return {
     /** @param {NoteLike} note */
@@ -217,6 +219,7 @@ export function createRecommendationQueue(deps, options = {}) {
           // 같은 id로 다시 온 추천은 이미 받은 답을 지우지 않는다
           if (!feedback.has(r.id)) feedback.set(r.id, null)
           freshness.set(r.id, r.freshness)
+          cards.set(r.id, r)
         }
         jobs.set(job.id, {
           ...job,
@@ -248,6 +251,11 @@ export function createRecommendationQueue(deps, options = {}) {
       if (before && FINAL.has(before) && before !== action) return 'conflict'
       feedback.set(recommendationId, action)
       return 'ok'
+    },
+
+    /** 마지막으로 준 추천 카드 (챗봇이 카드 내용을 채울 때 쓴다) @param {string} recommendationId */
+    find(recommendationId) {
+      return cards.get(recommendationId)
     },
 
     /** @param {string} jobId */

@@ -153,16 +153,70 @@ async function send<T>(
   }
 
   if (res.ok) return data as T
+  throw errorFrom(method, path, res.status, data)
+}
 
+/** 실패 응답 본문을 ApiError로 바꾼다 */
+function errorFrom(method: Method, path: string, status: number, data: unknown): ApiError {
   if (isErrorBody(data)) {
     const { code, message, details } = data.error
-    throw new ApiError(code, message, res.status, details)
+    return new ApiError(code, message, status, details)
   }
   // 계약의 Error 모양이 아닌 응답. BE와 공유할 수 있게 콘솔에 남긴다.
-  console.warn('[api] 계약과 다른 오류 응답', method, path, res.status, data)
-  throw new ApiError(
-    'INTERNAL',
-    '일시적인 오류가 발생했습니다. 잠시 후 다시 시도하세요.',
-    res.status,
-  )
+  console.warn('[api] 계약과 다른 오류 응답', method, path, status, data)
+  return new ApiError('INTERNAL', '일시적인 오류가 발생했습니다. 잠시 후 다시 시도하세요.', status)
+}
+
+/**
+ * 본문을 스트림으로 읽는 요청 (SSE, 추천 챗봇). 2xx면 본문을 읽지 않은 Response를 돌려준다.
+ * 실패 응답·연결 실패는 request와 같이 ApiError로 던지고, 요청 취소(AbortError)는 그대로 던진다.
+ * 로그인이 필요한데 UNAUTHENTICATED를 받으면 refresh를 한 번 하고 다시 보낸다.
+ * 응답이 길어(최대 3분) 시간 제한은 두지 않는다. 끊는 것은 signal로 한다.
+ */
+export async function openStream(
+  method: Method,
+  path: string,
+  options: Pick<RequestOptions, 'body' | 'signal'> = {},
+): Promise<Response> {
+  const sentToken = accessToken
+  try {
+    return await sendStream(method, path, options, sentToken)
+  } catch (e) {
+    if (!isApiError(e, 'UNAUTHENTICATED')) throw e
+    if (accessToken === null || accessToken === sentToken) await refreshSession()
+    return sendStream(method, path, options, accessToken)
+  }
+}
+
+async function sendStream(
+  method: Method,
+  path: string,
+  { body, signal }: Pick<RequestOptions, 'body' | 'signal'>,
+  token: string | null,
+): Promise<Response> {
+  const headers: Record<string, string> = { Accept: 'text/event-stream' }
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if (token) headers.Authorization = `Bearer ${token}`
+  let res: Response
+  try {
+    res = await fetch(buildUrl(path), {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+      credentials: 'same-origin',
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError('NETWORK_ERROR', '서버에 연결할 수 없습니다.', 0)
+  }
+  if (res.ok) return res
+  let data: unknown
+  try {
+    data = await readJson(res)
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError('NETWORK_ERROR', '서버에 연결할 수 없습니다.', 0)
+  }
+  throw errorFrom(method, path, res.status, data)
 }

@@ -98,9 +98,51 @@
   white-space: pre-wrap;
 }
 
+/* 말풍선 + 그 아래 "답변이 멈췄습니다" */
+.bubbleColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.assistant .bubbleColumn {
+  flex: 1;
+}
+
+.user .bubbleColumn {
+  align-items: flex-end;
+}
+
+.stopped {
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+/* 대화 아래의 오류 안내 (Banner) */
+.notice {
+  margin-top: 10px;
+}
+
+/* 답을 받기 전: 말풍선 안의 도는 아이콘 */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
 /* 챗봇: 흰 바탕(surface-raised) + border-subtle, 패널 폭 전체 */
 .assistant .bubble {
-  flex: 1;
   border: 1px solid var(--color-border-subtle);
   background: var(--color-surface-raised);
 }

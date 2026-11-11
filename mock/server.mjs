@@ -5,23 +5,27 @@
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
-// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off --external-knowledge]
+// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off --external-knowledge --chat-off]
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
 //   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
 //   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번). 추천 작업도 outcome RECOMMENDATION_FAILED로 끝난다.
 //   --external-knowledge: 추천에 예시 외부 지식을 넣는다. 기본은 지금 AI처럼 null이다 (AI #19).
+//   --chat-off: 추천 챗봇이 503 AI_UNAVAILABLE. 챗봇에 '끊김'이 든 질문을 보내면 답 중간에 CHAT_INTERRUPTED로 끊긴다.
+//   챗봇 413(CHAT_INPUT_TOO_LARGE)은 카드와 대화가 60,000자를 넘을 때다.
 //   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프·추천 경로는 404.
 
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { createAnalysisQueue, createConceptRegistry } from './fakeAnalysis.mjs'
+import { CHAT_INPUT_MAX_CHARS, chatEvents, invalidChatRequest } from './fakeChat.mjs'
 import { createRecommendationQueue } from './fakeRecommend.mjs'
 
 /**
  * @typedef {{ id: string, name: string, sortOrder: number, createdAt: string }} Topic
  * @typedef {{ id: string, topicId: string | null, title: string, body: string, version: number, createdAt: string, updatedAt: string }} Note
- * @typedef {{ status: number, body?: unknown, cookie?: string }} Reply
+ * stream이 있으면 본문 대신 SSE 이벤트를 차례로 보낸다 (추천 챗봇).
+ * @typedef {{ status: number, body?: unknown, cookie?: string, stream?: { event: string, data: unknown }[] }} Reply
  */
 
 const NAME_MAX = 50
@@ -429,6 +433,37 @@ export function createStore(analysisOptions) {
         throw new HttpError(409, 'REVIEW_CONFLICT', '이미 답한 추천입니다.')
     },
 
+    /**
+     * 추천 챗봇 (docs PR #22). 요청을 검사하고 보낼 SSE 이벤트를 준다. --chat-off면 503 AI_UNAVAILABLE.
+     * @param {string} id @param {unknown} input @returns {{ event: string, data: unknown }[]}
+     */
+    chatAboutRecommendation(id, input) {
+      const invalidField = invalidChatRequest(input)
+      if (invalidField)
+        throw new HttpError(400, 'VALIDATION_FAILED', '대화 형식이 올바르지 않습니다.', {
+          fields: [invalidField],
+        })
+      const card = recommendations.find(id)
+      if (!card) throw new HttpError(404, 'NOT_FOUND', '추천을 찾을 수 없습니다.')
+      if (analysisOptions?.chatOff)
+        throw new HttpError(503, 'AI_UNAVAILABLE', '챗봇을 지금 사용할 수 없습니다.', {
+          reason: 'CHAT_DISABLED',
+        })
+      const body =
+        /** @type {{ conversationId?: string, messages: { role: string, content: string }[] }} */ (
+          input
+        )
+      const size =
+        JSON.stringify(card).length + body.messages.reduce((n, m) => n + m.content.length, 0)
+      if (size > CHAT_INPUT_MAX_CHARS)
+        throw new HttpError(
+          413,
+          'CHAT_INPUT_TOO_LARGE',
+          '대화가 너무 깁니다. 새 대화로 다시 시작해 주세요.',
+        )
+      return chatEvents(body, card.conclusion)
+    },
+
     /** @param {string} jobId */
     getRecommendationJob(jobId) {
       const job = recommendations.get(jobId)
@@ -588,6 +623,8 @@ function route(store, auth, req, parts, params, body, aiOff) {
     return { status: 200, body: store.getRecommendationJob(id) }
   if (resource === 'recommendations' && id && sub === 'feedback' && method === 'POST')
     return (store.sendRecommendationFeedback(id, body), { status: 204 })
+  if (resource === 'recommendations' && id && sub === 'chat' && method === 'POST')
+    return { status: 200, stream: store.chatAboutRecommendation(id, body) }
   if (resource === 'notes') {
     if (!id && method === 'GET') return { status: 200, body: store.listNotes(params) }
     if (!id && method === 'POST') return { status: 201, body: store.createNote(body) }
@@ -610,8 +647,11 @@ function route(store, auth, req, parts, params, body, aiOff) {
 
 /** @param {import('node:http').IncomingMessage} req */
 async function readBody(req) {
-  let text = ''
-  for await (const chunk of req) text += chunk
+  // 조각(Buffer)을 모은 뒤 한 번에 읽는다. 조각마다 문자열로 바꾸면 경계에서 한글이 깨진다
+  /** @type {Buffer[]} */
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  const text = Buffer.concat(chunks).toString('utf8')
   if (!text) return undefined
   try {
     return JSON.parse(text)
@@ -624,6 +664,8 @@ async function readBody(req) {
  * @param {{ delayMs?: number, log?: boolean, analysis?: import('./fakeAnalysis.mjs').AnalysisOptions }} [options]
  */
 export function createMockServer({ delayMs = 0, log = false, analysis } = {}) {
+  /** 챗봇 SSE 조각 사이 간격 (ms). 테스트(runMs가 짧음)에서는 줄인다 */
+  const chatChunkMs = (analysis?.runMs ?? 1500) < 100 ? 1 : 60
   const store = createStore(analysis)
   const auth = createAuth()
 
@@ -666,6 +708,23 @@ export function createMockServer({ delayMs = 0, log = false, analysis } = {}) {
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs))
     if (log) console.log(`${req.method} ${url.pathname}${url.search} → ${reply.status}`)
     if (reply.cookie) res.setHeader('Set-Cookie', reply.cookie)
+    if (reply.stream) {
+      // SSE: 조각마다 잠깐 쉬어 토큰 단위로 오는 것처럼 보낸다. 클라이언트가 끊으면 멈춘다.
+      res.writeHead(reply.status, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+      })
+      let closed = false
+      res.on('close', () => (closed = true))
+      for (const e of reply.stream) {
+        if (closed) break
+        res.write(`event:${e.event}\ndata:${JSON.stringify(e.data)}\n\n`)
+        await new Promise((r) => setTimeout(r, chatChunkMs))
+      }
+      if (log && closed) console.log('  (챗봇 스트림을 클라이언트가 끊음)')
+      res.end()
+      return
+    }
     if (reply.body === undefined) {
       res.writeHead(reply.status).end()
     } else {
@@ -691,6 +750,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     fail: argv.includes('--fail-analysis'),
     off: argv.includes('--ai-off'),
     externalKnowledge: argv.includes('--external-knowledge'),
+    chatOff: argv.includes('--chat-off'),
   }
   createMockServer({ delayMs, log: true, analysis }).listen(port, '127.0.0.1', () => {
     console.log(`가짜 서버: http://localhost:${port}${delayMs ? ` (응답 지연 ${delayMs}ms)` : ''}`)
