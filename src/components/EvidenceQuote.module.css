@@ -1,0 +1,101 @@
+/*
+ * Figma EvidenceQuote (25:172): 배경·모서리·왼쪽 막대·아이콘 없이 위 1px 구분선만.
+ * 여백 위아래 8 · 좌우 0, 라벨과 본문 사이 8, 문장과 출처 줄 사이 4.
+ */
+.root {
+  display: flex;
+  gap: var(--space-8);
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-8) 0;
+  border: none;
+  border-top: 1px solid var(--color-border-ghost);
+  background: none;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+/* Figma 점선은 4px 선 · 3px 간격. CSS dashed로 근사한다 */
+.external {
+  border-top-style: dashed;
+}
+
+.gap {
+  border-top: 1px dashed var(--color-ink-muted);
+}
+
+/* 라벨 열: 20px, code 12/20 */
+.label {
+  flex: none;
+  width: 20px;
+  color: var(--color-ink-muted);
+  font: 400 12px/20px var(--font-code);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.quote {
+  margin: 0;
+  font: var(--text-ui-body-sm);
+  overflow-wrap: anywhere;
+}
+
+.external .quote,
+.gap .quote {
+  color: var(--color-ink-muted);
+}
+
+/* 출처 줄: 노트 제목 · 주제 / URL / 원문 근거 없음 · 사유 */
+.source {
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+  overflow-wrap: anywhere;
+}
+
+/* 노트 제목 밑줄 = 누르면 노트로 이동한다는 표시 */
+.noteTitle {
+  text-decoration: underline;
+  text-decoration-color: var(--color-ink-muted);
+  text-underline-offset: 2px;
+}
+
+.url {
+  align-self: flex-start;
+  max-width: 100%;
+  font-family: var(--font-code);
+  text-decoration: none;
+}
+
+.url:hover {
+  color: var(--color-ink);
+}
+
+.url:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+/* evidence 항목 전체가 버튼 (Enter·Space로도 연다) */
+.button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover .noteTitle,
+.button[aria-pressed='true'] .noteTitle {
+  color: var(--color-ink);
+  text-decoration-color: currentColor;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}

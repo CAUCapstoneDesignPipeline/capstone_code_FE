@@ -53,42 +53,10 @@
   font-weight: 500;
 }
 
-/* EvidenceQuote: surface-emphasis, 왼쪽 ink 2px, 여백 8·12, 사이 4 */
-.evidence {
+/* 근거 A · B · 외부 지식: EvidenceQuote 각주가 위 구분선으로만 이어진다 */
+.evidenceList {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  margin: 0;
-  padding: var(--space-8) var(--space-12);
-  border-left: 2px solid var(--color-ink);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-emphasis);
-}
-
-.source {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.sourceName {
-  min-width: 0;
-  overflow: hidden;
-  font: var(--text-ui-label-strong);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sourceTopic {
-  flex: none;
-  color: var(--color-ink-muted);
-  font: var(--text-ui-caption);
-}
-
-.quote {
-  margin: 0;
-  font: var(--text-ui-body-sm);
 }
 
 .arrow {
@@ -132,30 +100,6 @@
   min-width: 0;
   padding-inline: var(--space-4);
   font-size: 13px;
-}
-
-/* 근거를 누르면 노트를 열고 문장을 강조한다 (W3-12). 누른 근거는 surface-selected */
-.evidenceButton {
-  width: 100%;
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
-  color: var(--color-ink);
-  text-align: left;
-  cursor: pointer;
-}
-
-.evidenceButton:hover {
-  background: var(--color-surface-selected);
-}
-
-.evidenceButton[aria-pressed='true'] {
-  background: var(--color-surface-selected);
-}
-
-.evidenceButton:focus-visible {
-  outline: 2px solid var(--color-ink);
-  outline-offset: 1px;
 }
 
 /* W3-16: 쌓인 카드가 있을 때 헤더 아래 줄의 분석 중 표시 (AnalysisStatus 모양). 알약 안쪽 여백만큼 당겨 제목과 왼쪽을 맞춘다 */

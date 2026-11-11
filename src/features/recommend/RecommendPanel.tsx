@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type Ref } from 'react'
 import { flushSync } from 'react-dom'
 import type { NoteSummary, Recommendation, RecommendationEvidence } from '../../api'
 import { Button, PanelToggleButton } from '../../components/Button'
+import { EvidenceQuote } from '../../components/EvidenceQuote'
 import { Icon } from '../../components/Icon'
 import { useToast } from '../../components/toastContext'
 import {
@@ -28,7 +29,6 @@ import {
 } from '../../lib/recommendations'
 import { StatusPill } from '../editor/StatusPill'
 import { ChatView } from './ChatView'
-import { ExternalSourceLink } from './ExternalSourceLink'
 import styles from './RecommendPanel.module.css'
 import { SAMPLE_FIRST_MESSAGE, type ChatMessage } from './sampleChat'
 
@@ -297,37 +297,25 @@ function RecommendView({
   return (
     <>
       <div className={styles.body}>
-        <section className={styles.section} aria-labelledby="recommend-a">
-          <h3 id="recommend-a" className={styles.label}>
-            근거 A
-          </h3>
-          <NoteEvidenceButton
+        <section className={styles.evidenceList} aria-label="근거">
+          <NoteEvidence
+            label="A"
             evidence={evidenceA}
             selected={shownEvidence === `${recommendation.id}:a`}
-            onClick={() => onOpenEvidence('a', evidenceA)}
+            onOpen={() => onOpenEvidence('a', evidenceA)}
           />
-        </section>
-        <section className={styles.section} aria-labelledby="recommend-b">
-          <h3 id="recommend-b" className={styles.label}>
-            근거 B
-          </h3>
-          <NoteEvidenceButton
+          <NoteEvidence
+            label="B"
             evidence={evidenceB}
             selected={shownEvidence === `${recommendation.id}:b`}
-            onClick={() => onOpenEvidence('b', evidenceB)}
+            onOpen={() => onOpenEvidence('b', evidenceB)}
           />
-        </section>
-        <section className={styles.section} aria-labelledby="recommend-external">
-          <h3 id="recommend-external" className={styles.label}>
-            외부 지식
-          </h3>
-          <figure className={styles.evidence}>
-            <figcaption className={styles.source}>
-              <Icon name="external" />
-              <ExternalSourceLink url={externalKnowledge.sourceUrl} className={styles.sourceName} />
-            </figcaption>
-            <blockquote className={styles.quote}>{externalKnowledge.summary}</blockquote>
-          </figure>
+          <EvidenceQuote
+            kind="external"
+            label="↗"
+            quote={externalKnowledge.summary}
+            url={externalKnowledge.sourceUrl}
+          />
         </section>
         <span className={styles.arrow} aria-hidden>
           ↓
@@ -372,33 +360,30 @@ function useNoteTopicName(noteId: string): string | null {
 }
 
 /**
- * Figma EvidenceQuote (W3-02) + 근거로 이동 (W3-12): 노트 제목 · 주제 + 저장된 원문 문장 그대로.
- * 누르면 그 노트를 열고 문장을 강조한다. 누른 근거는 surface-selected로 표시한다.
+ * Figma EvidenceQuote (W3-02) + 근거로 이동 (W3-12): 저장된 원문 문장 그대로 + 노트 제목 · 주제.
+ * 누르면 그 노트를 열고 문장을 강조한다.
  */
-function NoteEvidenceButton({
+function NoteEvidence({
+  label,
   evidence,
   selected,
-  onClick,
+  onOpen,
 }: {
+  label: string
   evidence: RecommendationEvidence
   selected: boolean
-  onClick: () => void
+  onOpen: () => void
 }) {
   const topicName = useNoteTopicName(evidence.noteId)
   return (
-    <button
-      type="button"
-      className={`${styles.evidence} ${styles.evidenceButton}`}
-      aria-pressed={selected}
-      aria-label={`${evidence.noteTitle} 열고 근거 문장 보기: ${evidence.quote}`}
-      onClick={onClick}
-    >
-      <span className={styles.source}>
-        <Icon name="note" />
-        <span className={styles.sourceName}>{evidence.noteTitle}</span>
-        {topicName && <span className={styles.sourceTopic}>· {topicName}</span>}
-      </span>
-      <span className={styles.quote}>{evidence.quote}</span>
-    </button>
+    <EvidenceQuote
+      kind="evidence"
+      label={label}
+      quote={evidence.quote}
+      noteTitle={evidence.noteTitle}
+      topic={topicName}
+      selected={selected}
+      onOpen={onOpen}
+    />
   )
 }
