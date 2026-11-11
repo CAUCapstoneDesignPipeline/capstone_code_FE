@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Graph, GraphNode, Topic } from '../../api'
+import { ApiError, type Graph, type GraphNode, type Topic } from '../../api'
 import {
+  edgeLabel,
+  graphErrorMessage,
   edgeKey,
   initialPositions,
   legendEntries,
@@ -151,5 +153,32 @@ describe('새 페이지 자리 (placeNear)', () => {
     expect(overlaps(a, { x: 105, y: 0, width: 100, height: 30 })).toBe(true)
     expect(overlaps(a, { x: 109, y: 0, width: 100, height: 30 })).toBe(false)
     expect(overlaps(a, { x: 0, y: 39, width: 100, height: 30 })).toBe(false)
+  })
+})
+
+describe('선 라벨 (sharedKeywords)', () => {
+  it('공유 키워드 이름을 잇고, 많으면 앞 2개 + 외 N개', () => {
+    expect(edgeLabel(['재시도'])).toBe('재시도')
+    expect(edgeLabel(['멱등성', '재시도'])).toBe('멱등성 · 재시도')
+    expect(edgeLabel(['a', 'b', 'c', 'd'])).toBe('a · b 외 2개')
+  })
+
+  it('없거나 비면 라벨을 붙이지 않는다 (계약)', () => {
+    expect(edgeLabel(undefined)).toBe('')
+    expect(edgeLabel([])).toBe('')
+  })
+})
+
+describe('그래프 오류 안내', () => {
+  it('400·404는 code로 나누고, 그 밖은 서버 메시지', () => {
+    expect(graphErrorMessage(new ApiError('VALIDATION_FAILED', 'x', 400))).toContain(
+      '범위가 올바르지 않습니다',
+    )
+    expect(graphErrorMessage(new ApiError('NOT_FOUND', 'x', 404))).toContain(
+      '주제를 찾을 수 없습니다',
+    )
+    expect(graphErrorMessage(new ApiError('INTERNAL', '서버 오류', 500))).toBe(
+      '그래프를 불러오지 못했습니다. 서버 오류',
+    )
   })
 })

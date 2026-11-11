@@ -403,6 +403,16 @@ describe('페이지 그래프 (v0.4.0-draft · W3-13)', () => {
     const topic = (await call('GET', `/graph?scope=topic&topicId=${db.id}`)).data
     expect(topic.nodes).toEqual([{ id: b.id, title: '멱등성', topicId: db.id }])
     expect(topic.edges).toEqual([])
+
+    // 미분류(none)와 없는 주제(404)
+    const none = (await call('GET', '/graph?scope=topic&topicId=none')).data
+    expect(none.nodes).toEqual([{ id: lonely.id, title: '외톨이', topicId: null }])
+    const missing = await call(
+      'GET',
+      '/graph?scope=topic&topicId=8a1d2f60-3c4b-4d8e-9f10-2b3c4d5e6f70',
+    )
+    expect(missing.status).toBe(404)
+    expect(errorCode(missing)).toBe('NOT_FOUND')
   })
 
   it('scope가 틀리거나 필요한 id가 없으면 400 (scope=note는 v0.4에서 뺐다)', async () => {

@@ -150,7 +150,11 @@ export function useNoteAnalysis(noteId: string, enabled = false) {
 
 /** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
 export function useGraph(enabled: boolean) {
-  return useQuery({ queryKey: keys.graph, queryFn: ({ signal }) => getGraph(signal), enabled })
+  return useQuery({
+    queryKey: keys.graph,
+    queryFn: ({ signal }) => getGraph({ scope: 'all' }, signal),
+    enabled,
+  })
 }
 
 /** 추천 작업 polling 간격 (FE 선호안: 작업 ID + polling) */
