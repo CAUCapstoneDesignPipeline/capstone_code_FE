@@ -2,16 +2,27 @@
 // 사용자가 모르는 지식 추천(v0.4.0-draft)을 흉내 낸다. 실제 BE·AI는 키워드 그래프와 LLM으로 만든다.
 // 규칙: 본문에서 **굵게** 쓴 말을 키워드로 본다. 요청한 노트와 다른 노트가 같은 키워드를 쓰면,
 // 그 키워드가 들어간 문장을 두 노트에서 하나씩 골라 근거 A·B로 삼는다. 외부 지식과 결론은 정해 둔 예시 문장이다.
+// 같은 추천(같은 두 노트 + 같은 키워드)은 다시 분석해도 같은 id다 (BE가 지문으로 묶는 것을 흉내 낸다).
+// 같은 노트를 다시 분석하면(2회차부터) 패널의 합치기(11/04 회의)를 확인할 수 있게 일부러 결과를 흔든다:
+// 같은 id 카드는 결론을 조금 바꾸고, 하나는 빼고(3개 이상일 때), 새 id 카드 3개를 더하고, 순서를 섞는다.
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 const BOLD = /\*\*(?=\S)(.+?)(?<=\S)\*\*/g
 const SENTENCE = /[^\n.!?]+(?:[.!?]+|$)/gm
 const keyOf = (/** @type {string} */ label) =>
   label.normalize('NFC').toLowerCase().replace(/\s+/g, '')
 
-/** 한 작업이 내는 추천 수의 한도 (W3-09: 여러 개면 한 장씩 넘긴다) */
-const MAX_RECOMMENDATIONS = 3
+/** 한 작업이 내는 추천 수의 한도. 패널은 5장만 보이므로 넘는 경우도 만든다 (나머지는 대기) */
+const MAX_RECOMMENDATIONS = 8
+/** 다시 분석할 때마다 더하는 새 id 카드 수 */
+const EXTRA_PER_ROUND = 3
+
+/** 지문 → UUID 모양의 고정 id. 같은 지문이면 늘 같은 id다 */
+function fingerprintId(/** @type {string} */ text) {
+  const h = createHash('sha1').update(text).digest('hex')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`
+}
 
 const EXTERNAL = {
   summary: '가짜 서버의 예시 외부 지식입니다. 실제로는 AI가 인터넷에서 찾은 내용과 출처가 온다.',
@@ -58,29 +69,64 @@ export function keywordSentences(note) {
 }
 
 /**
- * 요청한 노트(P)와 다른 노트(Q)가 같은 키워드를 쓰면 추천 하나. 다른 노트마다 하나씩, 최대 3개.
- * @param {NoteLike} note @param {NoteLike[]} others
+ * 요청한 노트(P)와 다른 노트(Q)가 같은 키워드를 쓰면 추천 하나. 다른 노트와 공유한 키워드마다 하나씩, 최대 8개.
+ * round는 이 노트를 몇 번째로 분석하는지다 (1부터). 2회차부터는 위 머리말처럼 결과를 흔든다.
+ * @param {NoteLike} note @param {NoteLike[]} others @param {number} [round]
  */
-export function buildRecommendations(note, others) {
+export function buildRecommendations(note, others, round = 1) {
   const mine = keywordSentences(note)
-  const out = []
+  /** @type {{ other: NoteLike, key: string, A: Evidence, B: Evidence, label: string, shared: string[] }[]} */
+  const pairs = []
   for (const other of others) {
     if (other.id === note.id) continue
     const theirs = keywordSentences(other)
     const shared = [...mine.keys()].filter((k) => theirs.has(k))
-    if (shared.length === 0) continue
-    const first = shared[0]
-    out.push({
-      id: randomUUID(),
-      evidenceA: /** @type {{ evidence: Evidence }} */ (mine.get(first)).evidence,
-      evidenceB: /** @type {{ evidence: Evidence }} */ (theirs.get(first)).evidence,
-      externalKnowledge: EXTERNAL,
-      conclusion: `'${note.title}'와 '${other.title}'는 '${mine.get(first)?.label}'로 이어집니다. (가짜 서버의 예시 결론)`,
-      relatedKeywords: shared.map((k) => /** @type {{ label: string }} */ (mine.get(k)).label),
-    })
-    if (out.length >= MAX_RECOMMENDATIONS) break
+    const labels = shared.map((k) => /** @type {{ label: string }} */ (mine.get(k)).label)
+    for (const key of shared) {
+      const m = /** @type {{ label: string, evidence: Evidence }} */ (mine.get(key))
+      const t = /** @type {{ evidence: Evidence }} */ (theirs.get(key))
+      pairs.push({ other, key, A: m.evidence, B: t.evidence, label: m.label, shared: labels })
+    }
   }
-  return out
+  const again = round > 1 ? ` (${round}번째 분석)` : ''
+  const card = (
+    /** @type {(typeof pairs)[number]} */ p,
+    /** @type {string} */ id,
+    /** @type {string} */ conclusion,
+  ) => ({
+    id,
+    evidenceA: p.A,
+    evidenceB: p.B,
+    externalKnowledge: EXTERNAL,
+    conclusion,
+    relatedKeywords: p.shared,
+  })
+  let out = pairs.map((p) =>
+    card(
+      p,
+      fingerprintId(`${note.id}|${p.other.id}|${p.key}`),
+      `'${note.title}'와 '${p.other.title}'는 '${p.label}'로 이어집니다. (가짜 서버의 예시 결론)${again}`,
+    ),
+  )
+  if (round > 1 && pairs.length > 0) {
+    // 하나는 이번 결과에서 빠진다
+    if (out.length >= 3) out.splice((round - 2) % out.length, 1)
+    // 새 id 카드: 같은 근거를 다른 관점으로 본 예시. 회차마다 id가 새로 생긴다
+    for (let i = 0; i < EXTRA_PER_ROUND; i++) {
+      const p = pairs[(round + i) % pairs.length]
+      out.push(
+        card(
+          p,
+          fingerprintId(`${note.id}|${p.other.id}|${p.key}|round${round}|${i}`),
+          `'${p.label}'를 다른 관점(${round}-${i + 1})에서 보면 '${p.other.title}'의 내용이 새롭게 읽힙니다. (가짜 서버의 예시 결론)`,
+        ),
+      )
+    }
+    // BE 순서(점수 순)가 회차마다 달라진다
+    const score = (/** @type {{ id: string }} */ r) => fingerprintId(`${r.id}|${round}`)
+    out = out.sort((a, b) => score(a).localeCompare(score(b)))
+  }
+  return out.slice(0, MAX_RECOMMENDATIONS)
 }
 
 /**
@@ -97,6 +143,8 @@ export function createRecommendationQueue(deps, options = {}) {
   const active = new Map()
   /** @type {Map<string, string | null>} 추천 id → 받은 답 (아직 없으면 null) */
   const feedback = new Map()
+  /** @type {Map<string, number>} 노트 → 끝난 추천 작업 수 (다시 분석한 회차) */
+  const rounds = new Map()
 
   return {
     /** @param {NoteLike} note */
@@ -116,8 +164,11 @@ export function createRecommendationQueue(deps, options = {}) {
       setTimeout(() => {
         active.delete(note.id)
         const current = deps.getNote(note.id)
-        const recommendations = current ? buildRecommendations(current, deps.allNotes()) : []
-        for (const r of recommendations) feedback.set(r.id, null)
+        const round = (rounds.get(note.id) ?? 0) + 1
+        rounds.set(note.id, round)
+        const recommendations = current ? buildRecommendations(current, deps.allNotes(), round) : []
+        // 같은 id로 다시 온 추천은 이미 받은 답을 지우지 않는다
+        for (const r of recommendations) if (!feedback.has(r.id)) feedback.set(r.id, null)
         jobs.set(job.id, {
           ...job,
           status: 'completed',

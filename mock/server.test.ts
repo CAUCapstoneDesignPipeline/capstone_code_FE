@@ -468,6 +468,29 @@ describe('추천 (v0.4.0-draft)', () => {
     )
   })
 
+  it('다시 분석하면 같은 추천은 같은 id(결론은 조금 바뀜), 하나는 빠지고, 새 id가 더해진다', async () => {
+    const a = (await call('POST', '/notes', { title: 'A', body: '**가**와 **나**와 **다**.' })).data
+    await call('POST', '/notes', { title: 'B', body: '**가**와 **나**와 **다**.' })
+    const run = async () =>
+      (
+        await settledRecommendation(
+          (await call('POST', `/notes/${a.id}/recommendation-jobs`)).data.id,
+        )
+      ).recommendations as { id: string; conclusion: string }[]
+    const first = await run()
+    const second = await run()
+    expect(first).toHaveLength(3)
+    const firstIds = first.map((r) => r.id)
+    const kept = second.filter((r) => firstIds.includes(r.id))
+    expect(kept).toHaveLength(2)
+    expect(kept.every((r) => r.conclusion.includes('2번째 분석'))).toBe(true)
+    expect(second.filter((r) => !firstIds.includes(r.id))).toHaveLength(3)
+    // 같은 id로 다시 와도 이미 받은 답은 그대로 받는다
+    expect(
+      (await call('POST', `/recommendations/${kept[0].id}/feedback`, { action: 'known' })).status,
+    ).toBe(204)
+  })
+
   it('이어질 노트가 없으면 completed + 빈 배열, 없는 작업·노트는 404', async () => {
     const a = (await call('POST', '/notes', { title: '혼자', body: '**외톨이**' })).data
     const created = await call('POST', `/notes/${a.id}/recommendation-jobs`)
