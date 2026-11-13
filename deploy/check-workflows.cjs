@@ -4,7 +4,8 @@ const fs = require('node:fs');
 const yaml = require('js-yaml');
 const root = '.github/workflows/';
 const publish = yaml.load(fs.readFileSync(root + 'gcp-publish-image.yml', 'utf8'));
-assert.deepEqual(Object.keys(publish.on), ['workflow_dispatch']);
+assert.deepEqual(Object.keys(publish.on), ['workflow_dispatch', 'workflow_call']);
+assert.equal(publish.on.workflow_call.outputs.digest.value, '${{ jobs.publish.outputs.digest }}');
 assert.equal(publish.permissions.contents, 'read');
 assert.equal(publish.jobs.publish.environment, 'image-publish');
 assert.equal(publish.jobs.publish.needs, 'checks');
@@ -42,6 +43,22 @@ for(const input of Object.keys(deploy.on.workflow_dispatch.inputs)) {
   assert.equal(deploy.jobs.deploy.with[input], '${{ inputs.' + input + ' }}');
 }
 assert.deepEqual(deploy.on.workflow_dispatch.inputs.operation.options, ['deploy','rollback']);
+// Automatic release: main push (or dispatch) publishes this commit, then the pinned BE reusable workflow releases it.
+const cd = yaml.load(fs.readFileSync(root + 'gcp-cd.yml', 'utf8'));
+assert.deepEqual(Object.keys(cd.on), ['push', 'workflow_dispatch']);
+assert.deepEqual(cd.on.push.branches, ['main']);
+assert.deepEqual(cd.on.workflow_dispatch.inputs.operation.options, ['deploy','rollback']);
+assert.equal(cd.jobs.publish.uses, './.github/workflows/gcp-publish-image.yml');
+for (const job of [cd.jobs.publish, cd.jobs.release]) {
+  assert.match(job.if, /GCP_DEPLOY_ENABLED == 'true'/);
+  assert.match(job.if, /refs\/heads\/main/);
+  assert.equal(job.permissions['id-token'], 'write');
+}
+assert.equal(cd.jobs.release.needs, 'publish');
+assert.match(cd.jobs.release.uses, /^CAUCapstoneDesignPipeline\/capstone_code_BE\/\.github\/workflows\/gcp-cd-reusable\.yml@[a-f0-9]{40}$/);
+assert.equal(cd.jobs.release.with.deploy_tool_sha, cd.jobs.release.uses.split('@')[1]);
+assert.deepEqual(cd.jobs.release.with, {component: 'web', operation: "${{ inputs.operation || 'deploy' }}", source_sha: '${{ github.sha }}',
+  image_digest: '${{ needs.publish.outputs.digest }}', deploy_tool_sha: cd.jobs.release.with.deploy_tool_sha});
 // Optional local integration check against the actual immutable BE commit, never a branch tip.
 if (process.env.BE_REPO_PATH) {
   const { execFileSync } = require('node:child_process');
