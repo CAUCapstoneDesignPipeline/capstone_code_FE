@@ -13,6 +13,15 @@ export async function getNoteAnalysis(
 }
 
 /**
+ * 분석 요청 (POST /notes/{noteId}/analysis). 202 body는 AnalysisJob 그대로다 (GET처럼 { job }으로 감싸지 않는다).
+ * 마지막으로 저장된 version을 분석한다. 같은 노트에 대기·진행 중인 작업이 있으면 그 작업을 돌려준다.
+ * AI-off면 503 AI_UNAVAILABLE (details.reason).
+ */
+export function requestNoteAnalysis(noteId: string): Promise<AnalysisJob> {
+  return request<AnalysisJob>('POST', analysisPath(noteId))
+}
+
+/**
  * 그래프 범위. all = 사용자의 모든 페이지, topic = 한 주제의 페이지 (topicId 'none'이면 미분류).
  * 없는 주제는 404 NOT_FOUND, 잘못된 scope·topicId는 400 VALIDATION_FAILED (BE PR #108).
  */

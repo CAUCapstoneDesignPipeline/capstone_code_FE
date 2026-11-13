@@ -16,6 +16,8 @@ npm run dev                      # http://localhost:5173
 
 API 주소는 `.env.local`의 `VITE_API_BASE_URL`로 정한다.
 
+디버그용 "분석 요청 (debug)" 버튼(`POST /notes/{noteId}/analysis`)은 `npm run dev`에서 늘 보이고, 빌드에서는 `VITE_DEBUG_ANALYSIS=true`일 때만 보인다 (사용자 기능 아님).
+
 | 연결 대상                | `VITE_API_BASE_URL`         | 준비                           |
 | ------------------------ | --------------------------- | ------------------------------ |
 | 가짜 서버 (BE 없이 개발) | `http://localhost:4010`     | `npm run mock`                 |

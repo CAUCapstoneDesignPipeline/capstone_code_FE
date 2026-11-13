@@ -3,6 +3,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type MutationOptions,
   type QueryClient,
 } from '@tanstack/react-query'
 import { useCallback, useMemo, useState } from 'react'
@@ -15,6 +16,7 @@ import {
   getCapabilities,
   getGraph,
   getNoteAnalysis,
+  requestNoteAnalysis,
   getRecommendationJob,
   isApiError,
   listNotes,
@@ -39,6 +41,7 @@ import {
 } from '../api'
 import { createAnalysisPoller, isAnalysisActive } from '../lib/analysisPoll'
 import { resolveCapabilities } from '../lib/capabilities'
+import { analysisDebugLog } from '../lib/debug'
 import { createRecommendTrigger, type RecommendTrigger } from './recommendTrigger'
 import type { RecommendationAnswer } from '../lib/recommendations'
 import { nextUntitledTitle } from '../lib/names'
@@ -146,6 +149,39 @@ export function useNoteAnalysis(noteId: string, enabled = false) {
         ? false
         : nextPoll(query.state.data, savedVersion),
   })
+}
+
+/**
+ * 디버그용 분석 요청 (lib/debug.ts). 받은 작업을 분석 상태 캐시에 넣으면, 대기·진행 중인 작업이므로
+ * useNoteAnalysis의 폴링이 이어받는다 (폴링이 켜져 있을 때). 자동으로 다시 보내지 않는다:
+ * 503 AI_UNAVAILABLE에서 다시 보내거나 캐시를 건드려 폴링을 시작하면 안 된다.
+ */
+export function noteAnalysisRequestOptions(
+  qc: QueryClient,
+  noteId: string,
+): MutationOptions<AnalysisJob, Error, void> {
+  return {
+    mutationFn: async () => {
+      analysisDebugLog('POST request', { noteId })
+      try {
+        const job = await requestNoteAnalysis(noteId)
+        analysisDebugLog('POST response', job)
+        return job
+      } catch (e) {
+        analysisDebugLog('POST error', e)
+        throw e
+      }
+    },
+    retry: false,
+    onSuccess: (job) => {
+      qc.setQueryData(keys.noteAnalysis(noteId), job)
+    },
+  }
+}
+
+export function useRequestNoteAnalysis(noteId: string) {
+  const qc = useQueryClient()
+  return useMutation(noteAnalysisRequestOptions(qc, noteId))
 }
 
 /** 전체 그래프 (F-VIZ-01). 화면을 열 때와 창에 돌아올 때 다시 받는다. */
