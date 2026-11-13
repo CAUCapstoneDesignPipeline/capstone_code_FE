@@ -6,6 +6,8 @@ COPY index.html tsconfig*.json vite.config.ts ./
 COPY public ./public
 COPY src ./src
 ENV VITE_API_BASE_URL=/api
+# 디버그용 분석 요청 버튼을 배포 이미지에서도 보인다 (src/lib/debug.ts). 끄려면 이 줄을 지운다.
+ENV VITE_DEBUG_ANALYSIS=true
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3
