@@ -30,6 +30,15 @@ class PublicationTest(unittest.TestCase):
         self.assertEqual(image.configuration(self.env)['tag'],
                          'asia-northeast3-docker.pkg.dev/fixture-project/capstone-web/web:sha-' + SHA)
 
+    def test_automatic_release_caller(self):
+        cd = image.REPOSITORY + '/.github/workflows/gcp-cd.yml@refs/heads/main'
+        for event in ('push', 'workflow_dispatch'):
+            self.assertTrue(image.configuration(dict(self.env, GITHUB_EVENT_NAME=event, GITHUB_WORKFLOW_REF=cd)))
+        for event, ref in [('push', self.env['GITHUB_WORKFLOW_REF']), ('pull_request', cd),
+                           ('push', image.REPOSITORY + '/.github/workflows/ci.yml@refs/heads/main')]:
+            with self.subTest(event=event, ref=ref), self.assertRaises(ValueError):
+                image.configuration(dict(self.env, GITHUB_EVENT_NAME=event, GITHUB_WORKFLOW_REF=ref))
+
     def test_wrong_repo_ref_workflow_fork_or_gate_is_rejected(self):
         for key, value in {
             'GITHUB_REPOSITORY': 'attacker/capstone_code_FE', 'GITHUB_REPOSITORY_ID': '123',
