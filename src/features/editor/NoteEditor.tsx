@@ -15,6 +15,8 @@ import { ContextMenu } from '../../components/ContextMenu'
 import { FieldError } from '../../components/FieldError'
 import { useToast } from '../../components/toastContext'
 import { useApplySavedNote, useDeleteNote, useNote, useRecommendTrigger } from '../../data/queries'
+import { isAnalysisDebugEnabled } from '../../lib/debug'
+import { AnalysisDebugButton } from './AnalysisDebugButton'
 import { AnalysisStatusIndicator } from './AnalysisStatusIndicator'
 import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
 import styles from './NoteEditor.module.css'
@@ -164,6 +166,7 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
           <span className={styles.breadcrumbTitle}>{savedTitle}</span>
         </nav>
         <div className={styles.actions}>
+          {isAnalysisDebugEnabled() && <AnalysisDebugButton noteId={note.id} job={analysis} />}
           <AnalysisStatusIndicator job={analysis} />
           <SaveStatusIndicator status={state.status} />
           <IconButton

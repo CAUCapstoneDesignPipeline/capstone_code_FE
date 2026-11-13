@@ -1,5 +1,7 @@
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string
+  /** 'true'면 빌드에서도 디버그용 분석 요청 버튼을 보인다 (lib/debug.ts) */
+  readonly VITE_DEBUG_ANALYSIS?: string
 }
 
 interface ImportMeta {
