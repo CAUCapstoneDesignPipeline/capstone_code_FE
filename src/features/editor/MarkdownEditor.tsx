@@ -52,6 +52,8 @@ interface Props {
   onChange: (value: string, inserted: boolean) => void
   /** 추천 카드를 본문에 놓았을 때 (추천 id, 블록 사이 자리) */
   onRecommendationDrop?: (recommendationId: string, pos: number) => void
+  /** 끌고 있는 추천 카드를 이 편집기에 놓을 수 있는지. 없으면 놓을 수 없다 */
+  acceptsRecommendationDrop?: () => boolean
   placeholder: string
   ariaLabel: string
   autoFocus?: boolean
@@ -64,9 +66,11 @@ export function MarkdownEditor(props: Props) {
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(props.onChange)
   const onDropRef = useRef(props.onRecommendationDrop)
+  const acceptsDropRef = useRef(props.acceptsRecommendationDrop)
   useLayoutEffect(() => {
     onChangeRef.current = props.onChange
     onDropRef.current = props.onRecommendationDrop
+    acceptsDropRef.current = props.acceptsRecommendationDrop
   })
 
   useImperativeHandle(props.ref, () => ({
@@ -149,7 +153,10 @@ export function MarkdownEditor(props: Props) {
           mathPreview,
           pasteMarkdown,
           evidenceHighlight,
-          recommendDrop((id, pos) => onDropRef.current?.(id, pos)),
+          recommendDrop({
+            onDrop: (id, pos) => onDropRef.current?.(id, pos),
+            accepts: () => acceptsDropRef.current?.() ?? false,
+          }),
         ],
       }),
     })

@@ -10,6 +10,8 @@ import type { InsertTarget } from './insertBridge'
 
 /** 노트에 넣었지만 끝나지 않은 카드 */
 export type PendingInsert =
+  /** 넣기·저장·'이해함' 보내기가 진행 중이다. 다른 답 버튼도 막는다 (known이 먼저 기록되지 않게) */
+  | { kind: 'working' }
   /** 넣었지만 노트가 아직 저장되지 않았다. noteId는 넣은 노트 */
   | { kind: 'unsaved'; noteId: string }
   /** 넣고 저장했지만 '이해함'을 보내지 못했다 */
@@ -21,6 +23,8 @@ export type AnswerResult = 'answered' | 'closed' | 'failed'
 export type InsertResult =
   /** 하지 않았다 (넣을 편집기가 없음, 이미 넣었거나 넣는 중) */
   | 'skipped'
+  /** 열린 노트가 이 추천 패널의 노트가 아니라 넣지 않았다 */
+  | 'wrong-note'
   /** 저장이 멈춰 있어 넣지 않았다 */
   | 'blocked'
   /** 저장이 충돌했다. '이해함'은 보내지 않았다 */
@@ -37,11 +41,14 @@ export interface InsertFlowDeps {
   answer: (recommendationId: string) => Promise<AnswerResult>
 }
 
+/** 카드를 넣을 수 있는 노트인지: 카드는 그 추천 패널의 노트(추천을 요청한 노트)에만 넣는다 */
+export function canInsertInto(target: InsertTarget | null, panelNoteId: string | null): boolean {
+  return target !== null && panelNoteId !== null && target.noteId === panelNoteId
+}
+
 export class InsertFlow {
   private deps: InsertFlowDeps
   private pending: ReadonlyMap<string, PendingInsert> = new Map()
-  /** 넣거나 다시 시도하는 중인 카드 */
-  private readonly busy = new Set<string>()
   private readonly listeners = new Set<() => void>()
 
   constructor(deps: InsertFlowDeps = { getTarget: () => null, answer: async () => 'failed' }) {
@@ -63,26 +70,38 @@ export class InsertFlow {
 
   /** 이 카드를 넣을 수 있는지 (이미 넣었거나 넣는 중이면 아니다) */
   canInsert(id: string): boolean {
-    return !this.pending.has(id) && !this.busy.has(id)
+    return !this.pending.has(id)
   }
 
-  /** 카드를 노트의 자리 pos에 넣고 저장한 뒤, 성공하면 '이해함'을 보낸다 */
-  async insert(id: string, markdown: string, pos: number): Promise<InsertResult> {
+  /** 넣기·저장·'이해함'이 진행 중인지 (다른 답 버튼을 막는다) */
+  isWorking(id: string): boolean {
+    return this.pending.get(id)?.kind === 'working'
+  }
+
+  /**
+   * 카드를 노트의 자리 pos에 넣고 저장한 뒤, 성공하면 '이해함'을 보낸다.
+   * panelNoteId는 카드가 나온 추천 패널의 노트다. 열린 노트가 다르면 넣지 않는다.
+   */
+  async insert(
+    id: string,
+    markdown: string,
+    pos: number,
+    panelNoteId: string | null,
+  ): Promise<InsertResult> {
     const target = this.deps.getTarget()
     if (!target || !this.canInsert(id)) return 'skipped'
-    this.busy.add(id)
-    try {
-      const outcome = await target.insert(pos, markdown)
-      if (!outcome.ok) {
-        if (outcome.reason === 'stuck') return 'blocked'
-        if (outcome.conflict) return 'conflict'
+    if (!canInsertInto(target, panelNoteId)) return 'wrong-note'
+    this.setPending(id, { kind: 'working' })
+    const outcome = await target.insert(pos, markdown)
+    if (!outcome.ok) {
+      if (outcome.reason === 'failed' && !outcome.conflict) {
         this.setPending(id, { kind: 'unsaved', noteId: target.noteId })
         return 'unsaved'
       }
-      return await this.answer(id)
-    } finally {
-      this.busy.delete(id)
+      this.setPending(id, null)
+      return outcome.reason === 'stuck' ? 'blocked' : 'conflict'
     }
+    return this.answer(id)
   }
 
   /**
@@ -91,30 +110,30 @@ export class InsertFlow {
    */
   async retry(id: string): Promise<InsertResult> {
     const pending = this.pending.get(id)
-    if (!pending || this.busy.has(id)) return 'skipped'
-    this.busy.add(id)
-    try {
-      if (pending.kind === 'unsaved') {
-        const target = this.deps.getTarget()
-        if (!target || target.noteId !== pending.noteId) return 'other-note'
-        const saved = await target.save()
-        if (!saved.ok) {
-          if (!saved.conflict) return 'unsaved'
-          // 충돌은 기존 충돌 안내에 맡긴다. 불러오기를 하면 넣은 블록이 사라지므로 카드를 다시 넣을 수 있게 한다
-          this.setPending(id, null)
-          return 'conflict'
+    if (!pending || pending.kind === 'working') return 'skipped'
+    if (pending.kind === 'unsaved') {
+      const target = this.deps.getTarget()
+      if (!target || target.noteId !== pending.noteId) return 'other-note'
+      this.setPending(id, { kind: 'working' })
+      const saved = await target.save()
+      if (!saved.ok) {
+        if (!saved.conflict) {
+          this.setPending(id, pending)
+          return 'unsaved'
         }
+        // 충돌은 기존 충돌 안내에 맡긴다. 불러오기를 하면 넣은 블록이 사라지므로 카드를 다시 넣을 수 있게 한다
+        this.setPending(id, null)
+        return 'conflict'
       }
-      return await this.answer(id)
-    } finally {
-      this.busy.delete(id)
     }
+    return this.answer(id)
   }
 
+  /** '이해함'을 보낸다. 보내는 동안에도 working으로 두어 다른 답 버튼을 막는다 */
   private async answer(id: string): Promise<AnswerResult> {
-    this.setPending(id, null)
+    this.setPending(id, { kind: 'working' })
     const result = await this.deps.answer(id)
-    if (result === 'failed') this.setPending(id, { kind: 'unanswered' })
+    this.setPending(id, result === 'failed' ? { kind: 'unanswered' } : null)
     return result
   }
 

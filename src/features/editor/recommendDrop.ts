@@ -168,7 +168,11 @@ function hasRecommendationDrag(e: DragEvent): boolean {
  * 추천 카드를 놓을 수 있게 한다. 놓으면 onDrop(추천 id, 자리)을 부른다.
  * 넣기(insert)와 저장은 부른 쪽이 맡는다.
  */
-export function recommendDrop(onDrop: (recommendationId: string, pos: number) => void): Extension {
+export function recommendDrop(options: {
+  onDrop: (recommendationId: string, pos: number) => void
+  /** 끌고 있는 카드를 이 편집기에 놓을 수 있는지 (카드는 그 추천 패널의 노트에만 넣는다). 아니면 놓을 곳이 아니다 */
+  accepts: () => boolean
+}): Extension {
   const clear = (view: EditorView) => {
     if (view.state.field(indicatorField) !== null) {
       view.dispatch({ effects: setInsertIndicator.of(null) })
@@ -180,6 +184,12 @@ export function recommendDrop(onDrop: (recommendationId: string, pos: number) =>
     EditorView.domEventHandlers({
       dragover(e, view) {
         if (!hasRecommendationDrag(e)) return false
+        if (!options.accepts()) {
+          // preventDefault를 하지 않으면 놓을 수 없는 곳이 된다
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+          clear(view)
+          return true
+        }
         e.preventDefault()
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
         const pos = nearestBoundary(view, e.clientY)
@@ -201,7 +211,7 @@ export function recommendDrop(onDrop: (recommendationId: string, pos: number) =>
         const id = e.dataTransfer?.getData(RECOMMENDATION_DRAG_TYPE) ?? ''
         const pos = nearestBoundary(view, e.clientY)
         clear(view)
-        if (id) onDrop(id, pos)
+        if (id && options.accepts()) options.onDrop(id, pos)
         return true
       },
     }),

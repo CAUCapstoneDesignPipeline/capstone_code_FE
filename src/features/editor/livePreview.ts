@@ -178,11 +178,19 @@ const checkbox = (checked: boolean) => Decoration.replace({ widget: new Checkbox
 const mark = (cls: string) => Decoration.mark({ class: cls })
 const line = (cls: string) => Decoration.line({ class: cls })
 
-/** 넣은 추천 지식 블록의 i번째 줄 (0: 라벨, 1: 결론, 그 뒤: A·B·외부 지식·URL) */
-function knowledgeLineClass(i: number, isLast: boolean): string {
+/** 빈 인용 줄 (`>`만 있는 줄). 넣은 추천 지식 블록에서 줄을 나누는 데 쓴다 */
+const EMPTY_QUOTE_LINE = /^\s*>\s*$/
+
+/**
+ * 넣은 추천 지식 블록의 한 줄. i는 빈 인용 줄을 뺀 순번 (0: 라벨, 1: 결론, 그 뒤: A·B·외부 지식·URL).
+ * 빈 인용 줄(gap)은 줄 사이를 좁게 띄우기만 한다.
+ */
+function knowledgeLineClass(i: number, gap: boolean, isFirst: boolean, isLast: boolean): string {
   const classes = ['cm-lp-knowledge']
-  if (i === 0) classes.push('cm-lp-knowledge-top', 'cm-lp-knowledge-label')
-  if (i === 1) classes.push('cm-lp-knowledge-conclusion')
+  if (gap) classes.push('cm-lp-knowledge-gap')
+  else if (i === 0) classes.push('cm-lp-knowledge-label')
+  else if (i === 1) classes.push('cm-lp-knowledge-conclusion')
+  if (isFirst) classes.push('cm-lp-knowledge-top')
   if (isLast) classes.push('cm-lp-knowledge-bottom')
   return classes.join(' ')
 }
@@ -372,15 +380,15 @@ export function buildDecorations(
           const first = doc.lineAt(node.from)
           const last = doc.lineAt(node.to)
           const knowledge = INSERTED_KNOWLEDGE_FIRST_LINE.test(first.text)
+          let row = 0
           for (let pos = node.from; pos <= node.to;) {
             const l = doc.lineAt(pos)
-            decos.push(
-              line(
-                knowledge
-                  ? knowledgeLineClass(l.number - first.number, l.number === last.number)
-                  : 'cm-lp-quote',
-              ).range(l.from),
-            )
+            const gap = EMPTY_QUOTE_LINE.test(l.text)
+            const cls = knowledge
+              ? knowledgeLineClass(row, gap, l.number === first.number, l.number === last.number)
+              : 'cm-lp-quote'
+            decos.push(line(cls).range(l.from))
+            if (!gap) row++
             pos = l.to + 1
           }
           return

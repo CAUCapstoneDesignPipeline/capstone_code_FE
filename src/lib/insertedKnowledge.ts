@@ -14,6 +14,17 @@ export const INSERTED_KNOWLEDGE_FIRST_LINE = new RegExp(
 /** 한 줄로 (인용 블록의 줄마다 `> `가 붙어야 하므로 줄바꿈을 공백으로) */
 const oneLine = (text: string) => text.replace(/\s*\r?\n\s*/g, ' ').trim()
 
+/**
+ * 마크다운 특수문자를 `\`로 이스케이프한다. 결론·근거·외부 지식·노트 제목에 `**`·`_`·`[`·`$` 등이 있어도
+ * 굵게(`**…**`)가 일찍 닫히거나 링크·수식·HTML로 읽히지 않게 한다. 보이는 글자는 같다 (Live Preview는 `\`를 숨긴다).
+ */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_[\]<>#~|$]/g, '\\$&')
+}
+
+/** 한 줄로 합치고 이스케이프한다 */
+const plain = (text: string) => escapeMarkdown(oneLine(text))
+
 /** http·https 주소만 넣는다 (계약: sourceUrl은 http·https) */
 function httpUrl(raw: string): string | null {
   try {
@@ -26,6 +37,8 @@ function httpUrl(raw: string): string | null {
 
 /**
  * 카드 하나를 넣을 마크다운 (W3-22c 순서): 라벨 · 결론 · A · B · 외부 지식 · URL.
+ * 줄 사이에 빈 인용 줄(`>`)을 두어 다른 마크다운 도구에서도 줄마다 문단으로 나뉜다 (인용 안의 이어진 줄은 한 문단으로 합쳐진다).
+ * 글(결론·근거·외부 지식·노트 제목)의 마크다운 특수문자는 이스케이프한다.
  * 외부 지식이 없으면(null, 지금 AI는 항상 null) 외부 지식과 URL 줄을 뺀다. 끝에 줄바꿈은 없다.
  */
 export function insertedKnowledgeMarkdown(
@@ -33,17 +46,17 @@ export function insertedKnowledgeMarkdown(
 ): string {
   const lines = [
     `**${INSERTED_KNOWLEDGE_LABEL}**`,
-    `**${oneLine(r.conclusion)}**`,
-    `A · ${oneLine(r.evidenceA.quote)} (${oneLine(r.evidenceA.noteTitle)})`,
-    `B · ${oneLine(r.evidenceB.quote)} (${oneLine(r.evidenceB.noteTitle)})`,
+    `**${plain(r.conclusion)}**`,
+    `A · ${plain(r.evidenceA.quote)} (${plain(r.evidenceA.noteTitle)})`,
+    `B · ${plain(r.evidenceB.quote)} (${plain(r.evidenceB.noteTitle)})`,
   ]
   const external = r.externalKnowledge
   if (external) {
-    lines.push(`외부 · ${oneLine(external.summary)}`)
+    lines.push(`외부 · ${plain(external.summary)}`)
     const url = httpUrl(external.sourceUrl)
     if (url) lines.push(`<${url}>`)
   }
-  return lines.map((l) => `> ${l}`).join('\n')
+  return lines.map((l) => `> ${l}`).join('\n>\n')
 }
 
 /**

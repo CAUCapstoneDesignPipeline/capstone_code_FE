@@ -31,6 +31,8 @@ type Listener = () => void
 export class InsertBridge {
   private target: InsertTarget | null = null
   private dropHandler: ((recommendationId: string, pos: number) => void) | null = null
+  /** 마우스로 끌고 있는 카드가 나온 추천 패널의 노트. dragover 중에는 끄는 내용을 읽을 수 없어 여기에 둔다 */
+  private dragSourceNoteId: string | null = null
   private readonly listeners = new Set<Listener>()
 
   subscribe = (listener: Listener) => {
@@ -50,6 +52,16 @@ export class InsertBridge {
   /** 패널이 카드를 놓았을 때의 처리를 등록한다 */
   setDropHandler(handler: ((recommendationId: string, pos: number) => void) | null) {
     this.dropHandler = handler
+  }
+
+  /** 카드를 끌기 시작할 때 그 추천 패널의 노트를 둔다. 끝나면 null */
+  setDragSource(noteId: string | null) {
+    this.dragSourceNoteId = noteId
+  }
+
+  /** 끌고 있는 카드를 이 노트에 놓을 수 있는지. 카드는 그 추천 패널의 노트에만 넣는다 (다른 노트면 놓을 곳이 아니다) */
+  acceptsDrop(noteId: string): boolean {
+    return this.dragSourceNoteId !== null && this.dragSourceNoteId === noteId
   }
 
   /** 편집기에 카드를 놓았다 */

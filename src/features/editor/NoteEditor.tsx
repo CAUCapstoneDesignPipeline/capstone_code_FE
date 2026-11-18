@@ -294,6 +294,7 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
               })
             }
             onRecommendationDrop={(id, pos) => bridge?.drop(id, pos)}
+            acceptsRecommendationDrop={() => bridge?.acceptsDrop(note.id) ?? false}
             placeholder="내용을 입력하세요"
             ariaLabel="본문"
             autoFocus={!isNew}

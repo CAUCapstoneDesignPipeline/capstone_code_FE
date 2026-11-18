@@ -317,10 +317,11 @@
 
 /*
  * 노트에 넣은 추천 지식 (W3-22c MD/InsertedKnowledge): surface-muted, 왼쪽 3px recommended, 모서리 6, 여백 12·16, 줄 사이 6.
- * 인용 블록의 줄마다 입히므로 위·아래 줄에만 모서리와 위아래 여백을 준다.
+ * 인용 블록의 줄마다 입히므로 위·아래 줄에만 모서리와 위아래 여백을 준다. 줄 사이는 빈 인용 줄(>)이 띄운다.
  */
 .editor :global(.cm-lp-knowledge) {
-  padding: 3px var(--space-16);
+  /* 줄 사이 6은 빈 인용 줄(.cm-lp-knowledge-gap)이 띄운다 */
+  padding: 0 var(--space-16);
   border-left: 3px solid var(--color-recommended);
   background: var(--color-surface-muted);
   color: var(--color-ink);
@@ -351,4 +352,10 @@
 /* 결론: 14 Bold */
 .editor :global(.cm-lp-knowledge-conclusion) {
   font: var(--text-ui-body-sm);
+}
+
+/* 줄 사이의 빈 인용 줄(`>`): W3-22c의 줄 간격(6)만큼만 띄운다 */
+.editor :global(.cm-lp-knowledge-gap) {
+  font-size: 0;
+  line-height: 6px;
 }

@@ -307,7 +307,12 @@ export function useRecommendationAnswers() {
       submitRecommendationAnswer(qc, recommendationId, action, options),
     [qc],
   )
-  return { answers: data, sending, answer }
+  /** 지금 캐시에 있는 답 (비동기 처리가 끝난 시점의 답을 읽을 때) */
+  const readAnswers = useCallback(
+    () => qc.getQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers) ?? {},
+    [qc],
+  )
+  return { answers: data, sending, answer, readAnswers }
 }
 
 export interface AnswerOptions {
