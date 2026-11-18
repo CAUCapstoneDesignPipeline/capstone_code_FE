@@ -18,6 +18,7 @@ import {
   getNoteAnalysis,
   requestNoteAnalysis,
   getRecommendationJob,
+  getTopicGraph,
   isApiError,
   listNotes,
   listTopics,
@@ -59,6 +60,8 @@ export const keys = {
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   graph: ['graph'] as const,
+  /** Galaxy 그래프의 한 단계 (주제 id, 최상위는 'root') */
+  topicGraph: (topicId: string | null) => ['graph', 'topics', topicId ?? 'root'] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
   /** 노트별로 추천 패널에 쌓인 카드 (보이는 카드 + 대기 카드)와 보고 있는 카드 */
@@ -189,6 +192,18 @@ export function useGraph(enabled: boolean) {
   return useQuery({
     queryKey: keys.graph,
     queryFn: ({ signal }) => getGraph({ scope: 'all' }, signal),
+    enabled,
+  })
+}
+
+/**
+ * Galaxy 그래프의 한 단계 (BE #143, 계약 반영 전 가정 — src/api/topicGraph.ts).
+ * 이전 단계로 돌아갈 때는 캐시를 쓴다 (다시 받는 것은 react-query 기본 규칙대로).
+ */
+export function useTopicGraph(topicId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.topicGraph(topicId),
+    queryFn: ({ signal }) => getTopicGraph(topicId, signal),
     enabled,
   })
 }

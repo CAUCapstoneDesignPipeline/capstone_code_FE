@@ -5,13 +5,15 @@
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
-// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off --external-knowledge --chat-off]
+// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off --external-knowledge --chat-off --galaxy-demo]
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
 //   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
 //   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번). 추천 작업도 outcome RECOMMENDATION_FAILED로 끝난다.
 //   --external-knowledge: 추천에 예시 외부 지식을 넣는다. 기본은 지금 AI처럼 null이다 (AI #19).
 //   --chat-off: 추천 챗봇이 503 AI_UNAVAILABLE. 챗봇에 '끊김'이 든 질문을 보내면 답 중간에 CHAT_INTERRUPTED로 끊긴다.
 //   챗봇 413(CHAT_INPUT_TOO_LARGE)은 카드와 대화가 60,000자를 넘을 때다.
+//   --galaxy-demo: Galaxy 그래프(GET /graph/topics, 계약 반영 전 가정 · BE #143)를 준다. 시작할 때 데모 주제·노트를 만든다.
+//   주제 계층(BE #141)은 저장소에 없어 하위 주제·키워드·연결은 fakeGalaxy.mjs의 고정 데이터다. 없으면 이 경로는 404(지금 BE와 같다).
 //   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프·추천 경로는 404.
 
 import { randomUUID } from 'node:crypto'
@@ -19,6 +21,7 @@ import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { createAnalysisQueue, createConceptRegistry } from './fakeAnalysis.mjs'
 import { CHAT_INPUT_MAX_CHARS, chatEvents, invalidChatRequest } from './fakeChat.mjs'
+import { seedGalaxyDemo } from './fakeGalaxy.mjs'
 import { createRecommendationQueue } from './fakeRecommend.mjs'
 
 /**
@@ -559,9 +562,10 @@ function readCookie(header, name) {
 /**
  * @param {Store} store @param {Auth} auth @param {import('node:http').IncomingMessage} req
  * @param {string[]} parts @param {URLSearchParams} params @param {unknown} body @param {boolean} aiOff
+ * @param {ReturnType<typeof seedGalaxyDemo> | null} [galaxy] --galaxy-demo일 때만 있다
  * @returns {Reply}
  */
-function route(store, auth, req, parts, params, body, aiOff) {
+function route(store, auth, req, parts, params, body, aiOff, galaxy = null) {
   const method = req.method ?? 'GET'
   const [resource, id, sub, ...rest] = parts
   if (rest.length) throw notFound()
@@ -619,6 +623,12 @@ function route(store, auth, req, parts, params, body, aiOff) {
   }
   if (resource === 'graph' && !id && method === 'GET')
     return { status: 200, body: store.getGraph(params) }
+  // Galaxy 그래프 (계약 반영 전 가정, BE #143). --galaxy-demo가 아니면 지금 BE처럼 경로가 없다(404)
+  if (resource === 'graph' && id === 'topics' && method === 'GET') {
+    const level = galaxy?.get(sub ?? null)
+    if (!level) throw notFound()
+    return { status: 200, body: level }
+  }
   if (resource === 'recommendation-jobs' && id && !sub && method === 'GET')
     return { status: 200, body: store.getRecommendationJob(id) }
   if (resource === 'recommendations' && id && sub === 'feedback' && method === 'POST')
@@ -668,6 +678,8 @@ export function createMockServer({ delayMs = 0, log = false, analysis } = {}) {
   const chatChunkMs = (analysis?.runMs ?? 1500) < 100 ? 1 : 60
   const store = createStore(analysis)
   const auth = createAuth()
+  // Galaxy 데모: 최상위 주제·노트를 저장소에 넣고, 하위 주제·키워드는 고정 데이터로 답한다 (fakeGalaxy.mjs)
+  const galaxy = analysis?.galaxyDemo ? seedGalaxyDemo(store) : null
 
   return createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*')
@@ -689,7 +701,7 @@ export function createMockServer({ delayMs = 0, log = false, analysis } = {}) {
     let reply
     try {
       const body = await readBody(req)
-      reply = route(store, auth, req, parts, url.searchParams, body, analysis?.off === true)
+      reply = route(store, auth, req, parts, url.searchParams, body, analysis?.off === true, galaxy)
     } catch (e) {
       if (e instanceof HttpError) {
         reply = {
@@ -751,6 +763,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     off: argv.includes('--ai-off'),
     externalKnowledge: argv.includes('--external-knowledge'),
     chatOff: argv.includes('--chat-off'),
+    galaxyDemo: argv.includes('--galaxy-demo'),
   }
   createMockServer({ delayMs, log: true, analysis }).listen(port, '127.0.0.1', () => {
     console.log(`가짜 서버: http://localhost:${port}${delayMs ? ` (응답 지연 ${delayMs}ms)` : ''}`)

@@ -35,6 +35,7 @@ API 주소는 `.env.local`의 `VITE_API_BASE_URL`로 정한다.
   - `npm run mock -- --fail-analysis`: AI 서버가 꺼진 것처럼 분석이 모두 실패한다. 추천 작업도 분석 실패(`RECOMMENDATION_FAILED`)로 끝난다.
   - `npm run mock -- --external-knowledge`: 추천 카드에 예시 외부 지식을 넣는다. 기본은 지금 AI처럼 `null`이다.
   - 추천 챗봇(SSE)은 카드 결론을 넣은 예시 답을 몇 글자씩 보낸다. 질문에 `끊김`을 넣으면 답 중간에 `CHAT_INTERRUPTED`로 끊긴다. `npm run mock -- --chat-off`면 챗봇이 503 `AI_UNAVAILABLE`이다.
+  - `npm run mock -- --galaxy-demo`면 Galaxy 그래프(주제 단계 그래프, `GET /graph/topics`)를 준다. 시작할 때 데모 주제·노트를 만들고, 하위 주제·키워드는 `mock/fakeGalaxy.mjs`의 고정 데이터다(주제 계층은 BE #141 전이라 저장소에 없다). 이 옵션이 없으면 경로가 404라 그래프 화면은 지금처럼 페이지 그래프를 보인다.
   - `npm run mock -- --ai-off`: 지금 BE(AI-off)와 같게 `GET /capabilities`가 모두 `false`이고, 분석 요청은 503 `AI_UNAVAILABLE`, 그래프 경로는 404다. 앱은 이때 분석 상태를 조회하지 않고 패널·그래프 화면에 "아직 사용할 수 없습니다"를 보인다.
 - `npm run mock:prism`: Prism. 계약의 예시 응답만 돌려주고 데이터를 저장하지 않는다. 응답 모양만 확인할 때 쓰고, 오류 응답은 요청 헤더 `Prefer: code=409`처럼 상태 코드를 지정해 받아 본다.
 

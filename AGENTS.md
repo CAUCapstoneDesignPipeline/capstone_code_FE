@@ -55,6 +55,7 @@
   - `--fail-analysis`: 분석이 모두 실패 (추천 작업도 `RECOMMENDATION_FAILED`)
   - `--external-knowledge`: 추천에 예시 외부 지식 (기본 `null`)
   - `--chat-off`: 추천 챗봇 503. 챗봇 질문에 `끊김`을 넣으면 답 중간에 `CHAT_INTERRUPTED`
+  - `--galaxy-demo`: Galaxy 그래프(`GET /graph/topics`, 계약 반영 전 가정 · BE #143)와 데모 주제·노트. 없으면 이 경로는 404라 그래프 화면이 페이지 그래프로 돌아간다(지금 BE와 같다)
   - `--delay <ms>`: 모든 응답을 늦춤 (저장 중·요청 겹침 확인)
 - 끝내기 전에 반드시: `npm run typecheck && npm test && npm run lint`
 - 실제 BE(`be` main)에는 그래프·추천·변환 API가 없다(분석도 항상 503). 그래서 "실제 BE에서 동작 확인"이라고 보고하지 않는다. mock에서 확인한 시나리오를 적는다.
