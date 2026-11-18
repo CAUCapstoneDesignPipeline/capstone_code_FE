@@ -303,11 +303,48 @@ export function useRecommendationAnswers() {
   })
   const sending = useMemo(() => new Set(Object.keys(sendingIds)), [sendingIds])
   const answer = useCallback(
-    (recommendationId: string, action: RecommendationAnswer) =>
-      submitRecommendationAnswer(qc, recommendationId, action),
+    (recommendationId: string, action: RecommendationAnswer, options?: AnswerOptions) =>
+      submitRecommendationAnswer(qc, recommendationId, action, options),
     [qc],
   )
   return { answers: data, sending, answer }
+}
+
+export interface AnswerOptions {
+  /**
+   * 보내지 못하면 이만큼 기다렸다가 같은 답을 다시 보낸다 (차례로, 기본은 다시 보내지 않음).
+   * 같은 답 재전송은 BE가 204로 받는다. 다시 보내도 결과가 같은 오류(409·404·401·400)는 다시 보내지 않는다.
+   * 다시 보내는 동안에도 답은 반영된 채로 둔다 (카드가 깜박이지 않게).
+   */
+  retryDelaysMs?: readonly number[]
+}
+
+/** 다시 보내도 결과가 같은 오류 */
+const FINAL_ANSWER_ERRORS = [
+  'RECOMMENDATION_STALE',
+  'REVIEW_CONFLICT',
+  'NOT_FOUND',
+  'UNAUTHENTICATED',
+  'VALIDATION_FAILED',
+] as const
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 답을 보낸다. 실패하면 retryDelaysMs대로 다시 보낸다 */
+async function sendFeedbackWithRetry(
+  recommendationId: string,
+  action: RecommendationAnswer,
+  retryDelaysMs: readonly number[],
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await sendRecommendationFeedback(recommendationId, action)
+    } catch (e) {
+      const delay = retryDelaysMs[attempt]
+      if (delay === undefined || FINAL_ANSWER_ERRORS.some((code) => isApiError(e, code))) throw e
+      await wait(delay)
+    }
+  }
 }
 
 /**
@@ -318,6 +355,7 @@ export async function submitRecommendationAnswer(
   qc: QueryClient,
   recommendationId: string,
   action: RecommendationAnswer,
+  options: AnswerOptions = {},
 ): Promise<void> {
   // 같은 카드에 답이 겹쳐도(예: '이해가 안 됨' 전송 중에 '이해함') 마지막 요청이 끝날 때까지 전송 중으로 센다
   const setSending = (delta: 1 | -1) =>
@@ -337,7 +375,7 @@ export async function submitRecommendationAnswer(
   }))
   setSending(1)
   try {
-    await sendRecommendationFeedback(recommendationId, action)
+    await sendFeedbackWithRetry(recommendationId, action, options.retryDelaysMs ?? [])
     setSending(-1)
   } catch (e) {
     // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여

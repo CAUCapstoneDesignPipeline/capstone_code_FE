@@ -9,6 +9,7 @@ import clock from '../assets/icons/clock.svg'
 import compass from '../assets/icons/compass.svg'
 import close from '../assets/icons/close.svg'
 import dot from '../assets/icons/dot.svg'
+import drag from '../assets/icons/drag.svg'
 import external from '../assets/icons/external.svg'
 import graph from '../assets/icons/graph.svg'
 import importIcon from '../assets/icons/import.svg'
@@ -48,6 +49,7 @@ const ICONS = {
   compass,
   close,
   dot,
+  drag,
   external,
   graph,
   import: importIcon,

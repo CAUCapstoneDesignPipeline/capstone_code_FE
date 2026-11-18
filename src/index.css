@@ -18,6 +18,8 @@
   --color-border-ghost: rgb(38 37 30 / 0.2);
   --color-border-subtle: rgb(38 37 30 / 0.1);
   --color-scrim: rgb(38 37 30 / 0.16);
+  /** 노트에 넣은 추천 지식 (Figma 변수 color/recommended, W3-22c) */
+  --color-recommended: #7f77dd;
 
   /*
    * 그래프 주제 색 (안, 디자인 미정). dataviz 기본 범주 팔레트 8칸을 만든 순서대로 쓴다.

@@ -10,10 +10,19 @@ import {
   type EvidenceLocation,
   type EvidenceSpanLike,
 } from './evidenceHighlight'
+import { insertionAt } from '../../lib/insertedKnowledge'
 import { livePreview } from './livePreview'
 import styles from './MarkdownEditor.module.css'
 import { mathPreview, mathSyntax } from './mathPreview'
 import { pasteMarkdown } from './pasteMarkdown'
+import {
+  blockBefore,
+  blockBoundaries,
+  insertedRecommendation,
+  isInsertedRecommendation,
+  recommendDrop,
+  setInsertIndicator,
+} from './recommendDrop'
 import { tablePreview } from './tablePreview'
 
 export interface MarkdownEditorHandle {
@@ -26,12 +35,23 @@ export interface MarkdownEditorHandle {
     evidence: EvidenceSpanLike | null,
     docVersion?: number,
   ) => EvidenceLocation['kind'] | null
+  /** 블록 사이 자리 (추천 카드를 넣을 수 있는 곳, Issue #43) */
+  boundaries: () => number[]
+  /** 자리 앞 블록의 첫 줄. 맨 앞이면 null */
+  describeBoundary: (pos: number) => string | null
+  /** "여기에 넣기" 선을 보이거나 지운다(null). scroll이면 그 자리를 화면 가운데로 */
+  showInsertIndicator: (pos: number | null, scroll?: boolean) => void
+  /** 블록 사이 자리에 마크다운 블록을 넣는다. onChange는 inserted로 불린다 */
+  insertBlock: (pos: number, markdown: string) => void
 }
 
 interface Props {
   /** 처음 보여줄 원문. 이후 바뀌어도 반영하지 않는다 (바꾸려면 key로 새로 만든다). */
   initialValue: string
-  onChange: (value: string) => void
+  /** inserted: 추천 카드를 넣은 변경이다 (사용자의 입력이 아니다) */
+  onChange: (value: string, inserted: boolean) => void
+  /** 추천 카드를 본문에 놓았을 때 (추천 id, 블록 사이 자리) */
+  onRecommendationDrop?: (recommendationId: string, pos: number) => void
   placeholder: string
   ariaLabel: string
   autoFocus?: boolean
@@ -43,8 +63,10 @@ export function MarkdownEditor(props: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(props.onChange)
+  const onDropRef = useRef(props.onRecommendationDrop)
   useLayoutEffect(() => {
     onChangeRef.current = props.onChange
+    onDropRef.current = props.onRecommendationDrop
   })
 
   useImperativeHandle(props.ref, () => ({
@@ -75,6 +97,32 @@ export function MarkdownEditor(props: Props) {
       }
       return at.kind
     },
+    boundaries: () => (viewRef.current ? blockBoundaries(viewRef.current.state) : []),
+    describeBoundary: (pos) => (viewRef.current ? blockBefore(viewRef.current.state, pos) : null),
+    showInsertIndicator: (pos, scroll) => {
+      const view = viewRef.current
+      if (!view) return
+      view.dispatch({
+        effects: [
+          setInsertIndicator.of(pos),
+          ...(pos !== null && scroll ? [EditorView.scrollIntoView(pos, { y: 'center' })] : []),
+        ],
+      })
+    },
+    insertBlock: (pos, markdown) => {
+      const view = viewRef.current
+      if (!view) return
+      const change = insertionAt(view.state.doc.toString(), pos, markdown)
+      view.dispatch({
+        changes: change,
+        // 넣은 블록이 보이게 스크롤한다. 커서는 옮기지 않는다
+        effects: [
+          setInsertIndicator.of(null),
+          EditorView.scrollIntoView(change.from, { y: 'nearest' }),
+        ],
+        annotations: insertedRecommendation.of(true),
+      })
+    },
   }))
 
   // 처음 한 번만 만든다. 원문을 바꿔야 하면(다른 곳의 내용 불러오기) 부모가 key를 바꿔 새로 만든다.
@@ -93,13 +141,15 @@ export function MarkdownEditor(props: Props) {
           placeholder(text),
           EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) onChangeRef.current(u.state.doc.toString())
+            if (!u.docChanged) return
+            onChangeRef.current(u.state.doc.toString(), isInsertedRecommendation(u.transactions))
           }),
           livePreview,
           tablePreview,
           mathPreview,
           pasteMarkdown,
           evidenceHighlight,
+          recommendDrop((id, pos) => onDropRef.current?.(id, pos)),
         ],
       }),
     })

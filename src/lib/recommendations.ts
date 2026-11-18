@@ -246,3 +246,42 @@ export function cardAfterAnswer(
 export const ANSWER_FAILED_TOAST = '답을 보내지 못했습니다. 카드를 다시 넣었습니다.'
 /** '이해가 안 됨'을 보내지 못했을 때. 카드가 빠지지 않았고 챗봇은 그대로 연다 */
 export const CONFUSED_FAILED_TOAST = '답을 보내지 못했습니다.'
+
+// --- 카드를 노트에 끌어다 놓기 (Issue #43, Figma W3-22a~c) ---
+// Figma에 있는 문구: DRAG_HINT, INSERTED_TOAST. 나머지는 Figma에 없어 기존 말투("…하지 못했습니다")를 따랐다.
+
+/** W3-22a Recommend/DragHint */
+export const DRAG_HINT = '카드를 노트로 끌어 놓으면 이해함으로 기록'
+
+/** W3-22c: 노트에 넣고 저장한 뒤 '이해함'까지 남겼을 때 */
+export const INSERTED_TOAST = '노트에 넣고 이해함으로 기록했어요'
+
+/** 저장이 멈춰 있어(제목 문제·충돌·삭제·로그인 만료) 노트에 넣지 않았을 때 */
+export const INSERT_BLOCKED_TOAST = '노트 저장이 멈춰 있어 카드를 넣지 않았습니다.'
+
+/** 노트에 넣었지만 저장하지 못해 '이해함'을 보내지 않았을 때 (충돌이면 편집기에 충돌 안내가 함께 뜬다) */
+export const INSERT_SAVE_FAILED_TOAST = "노트를 저장하지 못해 '이해함'으로 남기지 않았습니다."
+
+/** 노트에는 넣었지만 '이해함'이 409 RECOMMENDATION_STALE로 막혀 카드를 닫을 때 */
+export const INSERTED_STALE_TOAST =
+  "노트에는 넣었지만 근거가 바뀐 추천이라 '이해함'으로 남기지 못했습니다."
+
+/** 노트에는 넣었지만 '이해함'을 끝내 보내지 못했을 때 카드 위에 보인다 */
+export const UNRECORDED_NOTICE = {
+  title: "노트에는 넣었지만 '이해함'은 기록하지 못했습니다",
+  description: '다시 시도하면 노트에 다시 넣지 않고 답만 보냅니다.',
+}
+
+/** 다시 보내기 간격 (Issue #43: 같은 요청을 다시 보낸다. 같은 답은 BE가 204로 받는다) */
+export const INSERT_ANSWER_RETRY_MS = [1000, 2000] as const
+
+/** 키보드로 넣을 자리를 고를 때 알리는 문장 */
+export function insertPlaceMessage(index: number, count: number, before: string | null): string {
+  const where =
+    before === null ? '맨 앞' : `'${before.length > 30 ? `${before.slice(0, 30)}…` : before}' 다음`
+  return `넣을 자리 ${index + 1}/${count}: ${where}`
+}
+
+/** 키보드 사용법 (끌기 손잡이의 설명) */
+export const DRAG_KEYBOARD_HELP =
+  'Space나 Enter로 카드를 집고, 위·아래 화살표로 넣을 자리를 고른 뒤 Enter로 넣습니다. Esc로 취소합니다.'

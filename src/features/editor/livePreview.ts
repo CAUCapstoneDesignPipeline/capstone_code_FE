@@ -27,6 +27,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view'
 import type { SyntaxNode, Tree } from '@lezer/common'
+import { INSERTED_KNOWLEDGE_FIRST_LINE } from '../../lib/insertedKnowledge'
 import { MathWidget, mathSource } from './mathPreview'
 
 /** 열어도 되는 링크 주소 */
@@ -176,6 +177,15 @@ const bullet = Decoration.replace({ widget: new BulletWidget() })
 const checkbox = (checked: boolean) => Decoration.replace({ widget: new CheckboxWidget(checked) })
 const mark = (cls: string) => Decoration.mark({ class: cls })
 const line = (cls: string) => Decoration.line({ class: cls })
+
+/** 넣은 추천 지식 블록의 i번째 줄 (0: 라벨, 1: 결론, 그 뒤: A·B·외부 지식·URL) */
+function knowledgeLineClass(i: number, isLast: boolean): string {
+  const classes = ['cm-lp-knowledge']
+  if (i === 0) classes.push('cm-lp-knowledge-top', 'cm-lp-knowledge-label')
+  if (i === 1) classes.push('cm-lp-knowledge-conclusion')
+  if (isLast) classes.push('cm-lp-knowledge-bottom')
+  return classes.join(' ')
+}
 
 const INLINE_MARKS: Record<string, string> = {
   StrongEmphasis: 'cm-lp-strong',
@@ -357,13 +367,24 @@ export function buildDecorations(
         case 'QuoteMark':
           replaceBlockMark(node.from, node.to)
           return
-        case 'Blockquote':
+        case 'Blockquote': {
+          // 추천 카드를 넣은 블록(첫 줄이 "**새로 이해한 지식**")은 W3-22c 모양으로 (Issue #43)
+          const first = doc.lineAt(node.from)
+          const last = doc.lineAt(node.to)
+          const knowledge = INSERTED_KNOWLEDGE_FIRST_LINE.test(first.text)
           for (let pos = node.from; pos <= node.to;) {
             const l = doc.lineAt(pos)
-            decos.push(line('cm-lp-quote').range(l.from))
+            decos.push(
+              line(
+                knowledge
+                  ? knowledgeLineClass(l.number - first.number, l.number === last.number)
+                  : 'cm-lp-quote',
+              ).range(l.from),
+            )
             pos = l.to + 1
           }
           return
+        }
         case 'HorizontalRule': {
           // `---`은 구분선으로. 커서가 그 줄에 오면 원문
           const l = doc.lineAt(node.from)

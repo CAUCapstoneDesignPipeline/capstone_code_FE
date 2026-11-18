@@ -5,11 +5,13 @@
 // 로그인은 개발용 로그인만 있다 (GET /auth/providers의 devTokenEnabled: true). 사용자는 한 명이다.
 // 서버를 끄면 데이터는 사라진다. 계약 모양만 확인하려면 `npm run mock:prism`.
 //
-// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off --external-knowledge --chat-off]
+// 실행: npm run mock [-- --port 4010 --delay 300 --analysis-debounce 5000 --analysis-run 1500 --fail-analysis --ai-off --external-knowledge --chat-off --fail-feedback]
 //   --delay: 모든 응답을 늦춘다 (ms). "저장 중" 상태나 요청 겹침을 볼 때 쓴다.
 //   --analysis-debounce: 저장 후 분석을 시작하기까지 (ms, 기본 5000). --analysis-run: 분석에 걸리는 시간 (ms, 기본 1500)
 //   --fail-analysis: AI 서버가 꺼진 것처럼 분석이 모두 실패한다 (시연 6번). 추천 작업도 outcome RECOMMENDATION_FAILED로 끝난다.
 //   --external-knowledge: 추천에 예시 외부 지식을 넣는다. 기본은 지금 AI처럼 null이다 (AI #19).
+//   --fail-feedback: 추천 카드의 답(POST /recommendations/{id}/feedback)이 모두 500 INTERNAL. 노트에 끌어다 놓은 뒤
+//   '이해함'을 보내지 못하는 경우(다시 보내기 → 카드 위 안내)를 볼 때 쓴다 (Issue #43).
 //   --chat-off: 추천 챗봇이 503 AI_UNAVAILABLE. 챗봇에 '끊김'이 든 질문을 보내면 답 중간에 CHAT_INTERRUPTED로 끊긴다.
 //   챗봇 413(CHAT_INPUT_TOO_LARGE)은 카드와 대화가 60,000자를 넘을 때다.
 //   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프·추천 경로는 404.
@@ -423,6 +425,8 @@ export function createStore(analysisOptions) {
       const action = asObject(input).action
       if (typeof action !== 'string' || !['understood', 'known', 'confused'].includes(action))
         throw invalid('action', 'invalid', '응답을 다시 선택하세요.')
+      if (analysisOptions?.failFeedback)
+        throw new HttpError(500, 'INTERNAL', '답을 기록하지 못했습니다. (--fail-feedback)')
       const result = recommendations.feedback(id, action)
       if (result === 'missing') throw new HttpError(404, 'NOT_FOUND', '추천을 찾을 수 없습니다.')
       // 근거가 바뀌었거나 사라진 추천 (11/04 회의, docs PR #22). 답을 기록하지 않는다
@@ -751,6 +755,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     off: argv.includes('--ai-off'),
     externalKnowledge: argv.includes('--external-knowledge'),
     chatOff: argv.includes('--chat-off'),
+    failFeedback: argv.includes('--fail-feedback'),
   }
   createMockServer({ delayMs, log: true, analysis }).listen(port, '127.0.0.1', () => {
     console.log(`가짜 서버: http://localhost:${port}${delayMs ? ` (응답 지연 ${delayMs}ms)` : ''}`)

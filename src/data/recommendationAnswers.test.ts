@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiError,
   isRecommendationAnswered,
@@ -82,5 +82,59 @@ describe('추천 답 보내기', () => {
     send.mockRejectedValueOnce(new ApiError('RECOMMENDATION_STALE', 'stale', 409))
     await submitRecommendationAnswer(qc, 'd', 'understood').catch(() => {})
     expect(answers()).toEqual({ d: 'confused' })
+  })
+})
+
+describe('다시 보내기 (노트에 넣은 뒤 이해함, Issue #43)', () => {
+  let qc: QueryClient
+  const answers = () =>
+    qc.getQueryData<Record<string, RecommendationAnswer>>(keys.recommendationAnswers) ?? {}
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    qc = new QueryClient()
+    send.mockReset()
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('실패하면 정한 간격으로 같은 답을 다시 보내고, 성공하면 답이 남는다', async () => {
+    send
+      .mockRejectedValueOnce(new ApiError('NETWORK_ERROR', '연결하지 못했습니다.', 0))
+      .mockResolvedValueOnce(undefined)
+    const done = submitRecommendationAnswer(qc, 'a', 'understood', { retryDelaysMs: [1000, 2000] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(send).toHaveBeenCalledTimes(1)
+    // 다시 보내는 동안에도 답은 반영된 채다 (카드가 깜박이지 않는다)
+    expect(answers()).toEqual({ a: 'understood' })
+    await vi.advanceTimersByTimeAsync(1000)
+    await done
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send).toHaveBeenLastCalledWith('a', 'understood')
+    expect(answers()).toEqual({ a: 'understood' })
+  })
+
+  it('끝내 보내지 못하면 (처음 + 다시 2번) 답을 되돌리고 오류를 던진다', async () => {
+    send.mockRejectedValue(new ApiError('AI_UNAVAILABLE', '잠시 사용할 수 없습니다.', 503))
+    const done = submitRecommendationAnswer(qc, 'a', 'understood', {
+      retryDelaysMs: [1000, 2000],
+    }).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(await done).toBeInstanceOf(ApiError)
+    expect(send).toHaveBeenCalledTimes(3)
+    expect(answers()).toEqual({})
+  })
+
+  it('409(RECOMMENDATION_STALE·REVIEW_CONFLICT)는 다시 보내지 않는다', async () => {
+    for (const code of ['RECOMMENDATION_STALE', 'REVIEW_CONFLICT'] as const) {
+      send.mockReset()
+      send.mockRejectedValue(new ApiError(code, '막힘', 409))
+      const error = await submitRecommendationAnswer(qc, 'b', 'understood', {
+        retryDelaysMs: [1000, 2000],
+      }).catch((e: unknown) => e)
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(
+        code === 'REVIEW_CONFLICT' ? isRecommendationAnswered(error) : isRecommendationStale(error),
+      ).toBe(true)
+    }
   })
 })
