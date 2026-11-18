@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { TopicGraph, TopicGraphKeyword, TopicGraphTopic } from '../../api'
 import type { TopicColorKey } from '../../lib/topicColors'
 import {
+  refreshPathNames,
+  topicAt,
   GALAXY_LEVEL_ZOOM,
   levelTopics,
   renderedToModel,
@@ -192,8 +194,8 @@ describe('키워드 문서 · 문구', () => {
 
 describe('휠 줌으로 들어갈 주제는 마우스 위치로 고른다', () => {
   // 화면 1000×600, 기준 배율 1, pan 0. 가운데 주제(400~600)와 오른쪽 가장자리 주제(850~950)
-  const center = { id: 'center', box: { x1: 400, y1: 200, x2: 600, y2: 400 } }
-  const edge = { id: 'edge', box: { x1: 850, y1: 250, x2: 950, y2: 350 } }
+  const center = { id: 'center', circle: { x: 500, y: 300, r: 100 } }
+  const edge = { id: 'edge', circle: { x: 900, y: 300, r: 50 } }
   const topics = [center, edge]
   const viewportCenter = { x: 500, y: 300 }
   /** Cytoscape 휠 줌: 마우스(화면 좌표) 아래의 그래프 점을 고정한 채 zoom배로 확대한 뒤의 pan */
@@ -217,7 +219,7 @@ describe('휠 줌으로 들어갈 주제는 마우스 위치로 고른다', () =
     ).toEqual({ kind: 'enter', topicId: 'edge' })
     // 화면 가운데로 고르면 마우스까지 거리의 일부만 따라가 가장자리 주제에 닿지 못한다 (고치기 전 동작)
     const byCenter = renderedToModel(viewportCenter, pan, zoom)
-    expect(byCenter.x).toBeLessThan(edge.box.x1)
+    expect(byCenter.x).toBeLessThan(edge.circle.x - edge.circle.r)
   })
 
   it('마우스가 빈 곳이면 들어가지 않는다 (화면 가운데에 주제가 있어도)', () => {
@@ -296,5 +298,75 @@ describe('미분류 노트의 키워드', () => {
     expect(directKeywords(inside.keywords, 'none').map((k) => k.id)).toEqual(['ttl'])
     const { nodes } = galaxyElements(inside, path, colors)
     expect(nodes.map((n) => [n.data.id, n.data.colorKey])).toEqual([['ttl', 'topic-none']])
+  })
+})
+
+describe('원 판정은 중심 거리로 (리뷰 7)', () => {
+  const big = { id: 'big', circle: { x: 0, y: 0, r: 100 } }
+  const small = { id: 'small', circle: { x: 120, y: 0, r: 40 } }
+
+  it('네모 상자의 빈 모서리는 주제가 아니다', () => {
+    // (90, 90)은 상자(−100~100) 안이지만 원 밖 (거리 127)
+    expect(topicAt({ x: 90, y: 90 }, [big])).toBeNull()
+    expect(topicAt({ x: 60, y: 60 }, [big])).toBe('big')
+  })
+
+  it('겹치면 중심에 가장 가까운 주제 (id 순이 아니라)', () => {
+    // (95, 0): big 중심까지 95, small 중심까지 25
+    expect(topicAt({ x: 95, y: 0 }, [big, small])).toBe('small')
+    expect(topicAt({ x: 95, y: 0 }, [small, big])).toBe('small')
+  })
+})
+
+describe('주제 목록은 한 번에 만든다 (리뷰 10)', () => {
+  it('주제는 id 순, 미분류는 맨 끝에 하나. 그린 목록을 화면이 그대로 쓴다', () => {
+    const graph: TopicGraph = {
+      topics: [topic('z'), topic('a')],
+      keywords: [],
+      edges: [],
+      unassigned: { keywordCount: 1, hasRecommended: false },
+    }
+    const elements = galaxyElements(graph, ROOT, new Map())
+    expect(elements.topics.map((t) => t.id)).toEqual(['a', 'z', 'none'])
+    expect(levelTopics(graph, ROOT).map((t) => t.id)).toEqual(['a', 'z', 'none'])
+    // 응답의 주제 배열은 바꾸지 않는다
+    expect(graph.topics.map((t) => t.id)).toEqual(['z', 'a'])
+  })
+
+  it('그린 키워드 목록(바로 속한 것만)을 함께 준다', () => {
+    const graph: TopicGraph = {
+      topics: [],
+      keywords: [keyword('b', 'net'), keyword('a', 'net'), keyword('x', 'transport')],
+      edges: [],
+    }
+    expect(galaxyElements(graph, [net], new Map()).keywords.map((k) => k.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('경로 이름은 받은 데이터 기준 (리뷰 3)', () => {
+  const root: TopicGraph = {
+    topics: [topic('net', { name: '네트워크(새 이름)' })],
+    keywords: [],
+    edges: [],
+  }
+  const netLevel: TopicGraph = {
+    topics: [topic('transport', { name: '전송' })],
+    keywords: [],
+    edges: [],
+  }
+  const levelOf = (id: string | null) => (id === null ? root : id === 'net' ? netLevel : undefined)
+
+  it('각 칸의 이름을 바로 위 단계의 목록에서 고친다', () => {
+    expect(refreshPathNames([net, transport, congestion], levelOf)).toEqual([
+      { id: 'net', name: '네트워크(새 이름)' },
+      { id: 'transport', name: '전송' },
+      // 아직 받지 않은 단계(transport 안)는 그대로
+      congestion,
+    ])
+  })
+
+  it('바뀐 것이 없으면 같은 배열', () => {
+    const path = [{ id: 'net', name: '네트워크(새 이름)' }]
+    expect(refreshPathNames(path, levelOf)).toBe(path)
   })
 })

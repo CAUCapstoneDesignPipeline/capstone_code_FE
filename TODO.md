@@ -91,6 +91,8 @@
 - [ ] 폴더 사이드바 트리 (하위 폴더 생성·이동·펼치기) — BE #141 필요
 - [ ] 실제 BE 연결 — BE #143. **계약 반영 전 가정**: `src/api/topicGraph.ts`의 경로(`GET /graph/topics`, `GET /graph/topics/{topicId}`)와 필드 중 `childTopicCount`, `hasRecommended`(주제), `topicId`(키워드, 미분류면 null), 최상위의 `unassigned`(미분류 키워드 요약)와 `GET /graph/topics/none`(미분류 키워드)은 #143 본문에 없어 FE가 더한 것이다. docs 계약이 나오면 이 파일만 바꾼다
 - [ ] 줌으로 단계를 바꾸는 배율 `GALAXY_LEVEL_ZOOM`(1.8) 실측 후 조정 (`src/features/graph/galaxy.ts`)
+- [ ] Galaxy를 다시 받는 때는 추천 작업 완료·"이해함" 기록뿐이다 (`invalidateGalaxy`, PR #46 리뷰). 주제 삭제·이름 변경·노트 이동 뒤에는 다시 받지 않아, 최상위에 지운 주제가 남거나 이름이 늦게 바뀔 수 있다(지운 주제에 들어가면 404 → 전체로). 이 경우도 다시 받을지 정한다
+- [ ] 줌 판단 상수 `GALAXY_LEVEL_QUIET_MS`(400)·`GALAXY_WHEEL_FRESH_MS`(300) 실측 후 조정 (`src/features/graph/galaxyZoom.ts`)
 - [ ] 노드를 키보드로 고를 수 없다 (경로·− + 버튼만 키보드로 된다). 페이지 그래프도 같다
 - 실제 BE(경로 없음, 404)에서는 지금처럼 페이지 그래프를 안내와 함께 보인다. #143이 나오면 저절로 Galaxy로 바뀐다
 

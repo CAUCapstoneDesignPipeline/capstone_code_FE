@@ -60,8 +60,18 @@ export const keys = {
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   graph: ['graph'] as const,
-  /** Galaxy 그래프의 한 단계 (주제 id, 최상위는 'root') */
-  topicGraph: (topicId: string | null) => ['graph', 'topics', topicId ?? 'root'] as const,
+  /**
+   * Galaxy 그래프 (주제 단계). 페이지 그래프(['graph'])와 따로 두어 노트를 저장할 때는 다시 받지 않는다.
+   * 다시 받는 때: 추천 작업이 끝났을 때, '이해함'을 기록했을 때 (invalidateGalaxy)
+   */
+  galaxy: ['galaxy'] as const,
+  /** Galaxy의 한 단계. 최상위는 topicId null (문자열로 바꾸지 않아 'root'라는 id의 주제와 겹치지 않는다) */
+  topicGraph: (topicId: string | null) => ['galaxy', 'level', { topicId }] as const,
+  /**
+   * Galaxy에서 보던 단계 (사용자별). 노트를 열었다 돌아와도 이어 보게 캐시에 둔다. 로그아웃하면 캐시가 지워져 사라지고,
+   * 다른 사용자로 로그인하면 키가 달라 이전 사용자의 경로를 보지 않는다. ['galaxy'] 밖에 두어 다시 받을 때 지워지지 않는다
+   */
+  galaxyPath: (userId: string) => ['galaxyPath', userId] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
   /** 노트별로 추천 패널에 쌓인 카드 (보이는 카드 + 대기 카드)와 보고 있는 카드 */
@@ -197,8 +207,25 @@ export function useGraph(enabled: boolean) {
 }
 
 /**
+ * Galaxy 그래프를 다시 받게 한다. 노트 저장으로는 부르지 않는다 (편집할 때마다 그래프가 다시 배치되지 않게).
+ * 부르는 곳: 추천 작업이 끝났을 때(useRecommendations), '이해함'을 기록했을 때(submitRecommendationAnswer)
+ */
+export function invalidateGalaxy(qc: QueryClient) {
+  return qc.invalidateQueries({ queryKey: keys.galaxy })
+}
+
+/** 추천 작업 polling 결과: 진행 중이던 작업이 끝났으면(completed) Galaxy를 다시 받는다 */
+export function onRecommendationJobPolled(
+  qc: QueryClient,
+  before: RecommendationJob | null | undefined,
+  after: RecommendationJob | null,
+) {
+  if (before?.status === 'pending' && after?.status === 'completed') void invalidateGalaxy(qc)
+}
+
+/**
  * Galaxy 그래프의 한 단계 (BE #143, 계약 반영 전 가정 — src/api/topicGraph.ts).
- * 이전 단계로 돌아갈 때는 캐시를 쓴다 (다시 받는 것은 react-query 기본 규칙대로).
+ * 이전 단계로 돌아갈 때는 캐시를 쓴다. 다시 받는 때는 invalidateGalaxy.
  */
 export function useTopicGraph(topicId: string | null, enabled: boolean) {
   return useQuery({
@@ -223,7 +250,9 @@ export function useRecommendations(noteId: string | null) {
       const job = qc.getQueryData<RecommendationJob | null>(keys.recommendationJob(noteId!))
       if (!job) return null
       try {
-        return await getRecommendationJob(job.id, signal)
+        const next = await getRecommendationJob(job.id, signal)
+        onRecommendationJobPolled(qc, job, next)
+        return next
       } catch (e) {
         if (isApiError(e, 'NOT_FOUND')) return null
         throw e
@@ -354,6 +383,8 @@ export async function submitRecommendationAnswer(
   try {
     await sendRecommendationFeedback(recommendationId, action)
     setSending(-1)
+    // '이해함'은 그래프에 반영된다 (추천 지식 ◆). Galaxy를 다시 받는다
+    if (action === 'understood') void invalidateGalaxy(qc)
   } catch (e) {
     // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
     // 추천을 합칠 때 카드가 빠질 수 있다.

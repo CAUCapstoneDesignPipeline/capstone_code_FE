@@ -47,3 +47,10 @@ export function textWidth(text: string, size: number): number {
   measureCtx.font = `400 ${size}px ${font || 'sans-serif'}`
   return measureCtx.measureText(text).width
 }
+
+/** 지름 size의 색 원 그림 (노드 배경 그림으로 쓴다: 페이지 점, Galaxy의 추천 지식 점). 테마가 바뀌면 다시 만든다 */
+export function circleImage(color: string, size: number): string {
+  const r = size / 2
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${r}" cy="${r}" r="${r}" fill="${color}"/></svg>`
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+}

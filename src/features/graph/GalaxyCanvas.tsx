@@ -1,9 +1,10 @@
 import cytoscape, { type Core } from 'cytoscape'
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react'
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import { useTheme, type Theme } from '../../lib/theme'
 import { TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
-import { resolveColor, splitAlpha } from './cytoscapeShared'
+import { circleImage, resolveColor, splitAlpha } from './cytoscapeShared'
 import { renderedToModel, zoomStep, type GalaxyElements, type Point } from './galaxy'
+import { GalaxyZoomGate, zoomLimits } from './galaxyZoom'
 import styles from './GraphView.module.css'
 
 export interface GalaxyCanvasHandle {
@@ -44,11 +45,6 @@ const COLOR_KEYS: TopicColorKey[] = [
   'topic-none',
 ]
 
-function markImage(color: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${MARK}" height="${MARK}"><circle cx="${MARK / 2}" cy="${MARK / 2}" r="${MARK / 2}" fill="${color}"/></svg>`
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
-}
-
 function galaxyStyle(theme: Theme): cytoscape.StylesheetJson {
   const ink = resolveColor('color-ink', theme)
   const muted = splitAlpha(resolveColor('color-ink-muted', theme))
@@ -80,7 +76,7 @@ function galaxyStyle(theme: Theme): cytoscape.StylesheetJson {
     {
       selector: 'node.topic.has-recommended',
       style: {
-        'background-image': markImage(recommended),
+        'background-image': circleImage(recommended, MARK),
         'background-width': MARK,
         'background-height': MARK,
         'background-fit': 'none',
@@ -159,20 +155,16 @@ export function GalaxyCanvas(props: Props) {
   useLayoutEffect(() => {
     latest.current = props
   })
-  /** 지금 단계를 화면에 맞춘 배율. 줌으로 단계를 바꾸는 기준 */
-  const baseZoom = useRef<number | null>(null)
-  /** 단계를 바꾸라고 알렸다. 새 단계를 그릴 때까지 다시 알리지 않는다 (한 번의 휠에 여러 단계가 넘어가지 않게) */
-  const moving = useRef(false)
+  /** 줌으로 단계를 바꿀지 판단할 때 (galaxyZoom.ts) */
+  const [gate] = useState(() => new GalaxyZoomGate())
   const drawnLevel = useRef<string | null>(null)
-  /** 마지막 휠의 마우스 위치 (화면 좌표). − + 버튼을 누르면 null(화면 가운데) */
-  const wheelPointer = useRef<Point | null>(null)
 
   useImperativeHandle(ref, () => ({
     zoomBy: (factor) => {
       const cy = cyRef.current
       if (!cy) return
       // 버튼은 화면 가운데 기준 (휠의 마우스 위치를 잊는다)
-      wheelPointer.current = null
+      gate.forgetWheel()
       cy.zoom({
         level: cy.zoom() * factor,
         renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
@@ -190,39 +182,36 @@ export function GalaxyCanvas(props: Props) {
       boxSelectionEnabled: false,
     })
     cy.on('tap', 'node.topic', (e) => {
-      if (moving.current) return
-      moving.current = true
-      latest.current.onEnterTopic(e.target.id())
+      if (gate.startMoving()) latest.current.onEnterTopic(e.target.id())
     })
     cy.on('tap', 'node.keyword', (e) => latest.current.onTapKeyword(e.target.id()))
     cy.on('tap', (e) => {
-      if (e.target === cy && !moving.current) latest.current.onTapBackground()
+      if (e.target === cy && !gate.isMoving()) latest.current.onTapBackground()
     })
     cy.on('zoom', () => {
-      const base = baseZoom.current
-      if (base === null || moving.current) return
-      // 휠이면 마지막 휠의 마우스 위치, − + 버튼이면 화면 가운데를 기준으로 들어갈 주제를 고른다
-      const rendered = wheelPointer.current ?? { x: cy.width() / 2, y: cy.height() / 2 }
-      const step = zoomStep({
-        zoom: cy.zoom(),
-        baseZoom: base,
-        point: renderedToModel(rendered, cy.pan(), cy.zoom()),
-        topics: cy.nodes('node.topic').map((n) => ({
-          id: n.id(),
-          box: n.boundingBox({ includeLabels: false }),
-        })),
-        canGoUp: latest.current.canGoUp,
+      const zoom = cy.zoom()
+      const step = gate.onZoom(zoom, (baseZoom) => {
+        // 최근 휠이면 그 마우스 위치, 아니면(− + 버튼·핀치) 화면 가운데에 있는 주제로 들어간다
+        const rendered = gate.origin({ x: cy.width() / 2, y: cy.height() / 2 })
+        return zoomStep({
+          zoom,
+          baseZoom,
+          point: renderedToModel(rendered, cy.pan(), zoom),
+          topics: cy.nodes('node.topic').map((n) => ({
+            id: n.id(),
+            circle: { ...n.position(), r: n.width() / 2 },
+          })),
+          canGoUp: latest.current.canGoUp,
+        })
       })
-      if (!step) return
-      moving.current = true
-      if (step.kind === 'enter') latest.current.onEnterTopic(step.topicId)
-      else latest.current.onUp()
+      if (step?.kind === 'enter') latest.current.onEnterTopic(step.topicId)
+      else if (step?.kind === 'up') latest.current.onUp()
     })
     // 휠로 줌할 때의 마우스 위치 (컨테이너 기준 화면 좌표). Cytoscape는 이 점을 고정점으로 확대한다
     const host = hostRef.current
     const onWheel = (e: WheelEvent) => {
       const rect = host?.getBoundingClientRect()
-      if (rect) wheelPointer.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      if (rect) gate.wheelAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })
     }
     host?.addEventListener('wheel', onWheel, { passive: true, capture: true })
     cyRef.current = cy
@@ -234,23 +223,23 @@ export function GalaxyCanvas(props: Props) {
       cy.destroy()
       cyRef.current = null
     }
-  }, [])
+  }, [gate])
 
   useEffect(() => {
     cyRef.current?.style(galaxyStyle(theme))
   }, [theme])
 
-  // 단계가 바뀌면 화면 전체를 바꾼다. 같은 단계를 다시 받았으면(새로 고침) 자리는 두고 내용만 바꾼다
+  // 단계가 바뀌면 화면 전체를 바꾼다. 같은 단계를 다시 받았으면(분석 완료·이해함 뒤) 단계는 그대로 두고:
+  // 노드가 같으면 자리도 그대로 내용만 바꾸고, 노드가 늘거나 줄었으면 남은 노드 자리에서 다시 배치한다.
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return
     const newLevel = drawnLevel.current !== levelKey
     if (newLevel) {
       // 새 단계를 받기 전에는 줌으로 단계를 바꾸지 않는다
-      baseZoom.current = null
-      moving.current = false
+      gate.levelChanged()
       cy.elements().remove()
-      drawnLevel.current = elements ? levelKey : null
+      drawnLevel.current = null
     }
     if (!elements) return
     const sameIds =
@@ -269,19 +258,25 @@ export function GalaxyCanvas(props: Props) {
       })
       return
     }
+
+    // 배치·화면 맞추기가 내는 줌 이벤트로 단계가 바뀌지 않게 판단을 멈춘다
+    gate.pause()
+    // 같은 단계를 다시 받았으면 남은 노드는 그 자리에서 시작한다
+    const kept = new Map<string, Point>()
+    if (!newLevel) cy.nodes().forEach((n) => void kept.set(n.id(), { ...n.position() }))
     cy.elements().remove()
     cy.add([
       ...elements.nodes.map((n) => ({ group: 'nodes' as const, data: n.data, classes: n.classes })),
       ...elements.edges.map((e) => ({ group: 'edges' as const, data: e.data })),
     ])
     drawnLevel.current = levelKey
-    // 시작 위치: 주제는 안쪽 원, 키워드는 바깥 원에 순서대로 (같은 데이터면 같은 그림)
+    // 시작 위치: 주제는 안쪽 원, 키워드는 바깥 원에 순서대로 (같은 데이터면 같은 그림). 남은 노드는 원래 자리
     const topics = cy.nodes('.topic')
     const keywords = cy.nodes('.keyword')
     const place = (list: cytoscape.NodeCollection, radius: number) =>
       list.forEach((n, i) => {
         const angle = (2 * Math.PI * i) / Math.max(list.length, 1) - Math.PI / 2
-        n.position({ x: radius * Math.cos(angle), y: radius * Math.sin(angle) })
+        n.position(kept.get(n.id()) ?? { x: radius * Math.cos(angle), y: radius * Math.sin(angle) })
       })
     place(topics, 120 + topics.length * 30)
     place(keywords, 260 + keywords.length * 12)
@@ -290,20 +285,27 @@ export function GalaxyCanvas(props: Props) {
         name: 'fcose',
         randomize: false,
         animate: false,
+        fit: false,
         quality: 'default',
         nodeDimensionsIncludeLabels: true,
         nodeRepulsion: 12000,
         idealEdgeLength: 160,
-        padding: FIT_PADDING,
       } as cytoscape.LayoutOptions).run()
     }
+    // 맞추기 전에 줌 한계를 풀고, 맞춘 배율에 맞춰 다시 정한다 (축소 한계 < 위로 가는 기준)
+    cy.minZoom(1e-4)
+    cy.maxZoom(1e4)
     cy.fit(undefined, FIT_PADDING)
     if (cy.zoom() > MAX_FIT_ZOOM) {
       cy.zoom(MAX_FIT_ZOOM)
       cy.center()
     }
-    baseZoom.current = cy.zoom()
-  }, [levelKey, elements])
+    const fitZoom = cy.zoom()
+    const limits = zoomLimits(fitZoom)
+    cy.minZoom(limits.min)
+    cy.maxZoom(limits.max)
+    gate.drawn(fitZoom, newLevel)
+  }, [levelKey, elements, gate])
 
   useEffect(() => {
     const cy = cyRef.current

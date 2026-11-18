@@ -2,7 +2,7 @@ import cytoscape, { type Core, type NodeSingular } from 'cytoscape'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Graph } from '../../api'
 import { useTheme, type Theme } from '../../lib/theme'
-import { resolveColor, splitAlpha, textWidth } from './cytoscapeShared'
+import { circleImage, resolveColor, splitAlpha, textWidth } from './cytoscapeShared'
 import { nodeColorKey, TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import styles from './GraphView.module.css'
 import { edgeKey, edgeLabel, initialPositions, placeNear, sortedById, type Box } from './pageGraph'
@@ -27,12 +27,6 @@ const EDGE_FONT_SIZE = 11
 /** 페이지 알약: 왼쪽 여백 12 + 점 8 + 간격 8 + 글자 + 오른쪽 여백 12 */
 const NODE_CHROME = 40
 const DOT = 8
-
-/** 주제 색 점 (W3-13: 점 색 = 주제 색). 테마가 바뀌면 다시 만든다. */
-function dotImage(color: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${DOT}" height="${DOT}"><circle cx="${DOT / 2}" cy="${DOT / 2}" r="${DOT / 2}" fill="${color}"/></svg>`
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
-}
 
 const COLOR_KEYS: TopicColorKey[] = [
   ...Array.from({ length: TOPIC_SLOTS }, (_, i) => `topic-${i + 1}` as const),
@@ -79,7 +73,7 @@ function graphStyle(theme: Theme): cytoscape.StylesheetJson {
     },
     ...COLOR_KEYS.map((key) => ({
       selector: `node[colorKey = "${key}"]`,
-      style: { 'background-image': dotImage(resolveColor(`color-${key}`, theme)) },
+      style: { 'background-image': circleImage(resolveColor(`color-${key}`, theme), DOT) },
     })),
     // 고른 선의 두 끝 페이지 (W3-13b)
     {

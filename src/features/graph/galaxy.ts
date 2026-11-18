@@ -73,10 +73,12 @@ export function directKeywords(
  * 미분류 키워드가 없으면 노드를 두지 않는다.
  */
 export function levelTopics(graph: TopicGraph, path: GalaxyPath): TopicGraphTopic[] {
+  // 주제는 id 순 (같은 데이터면 같은 그림), 미분류는 맨 끝
+  const topics = [...graph.topics].sort(byId)
   const u = graph.unassigned
-  if (path.length > 0 || !u || u.keywordCount <= 0) return graph.topics
+  if (path.length > 0 || !u || u.keywordCount <= 0) return topics
   return [
-    ...graph.topics,
+    ...topics,
     {
       id: UNASSIGNED_TOPIC_ID,
       name: UNASSIGNED_NAME,
@@ -87,6 +89,8 @@ export function levelTopics(graph: TopicGraph, path: GalaxyPath): TopicGraphTopi
     },
   ]
 }
+
+const byId = <T extends { id: string }>(a: T, b: T) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 /** 추천으로 들어온 지식인지 (◆ 모양 + recommended 색) */
 export const isRecommendedKeyword = (k: TopicGraphKeyword) => k.origin === 'generated'
@@ -133,6 +137,10 @@ export interface GalaxyNodeData {
 export interface GalaxyElements {
   nodes: { data: GalaxyNodeData; classes: string }[]
   edges: { data: { id: string; source: string; target: string } }[]
+  /** 이 단계에 그린 주제 (미분류 노드 포함). 화면이 다시 계산하지 않고 쓴다 */
+  topics: TopicGraphTopic[]
+  /** 이 단계에 그린 키워드 (바로 속한 것만) */
+  keywords: TopicGraphKeyword[]
 }
 
 /**
@@ -152,14 +160,11 @@ export function galaxyElements(
     if (top === UNASSIGNED_TOPIC_ID) return 'topic-none'
     return colorKeys.get(top) ?? 'topic-other'
   }
-  const byId = <T extends { id: string }>(a: T, b: T) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   const nested = path.length > 0
 
-  // 미분류는 맨 끝에 둔다 (주제는 id 순)
-  const topics = [
-    ...[...graph.topics].sort(byId),
-    ...levelTopics(graph, path).filter((t) => !graph.topics.includes(t)),
-  ].map((t) => ({
+  const topicList = levelTopics(graph, path)
+  const keywordList = directKeywords(graph.keywords, topicId).sort(byId)
+  const topics = topicList.map((t) => ({
     data: {
       id: t.id,
       label: `${t.name}\n${topicSubtitle(t, nested)}`,
@@ -169,18 +174,16 @@ export function galaxyElements(
     },
     classes: ['topic', t.hasRecommended ? 'has-recommended' : ''].filter(Boolean).join(' '),
   }))
-  const keywords = directKeywords(graph.keywords, topicId)
-    .sort(byId)
-    .map((k) => ({
-      data: {
-        id: k.id,
-        label: k.label,
-        kind: 'keyword' as const,
-        size: keywordDiameter(k.conceptCount),
-        colorKey: colorOf(k.id),
-      },
-      classes: ['keyword', isRecommendedKeyword(k) ? 'recommended' : ''].filter(Boolean).join(' '),
-    }))
+  const keywords = keywordList.map((k) => ({
+    data: {
+      id: k.id,
+      label: k.label,
+      kind: 'keyword' as const,
+      size: keywordDiameter(k.conceptCount),
+      colorKey: colorOf(k.id),
+    },
+    classes: ['keyword', isRecommendedKeyword(k) ? 'recommended' : ''].filter(Boolean).join(' '),
+  }))
 
   const ids = new Set([...topics, ...keywords].map((n) => n.data.id))
   const seen = new Set<string>()
@@ -194,7 +197,7 @@ export function galaxyElements(
     edges.push({ data: { id, source: a, target: b } })
   }
   edges.sort((x, y) => (x.data.id < y.data.id ? -1 : 1))
-  return { nodes: [...topics, ...keywords], edges }
+  return { nodes: [...topics, ...keywords], edges, topics: topicList, keywords: keywordList }
 }
 
 /** 키워드를 눌렀을 때 보일 정보 (W3-20d 팝업). 이 단계에 없으면 null */
@@ -216,16 +219,56 @@ export interface Point {
 }
 
 /** 노드의 그래프(모델) 좌표 상자 */
-export interface Box {
-  x1: number
-  y1: number
-  x2: number
-  y2: number
+/** 주제 노드(원)의 그래프 좌표 중심과 반지름 */
+export interface Circle {
+  x: number
+  y: number
+  r: number
 }
 
 /** 화면 좌표 → 그래프 좌표 (Cytoscape: 화면 = 그래프 × zoom + pan) */
 export function renderedToModel(rendered: Point, pan: Point, zoom: number): Point {
   return { x: (rendered.x - pan.x) / zoom, y: (rendered.y - pan.y) / zoom }
+}
+
+/**
+ * point(그래프 좌표)가 들어 있는 주제. 원 안인지는 중심까지의 거리로 본다 (네모 상자의 빈 모서리는 주제가 아니다).
+ * 겹치면 중심에 가장 가까운 주제. 없으면 null
+ */
+export function topicAt(
+  point: Point,
+  topics: readonly { id: string; circle: Circle }[],
+): string | null {
+  let best: string | null = null
+  let bestDistance = Infinity
+  for (const { id, circle } of topics) {
+    const d = Math.hypot(point.x - circle.x, point.y - circle.y)
+    if (d <= circle.r && d < bestDistance) {
+      best = id
+      bestDistance = d
+    }
+  }
+  return best
+}
+
+/**
+ * 경로의 이름을 받은 데이터로 고친다 (다른 곳에서 주제 이름을 바꿨을 때). 각 칸의 이름은 바로 위 단계의 주제 목록에서 찾는다.
+ * levelOf(null)은 최상위, levelOf(id)는 그 주제 안. 아직 받지 않은 단계나 목록에 없는 칸은 그대로 둔다.
+ * 바뀐 것이 없으면 같은 배열을 돌려준다.
+ */
+export function refreshPathNames(
+  path: GalaxyPath,
+  levelOf: (topicId: string | null) => TopicGraph | undefined,
+): GalaxyPath {
+  let changed = false
+  const next = path.map((step, i) => {
+    const parent = levelOf(i === 0 ? null : path[i - 1].id)
+    const found = parent && levelTopics(parent, path.slice(0, i)).find((t) => t.id === step.id)
+    if (!found || found.name === step.name) return step
+    changed = true
+    return { id: step.id, name: found.name }
+  })
+  return changed ? next : path
 }
 
 /** 줌 결과 단계를 바꿀지: 주제로 들어가기, 위로, 그대로(null) */
@@ -242,15 +285,13 @@ export function zoomStep(input: {
   zoom: number
   baseZoom: number
   point: Point
-  topics: readonly { id: string; box: Box }[]
+  topics: readonly { id: string; circle: Circle }[]
   canGoUp: boolean
 }): ZoomStep {
   const { zoom, baseZoom, point, topics, canGoUp } = input
   if (zoom >= baseZoom * GALAXY_LEVEL_ZOOM) {
-    const hit = topics.find(
-      ({ box }) => point.x >= box.x1 && point.x <= box.x2 && point.y >= box.y1 && point.y <= box.y2,
-    )
-    return hit ? { kind: 'enter', topicId: hit.id } : null
+    const hit = topicAt(point, topics)
+    return hit ? { kind: 'enter', topicId: hit } : null
   }
   if (zoom <= baseZoom / GALAXY_LEVEL_ZOOM && canGoUp) return { kind: 'up' }
   return null

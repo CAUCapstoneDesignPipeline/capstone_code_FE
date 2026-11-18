@@ -1,23 +1,24 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TopicGraph } from '../../api'
 import { Button } from '../../components/Button'
-import { useTopicGraph } from '../../data/queries'
+import { useToast } from '../../components/toastContext'
+import { keys, useTopicGraph } from '../../data/queries'
+import { useAuth } from '../auth/authContext'
 import type { TopicColorKey } from '../../lib/topicColors'
 import { GalaxyCanvas, GALAXY_BUTTON_ZOOM, type GalaxyCanvasHandle } from './GalaxyCanvas'
 import {
   currentTopicId,
-  directKeywords,
   enter,
   galaxyElements,
   goTo,
   isRecommendedKeyword,
-  keywordDocs,
   levelSummary,
-  levelTopics,
-  ROOT,
+  refreshPathNames,
   up,
   type GalaxyPath,
 } from './galaxy'
+import { GALAXY_TOPIC_GONE_TOAST, pathAfterLevelError, useGalaxyPath } from './galaxyPath'
 import styles from './GraphView.module.css'
 import { graphErrorMessage } from './pageGraph'
 
@@ -30,26 +31,28 @@ interface Props {
   onOpenNote: (noteId: string) => void
 }
 
-/** 노트를 열었다 돌아와도 보던 단계에서 시작한다 (새로 고치면 처음부터) */
-let lastPath: GalaxyPath = ROOT
-
 /**
  * Galaxy 그래프 화면 (FE #44 1단계, Figma W3-22d·e). 주제(폴더) 단계를 재귀적으로 들어간다.
  * 처음은 최상위 주제만(노드 크기 = 키워드 수, 선 = 주제 사이 관련). 주제를 누르거나 줌 인하면 그 주제 안
  * (하위 주제 + 바로 속한 키워드), 빈 곳을 누르거나 줌 아웃하면 한 단계 위. 위의 경로를 누르면 그 단계로.
  * 키워드를 누르면 그 키워드가 나온 문서 목록(W3-20d)을 보이고, 문서를 누르면 노트를 연다.
+ * 보던 단계는 사용자별로 기억한다(galaxyPath.ts). 보던 주제가 없어졌으면(404) 전체로 돌아가 알린다.
  * 2D/3D 토글(상단 막대 오른쪽)은 다음 PR이다.
  */
 export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
-  const [path, setPathState] = useState<GalaxyPath>(() => lastPath)
+  const { user } = useAuth()
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [storedPath, storePath] = useGalaxyPath(user.id)
+  // 경로의 이름은 받은 데이터 기준 (다른 곳에서 주제 이름을 바꿨을 때). 단계는 id로만 정한다
+  const path = refreshPathNames(storedPath, (id) =>
+    id === null ? root : qc.getQueryData<TopicGraph>(keys.topicGraph(id)),
+  )
+  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null)
   const setPath = (next: GalaxyPath) => {
-    setPathState(next)
+    storePath(next)
     setSelectedKeyword(null)
   }
-  useEffect(() => {
-    lastPath = path
-  }, [path])
-  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null)
   const canvasRef = useRef<GalaxyCanvasHandle>(null)
 
   const topicId = currentTopicId(path)
@@ -61,11 +64,26 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
     [graph, path, colorKeys],
   )
   const levelKey = path.map((s) => s.id).join('/') || 'root'
-  const keyword = graph ? keywordDocs(graph, path, selectedKeyword) : null
-  const keywordCount = graph ? directKeywords(graph.keywords, topicId).length : 0
+  const keyword = elements?.keywords.find((k) => k.id === selectedKeyword) ?? null
+  const keywordCount = elements?.keywords.length ?? 0
   // 미분류 노드(최상위)도 노드로 센다
-  const topicNodes = graph ? levelTopics(graph, path) : []
-  const empty = graph !== undefined && topicNodes.length === 0 && keywordCount === 0
+  const topicNodes = elements?.topics ?? []
+  const empty = elements !== null && topicNodes.length === 0 && keywordCount === 0
+
+  // 이름이 바뀐 경로는 기억해 둔다 (다음에 돌아올 때도 새 이름)
+  useEffect(() => {
+    if (path !== storedPath) storePath(path)
+  }, [path, storedPath, storePath])
+
+  // 보던 주제가 없어졌으면(404) 전체로 돌아가 알린다. 그 밖의 오류는 오류 안내에서 다시 시도한다
+  const levelError = topicId !== null ? level.error : null
+  useEffect(() => {
+    if (!levelError) return
+    const next = pathAfterLevelError(levelError)
+    if (!next) return
+    storePath(next)
+    toast('info', GALAXY_TOPIC_GONE_TOAST)
+  }, [levelError, storePath, toast])
 
   /** 이 단계의 주제로 들어간다 */
   function enterTopic(id: string) {
