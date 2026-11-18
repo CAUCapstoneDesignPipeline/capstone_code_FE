@@ -1,9 +1,9 @@
-import cytoscape, { type Core, type NodeSingular } from 'cytoscape'
+import cytoscape, { type Core } from 'cytoscape'
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react'
 import { useTheme, type Theme } from '../../lib/theme'
 import { TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import { resolveColor, splitAlpha } from './cytoscapeShared'
-import { GALAXY_LEVEL_ZOOM, type GalaxyElements } from './galaxy'
+import { renderedToModel, zoomStep, type GalaxyElements, type Point } from './galaxy'
 import styles from './GraphView.module.css'
 
 export interface GalaxyCanvasHandle {
@@ -147,8 +147,8 @@ function galaxyStyle(theme: Theme): cytoscape.StylesheetJson {
 /**
  * Galaxy 그래프 그림 (Figma W3-22d·e, Cytoscape.js + fcose). 한 번에 한 단계만 그린다.
  * - 단계가 바뀌면 요소를 모두 바꾸고 한 번만 배치한 뒤 화면에 맞춘다. 그 단계 안에서는 줌·이동해도 다시 배치하지 않는다(노드도 끌 수 없다).
- * - 화면에 맞춘 배율의 GALAXY_LEVEL_ZOOM배로 확대하면 화면 가운데에 있는 주제로 들어가고, 그 분의 1로 축소하면 위로 간다.
- *   휠은 마우스 위치를 기준으로 확대하므로 가운데 주제는 대개 마우스 아래 주제다. 가운데에 주제가 없으면 들어가지 않고 계속 확대한다.
+ * - 화면에 맞춘 배율의 GALAXY_LEVEL_ZOOM배로 확대하면 마우스 아래(− + 버튼이면 화면 가운데) 주제로 들어가고,
+ *   그 분의 1로 축소하면 위로 간다. 그 자리에 주제가 없으면 들어가지 않고 계속 확대한다 (zoomStep).
  */
 export function GalaxyCanvas(props: Props) {
   const { levelKey, elements, selectedKeyword, ref } = props
@@ -164,11 +164,15 @@ export function GalaxyCanvas(props: Props) {
   /** 단계를 바꾸라고 알렸다. 새 단계를 그릴 때까지 다시 알리지 않는다 (한 번의 휠에 여러 단계가 넘어가지 않게) */
   const moving = useRef(false)
   const drawnLevel = useRef<string | null>(null)
+  /** 마지막 휠의 마우스 위치 (화면 좌표). − + 버튼을 누르면 null(화면 가운데) */
+  const wheelPointer = useRef<Point | null>(null)
 
   useImperativeHandle(ref, () => ({
     zoomBy: (factor) => {
       const cy = cyRef.current
       if (!cy) return
+      // 버튼은 화면 가운데 기준 (휠의 마우스 위치를 잊는다)
+      wheelPointer.current = null
       cy.zoom({
         level: cy.zoom() * factor,
         renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
@@ -197,30 +201,35 @@ export function GalaxyCanvas(props: Props) {
     cy.on('zoom', () => {
       const base = baseZoom.current
       if (base === null || moving.current) return
-      const z = cy.zoom()
-      if (z >= base * GALAXY_LEVEL_ZOOM) {
-        // 화면 가운데에 있는 주제로 들어간다
-        const ext = cy.extent()
-        const cx = (ext.x1 + ext.x2) / 2
-        const cyy = (ext.y1 + ext.y2) / 2
-        const hit = cy.nodes('node.topic').filter((n) => {
-          const bb = n.boundingBox({ includeLabels: false })
-          return cx >= bb.x1 && cx <= bb.x2 && cyy >= bb.y1 && cyy <= bb.y2
-        })[0] as NodeSingular | undefined
-        if (hit) {
-          moving.current = true
-          latest.current.onEnterTopic(hit.id())
-        }
-      } else if (z <= base / GALAXY_LEVEL_ZOOM && latest.current.canGoUp) {
-        moving.current = true
-        latest.current.onUp()
-      }
+      // 휠이면 마지막 휠의 마우스 위치, − + 버튼이면 화면 가운데를 기준으로 들어갈 주제를 고른다
+      const rendered = wheelPointer.current ?? { x: cy.width() / 2, y: cy.height() / 2 }
+      const step = zoomStep({
+        zoom: cy.zoom(),
+        baseZoom: base,
+        point: renderedToModel(rendered, cy.pan(), cy.zoom()),
+        topics: cy.nodes('node.topic').map((n) => ({
+          id: n.id(),
+          box: n.boundingBox({ includeLabels: false }),
+        })),
+        canGoUp: latest.current.canGoUp,
+      })
+      if (!step) return
+      moving.current = true
+      if (step.kind === 'enter') latest.current.onEnterTopic(step.topicId)
+      else latest.current.onUp()
     })
-    cyRef.current = cy
+    // 휠로 줌할 때의 마우스 위치 (컨테이너 기준 화면 좌표). Cytoscape는 이 점을 고정점으로 확대한다
     const host = hostRef.current
+    const onWheel = (e: WheelEvent) => {
+      const rect = host?.getBoundingClientRect()
+      if (rect) wheelPointer.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    }
+    host?.addEventListener('wheel', onWheel, { passive: true, capture: true })
+    cyRef.current = cy
     const resizeObserver = new ResizeObserver(() => cy.resize())
     if (host) resizeObserver.observe(host)
     return () => {
+      host?.removeEventListener('wheel', onWheel, { capture: true })
       resizeObserver.disconnect()
       cy.destroy()
       cyRef.current = null

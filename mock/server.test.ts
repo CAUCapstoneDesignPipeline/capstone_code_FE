@@ -799,6 +799,19 @@ describe('Galaxy 그래프 (계약 반영 전 가정 · BE #143, --galaxy-demo)'
       expect(root.edges.every((e) => ids.has(e.sourceId) && ids.has(e.targetId))).toBe(true)
     })
 
+    it('미분류 노트의 키워드: 최상위에 요약, /graph/topics/none에 키워드(topicId null)', async () => {
+      const root = (await level()) as Level & { unassigned?: { keywordCount: number } }
+      expect(root.unassigned?.keywordCount).toBe(2)
+      const none = await level('none')
+      expect(none.topics).toEqual([])
+      expect(none.keywords.map((k) => [k.label, k.topicId])).toEqual([
+        ['캐시', null],
+        ['TTL', null],
+      ])
+      const note = await call('GET', `/notes/${none.keywords[0].documents[0].noteId}`)
+      expect(note.data).toMatchObject({ title: '캐시 메모', topicId: null })
+    })
+
     it('없는 주제는 404', async () => {
       const r = await call('GET', '/graph/topics/nope')
       expect(r.status).toBe(404)

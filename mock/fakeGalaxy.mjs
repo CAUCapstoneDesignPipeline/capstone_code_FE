@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 /**
  * @typedef {{ key: string, name: string, keywords: string[], children: DemoTopic[] }} DemoTopic
  * @typedef {{ label: string, concepts: number, notes: string[], origin?: 'extracted' | 'generated' }} DemoKeyword
- * @typedef {{ title: string, topic: string, body: string }} DemoNote
+ * @typedef {{ title: string, topic: string | null, body: string }} DemoNote
  */
 
 /** @type {DemoTopic[]} 최상위 주제. 2단계 이상(네트워크 › 전송 계층 › 혼잡 제어), 키워드가 없는 주제(읽을거리, Linux › 커널) 포함 */
@@ -57,8 +57,16 @@ const TOPICS = [
   { key: 'reading', name: '읽을거리', keywords: [], children: [] },
 ]
 
+/** 미분류 노트(주제 없음)에서 나온 키워드. GET /graph/topics/none으로 준다 */
+const UNASSIGNED_KEYWORDS = ['cache', 'ttl']
+
+/** 미분류를 가리키는 주제 id (src/api/topicGraph.ts UNASSIGNED_TOPIC_ID) */
+const UNASSIGNED_ID = 'none'
+
 /** @type {Record<string, DemoKeyword>} */
 const KEYWORDS = {
+  cache: { label: '캐시', concepts: 2, notes: ['memo-cache'] },
+  ttl: { label: 'TTL', concepts: 1, notes: ['memo-cache'] },
   idem: { label: '멱등성', concepts: 3, notes: ['idempotency', 'retry-policy'] },
   retry: {
     label: '재시도',
@@ -100,8 +108,13 @@ const KEYWORDS = {
   signal: { label: '시그널', concepts: 1, notes: ['linux-proc'] },
 }
 
-/** @type {Record<string, DemoNote>} 사이드바에 만들 노트. topic은 최상위 주제 key */
+/** @type {Record<string, DemoNote>} 사이드바에 만들 노트. topic은 최상위 주제 key, null이면 미분류 */
 const NOTES = {
+  'memo-cache': {
+    title: '캐시 메모',
+    topic: null,
+    body: '캐시는 TTL이 지나면 버린다.\n\n자주 읽는 값만 캐시에 둔다.',
+  },
   'retry-policy': {
     title: '재시도 정책',
     topic: 'net',
@@ -179,6 +192,8 @@ const EDGES = [
   ['bfs', 'heap'],
   ['dp', 'sort'],
   ['dp', 'hash'],
+  // 미분류
+  ['cache', 'ttl'],
   // Linux
   ['proc', 'fd'],
   ['proc', 'signal'],
@@ -200,7 +215,8 @@ export function seedGalaxyDemo(store) {
 
   for (const t of TOPICS) ids.set(t.key, store.createTopic({ name: t.name }).id)
   for (const [key, n] of Object.entries(NOTES)) {
-    const created = store.createNote({ title: n.title, topicId: ids.get(n.topic), body: n.body })
+    const topicId = n.topic === null ? null : ids.get(n.topic)
+    const created = store.createNote({ title: n.title, topicId, body: n.body })
     notes.set(key, { id: created.id, title: created.title })
   }
   /** @param {DemoTopic} t */
@@ -236,36 +252,61 @@ export function seedGalaxyDemo(store) {
     }
   }
 
+  /** @param {string} key */
+  const keywordView = (key, /** @type {string | null} */ topicId) => {
+    const k = KEYWORDS[key]
+    return {
+      id: ids.get(key),
+      label: k.label,
+      conceptCount: k.concepts,
+      origin: k.origin ?? 'extracted',
+      topicId,
+      documents: k.notes.map((n) => {
+        const note = /** @type {{ id: string, title: string }} */ (notes.get(n))
+        return { noteId: note.id, title: note.title }
+      }),
+    }
+  }
+
+  /** @param {string[]} keys */
+  const edgesAmong = (keys) => {
+    const here = new Set(keys)
+    return EDGES.filter(([a, b]) => here.has(a) && here.has(b)).map(([a, b]) => ({
+      sourceId: ids.get(a),
+      targetId: ids.get(b),
+    }))
+  }
+
   /**
-   * 한 단계의 그래프. topicId가 null이면 최상위. 없는 주제면 null (404)
+   * 한 단계의 그래프. topicId가 null이면 최상위(미분류 요약 포함), 'none'이면 미분류 노트의 키워드. 없는 주제면 null (404)
    * @param {string | null} topicId
    */
   function get(topicId) {
+    if (topicId === UNASSIGNED_ID) {
+      return {
+        topics: [],
+        // 미분류 노트의 키워드는 바로 속한 주제가 없다 (topicId null)
+        keywords: UNASSIGNED_KEYWORDS.map((key) => keywordView(key, null)),
+        edges: edgesAmong(UNASSIGNED_KEYWORDS),
+      }
+    }
     const topic = topicId === null ? null : byId.get(topicId)
     if (topicId !== null && !topic) return null
     const children = topic ? topic.children : TOPICS
     const keywordKeys = topic ? topic.keywords : []
-    const here = new Set([...children.map((t) => t.key), ...keywordKeys])
     return {
       topics: children.map(topicView),
-      keywords: keywordKeys.map((key) => {
-        const k = KEYWORDS[key]
-        return {
-          id: ids.get(key),
-          label: k.label,
-          conceptCount: k.concepts,
-          origin: k.origin ?? 'extracted',
-          topicId,
-          documents: k.notes.map((n) => {
-            const note = /** @type {{ id: string, title: string }} */ (notes.get(n))
-            return { noteId: note.id, title: note.title }
+      keywords: keywordKeys.map((key) => keywordView(key, topicId)),
+      edges: edgesAmong([...children.map((t) => t.key), ...keywordKeys]),
+      // 최상위에만: 미분류 노트의 키워드 요약
+      ...(topic
+        ? {}
+        : {
+            unassigned: {
+              keywordCount: UNASSIGNED_KEYWORDS.length,
+              hasRecommended: UNASSIGNED_KEYWORDS.some((k) => KEYWORDS[k].origin === 'generated'),
+            },
           }),
-        }
-      }),
-      edges: EDGES.filter(([a, b]) => here.has(a) && here.has(b)).map(([a, b]) => ({
-        sourceId: ids.get(a),
-        targetId: ids.get(b),
-      })),
     }
   }
 

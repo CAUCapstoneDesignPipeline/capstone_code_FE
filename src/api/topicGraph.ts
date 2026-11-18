@@ -33,8 +33,8 @@ export interface TopicGraphKeyword {
   conceptCount: number
   /** extracted = 노트에서 뽑음, generated = 추천을 "이해함"으로 받아 들어옴 (◆, recommended 색) */
   origin: 'extracted' | 'generated'
-  /** 바로 속한 주제. FE는 이 값이 지금 주제인 키워드만 그린다 (하위 주제의 키워드 제외). 가정 */
-  topicId: string
+  /** 바로 속한 주제. 미분류 노트에서 나온 키워드는 null. FE는 이 값이 지금 주제인 키워드만 그린다 (하위 주제의 키워드 제외). 가정 */
+  topicId: string | null
   /** 키워드가 나온 문서. 키워드를 누르면 보인다 */
   documents: TopicGraphDocument[]
 }
@@ -45,15 +45,32 @@ export interface TopicGraphEdge {
   targetId: string
 }
 
+/** 미분류 노트(주제 없음)의 키워드 요약. 최상위 응답에만 있다. 가정 */
+export interface TopicGraphUnassigned {
+  /** 미분류 노트에서 나온 키워드 수 */
+  keywordCount: number
+  /** 그중 추천으로 들어온 지식이 있는지 */
+  hasRecommended: boolean
+}
+
 /** 한 단계의 그래프. 최상위면 topics만 있고 keywords는 빈 배열이다 */
 export interface TopicGraph {
   topics: TopicGraphTopic[]
   keywords: TopicGraphKeyword[]
   edges: TopicGraphEdge[]
+  /** 최상위에서만: 미분류 노트의 키워드. 없으면(또는 하위 단계) null·생략. 가정 */
+  unassigned?: TopicGraphUnassigned | null
 }
 
 /**
+ * 미분류를 가리키는 주제 id. 페이지 그래프의 `GET /graph?scope=topic&topicId=none`과 같은 규칙으로
+ * `GET /graph/topics/none`이 미분류 노트의 키워드를 준다. 가정
+ */
+export const UNASSIGNED_TOPIC_ID = 'none'
+
+/**
  * 주제 단위 그래프. topicId가 null이면 최상위 주제만, 아니면 그 주제의 하위 주제 + 그 주제에 바로 속한 키워드.
+ * topicId가 UNASSIGNED_TOPIC_ID('none')면 미분류 노트의 키워드 (하위 주제 없음).
  * 경로 없음(지금 BE)·없는 주제는 404 NOT_FOUND.
  */
 export function getTopicGraph(topicId: string | null, signal?: AbortSignal): Promise<TopicGraph> {

@@ -13,6 +13,7 @@ import {
   isRecommendedKeyword,
   keywordDocs,
   levelSummary,
+  levelTopics,
   ROOT,
   up,
   type GalaxyPath,
@@ -62,11 +63,13 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
   const levelKey = path.map((s) => s.id).join('/') || 'root'
   const keyword = graph ? keywordDocs(graph, path, selectedKeyword) : null
   const keywordCount = graph ? directKeywords(graph.keywords, topicId).length : 0
-  const empty = graph !== undefined && graph.topics.length === 0 && keywordCount === 0
+  // 미분류 노드(최상위)도 노드로 센다
+  const topicNodes = graph ? levelTopics(graph, path) : []
+  const empty = graph !== undefined && topicNodes.length === 0 && keywordCount === 0
 
   /** 이 단계의 주제로 들어간다 */
   function enterTopic(id: string) {
-    const t = graph?.topics.find((x) => x.id === id)
+    const t = topicNodes.find((x) => x.id === id)
     if (t) setPath(enter(path, t))
   }
 

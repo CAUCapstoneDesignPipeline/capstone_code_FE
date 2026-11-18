@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { TopicGraph, TopicGraphKeyword, TopicGraphTopic } from '../../api'
 import type { TopicColorKey } from '../../lib/topicColors'
 import {
+  GALAXY_LEVEL_ZOOM,
+  levelTopics,
+  renderedToModel,
+  zoomStep,
   colorTopicId,
   currentTopicId,
   directKeywords,
@@ -183,5 +187,114 @@ describe('키워드 문서 · 문구', () => {
     expect(topicDiameter(100)).toBe(topicDiameter(1000))
     expect(keywordDiameter(0)).toBeLessThan(keywordDiameter(3))
     expect(keywordDiameter(100)).toBe(keywordDiameter(1000))
+  })
+})
+
+describe('휠 줌으로 들어갈 주제는 마우스 위치로 고른다', () => {
+  // 화면 1000×600, 기준 배율 1, pan 0. 가운데 주제(400~600)와 오른쪽 가장자리 주제(850~950)
+  const center = { id: 'center', box: { x1: 400, y1: 200, x2: 600, y2: 400 } }
+  const edge = { id: 'edge', box: { x1: 850, y1: 250, x2: 950, y2: 350 } }
+  const topics = [center, edge]
+  const viewportCenter = { x: 500, y: 300 }
+  /** Cytoscape 휠 줌: 마우스(화면 좌표) 아래의 그래프 점을 고정한 채 zoom배로 확대한 뒤의 pan */
+  const panAfterWheel = (mouse: { x: number; y: number }, zoom: number) => ({
+    x: mouse.x - mouse.x * zoom,
+    y: mouse.y - mouse.y * zoom,
+  })
+
+  it('가장자리 주제에 마우스를 두고 기준의 1.8배로 확대하면 그 주제로 들어간다', () => {
+    const mouse = { x: 900, y: 300 }
+    const zoom = GALAXY_LEVEL_ZOOM
+    const pan = panAfterWheel(mouse, zoom)
+    expect(
+      zoomStep({
+        zoom,
+        baseZoom: 1,
+        point: renderedToModel(mouse, pan, zoom),
+        topics,
+        canGoUp: false,
+      }),
+    ).toEqual({ kind: 'enter', topicId: 'edge' })
+    // 화면 가운데로 고르면 마우스까지 거리의 일부만 따라가 가장자리 주제에 닿지 못한다 (고치기 전 동작)
+    const byCenter = renderedToModel(viewportCenter, pan, zoom)
+    expect(byCenter.x).toBeLessThan(edge.box.x1)
+  })
+
+  it('마우스가 빈 곳이면 들어가지 않는다 (화면 가운데에 주제가 있어도)', () => {
+    const mouse = { x: 720, y: 520 }
+    const zoom = GALAXY_LEVEL_ZOOM
+    const pan = panAfterWheel(mouse, zoom)
+    expect(
+      zoomStep({
+        zoom,
+        baseZoom: 1,
+        point: renderedToModel(mouse, pan, zoom),
+        topics,
+        canGoUp: true,
+      }),
+    ).toBeNull()
+  })
+
+  it('− + 버튼은 화면 가운데 기준', () => {
+    const zoom = GALAXY_LEVEL_ZOOM
+    // 가운데를 고정점으로 확대
+    const pan = panAfterWheel(viewportCenter, zoom)
+    expect(
+      zoomStep({
+        zoom,
+        baseZoom: 1,
+        point: renderedToModel(viewportCenter, pan, zoom),
+        topics,
+        canGoUp: false,
+      }),
+    ).toEqual({ kind: 'enter', topicId: 'center' })
+  })
+
+  it('기준 배율 근처면 그대로, 1/1.8배 이하로 축소하면 위로 (최상위면 그대로)', () => {
+    const point = { x: 900, y: 300 }
+    expect(zoomStep({ zoom: 1.5, baseZoom: 1, point, topics, canGoUp: true })).toBeNull()
+    expect(
+      zoomStep({ zoom: 1 / GALAXY_LEVEL_ZOOM, baseZoom: 1, point, topics, canGoUp: true }),
+    ).toEqual({ kind: 'up' })
+    expect(zoomStep({ zoom: 0.3, baseZoom: 1, point, topics, canGoUp: false })).toBeNull()
+  })
+})
+
+describe('미분류 노트의 키워드', () => {
+  const colors = new Map<string, TopicColorKey>([['net', 'topic-1']])
+  const root: TopicGraph = {
+    topics: [topic('net')],
+    keywords: [],
+    edges: [],
+    unassigned: { keywordCount: 2, hasRecommended: false },
+  }
+
+  it('최상위 끝에 "미분류" 노드(topic-none 색)를 둔다', () => {
+    const { nodes } = galaxyElements(root, ROOT, colors)
+    expect(nodes.map((n) => [n.data.id, n.data.colorKey, n.data.label])).toEqual([
+      ['net', 'topic-1', 'net\n키워드 2'],
+      ['none', 'topic-none', '미분류\n키워드 2'],
+    ])
+    expect(levelTopics(root, ROOT).map((t) => t.name)).toEqual(['net', '미분류'])
+  })
+
+  it('미분류 키워드가 없거나 하위 단계면 미분류 노드가 없다', () => {
+    expect(
+      levelTopics({ ...root, unassigned: { keywordCount: 0, hasRecommended: false } }, ROOT),
+    ).toHaveLength(1)
+    expect(levelTopics({ ...root, unassigned: null }, ROOT)).toHaveLength(1)
+    expect(levelTopics(root, [net])).toHaveLength(1)
+  })
+
+  it('미분류에 들어가면 주제가 없는 키워드(topicId null)만, 색은 topic-none', () => {
+    const inside: TopicGraph = {
+      topics: [],
+      keywords: [keyword('cache', 'net'), { ...keyword('ttl', 'net'), topicId: null }],
+      edges: [],
+    }
+    const path = enter(ROOT, { id: 'none', name: '미분류' })
+    expect(directKeywords(inside.keywords, 'none').map((k) => k.id)).toEqual(['ttl'])
+    const { nodes } = galaxyElements(inside, path, colors)
+    expect(nodes.map((n) => [n.data.id, n.data.colorKey])).toEqual([['ttl', 'topic-none']])
   })
 })

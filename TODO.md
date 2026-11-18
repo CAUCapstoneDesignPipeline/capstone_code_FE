@@ -89,7 +89,7 @@
 - [x] 1단계: 2D + 단계 이동, mock (`npm run mock -- --galaxy-demo`)
 - [ ] 2D/3D 토글 (상단 막대 오른쪽 자리를 비워 둠), 3D 라이브러리 검토
 - [ ] 폴더 사이드바 트리 (하위 폴더 생성·이동·펼치기) — BE #141 필요
-- [ ] 실제 BE 연결 — BE #143. **계약 반영 전 가정**: `src/api/topicGraph.ts`의 경로(`GET /graph/topics`, `GET /graph/topics/{topicId}`)와 필드 중 `childTopicCount`, `hasRecommended`(주제), `topicId`(키워드)는 #143 본문에 없어 FE가 더한 것이다. docs 계약이 나오면 이 파일만 바꾼다
+- [ ] 실제 BE 연결 — BE #143. **계약 반영 전 가정**: `src/api/topicGraph.ts`의 경로(`GET /graph/topics`, `GET /graph/topics/{topicId}`)와 필드 중 `childTopicCount`, `hasRecommended`(주제), `topicId`(키워드, 미분류면 null), 최상위의 `unassigned`(미분류 키워드 요약)와 `GET /graph/topics/none`(미분류 키워드)은 #143 본문에 없어 FE가 더한 것이다. docs 계약이 나오면 이 파일만 바꾼다
 - [ ] 줌으로 단계를 바꾸는 배율 `GALAXY_LEVEL_ZOOM`(1.8) 실측 후 조정 (`src/features/graph/galaxy.ts`)
 - [ ] 노드를 키보드로 고를 수 없다 (경로·− + 버튼만 키보드로 된다). 페이지 그래프도 같다
 - 실제 BE(경로 없음, 404)에서는 지금처럼 페이지 그래프를 안내와 함께 보인다. #143이 나오면 저절로 Galaxy로 바뀐다
