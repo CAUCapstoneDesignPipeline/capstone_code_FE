@@ -272,6 +272,15 @@ export const UNRECORDED_NOTICE = {
   description: '다시 시도하면 노트에 다시 넣지 않고 답만 보냅니다.',
 }
 
+/** 노트에 넣었지만 저장하지 못했을 때 카드 위에 보인다. 다시 시도는 저장을 확인한 뒤에 '이해함'을 보낸다 */
+export const UNSAVED_NOTICE = {
+  title: '노트에는 넣었지만 아직 저장되지 않았어요',
+  description: "다시 시도하면 노트를 저장한 뒤 '이해함'을 보냅니다. 노트에 다시 넣지는 않습니다.",
+}
+
+/** 다시 시도할 때 넣은 노트가 열려 있지 않으면 저장을 확인할 수 없다 */
+export const OPEN_INSERTED_NOTE_TOAST = '카드를 넣은 노트를 연 뒤 다시 시도하세요.'
+
 /** 다시 보내기 간격 (Issue #43: 같은 요청을 다시 보낸다. 같은 답은 BE가 204로 받는다) */
 export const INSERT_ANSWER_RETRY_MS = [1000, 2000] as const
 

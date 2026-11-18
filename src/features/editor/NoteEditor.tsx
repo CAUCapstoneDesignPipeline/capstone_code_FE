@@ -108,6 +108,10 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
         if (result.ok) return { ok: true }
         return { ok: false, reason: 'failed', conflict: result.status === 'conflict' }
       },
+      save: async () => {
+        const result = await saver.saveNow()
+        return result.ok ? { ok: true } : { ok: false, conflict: result.status === 'conflict' }
+      },
     }
     bridge.setTarget(target)
     return () => bridge.setTarget(null, target)

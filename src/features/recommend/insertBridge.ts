@@ -22,6 +22,8 @@ export interface InsertTarget {
   showIndicator(pos: number | null, scroll?: boolean): void
   /** pos에 마크다운 블록을 넣고 바로 저장한다. 분석 트리거로 치지 않는다 */
   insert(pos: number, markdown: string): Promise<InsertOutcome>
+  /** 지금까지의 입력을 바로 저장한다 (넣은 뒤 저장이 실패한 카드를 다시 시도할 때) */
+  save(): Promise<{ ok: true } | { ok: false; conflict: boolean }>
 }
 
 type Listener = () => void

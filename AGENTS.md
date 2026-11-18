@@ -56,6 +56,7 @@
   - `--external-knowledge`: 추천에 예시 외부 지식 (기본 `null`)
   - `--chat-off`: 추천 챗봇 503. 챗봇 질문에 `끊김`을 넣으면 답 중간에 `CHAT_INTERRUPTED`
   - `--fail-feedback`: 추천 카드의 답(feedback)이 모두 500 `INTERNAL` (노트에 끌어다 놓은 뒤 '이해함'을 못 보낸 경우)
+  - `--fail-note-save`: 노트 저장(`PUT /notes/{id}`)이 모두 500 `INTERNAL` (카드를 넣은 뒤 저장이 실패한 경우)
   - `--delay <ms>`: 모든 응답을 늦춤 (저장 중·요청 겹침 확인)
 - 끝내기 전에 반드시: `npm run typecheck && npm test && npm run lint`
 - 실제 BE(`be` main)에는 그래프·추천·변환 API가 없다(분석도 항상 503). 그래서 "실제 BE에서 동작 확인"이라고 보고하지 않는다. mock에서 확인한 시나리오를 적는다.
