@@ -818,3 +818,69 @@ describe('Galaxy 그래프 (계약 반영 전 가정 · BE #143, --galaxy-demo)'
     })
   })
 })
+
+describe('Galaxy 검색 (계약 반영 전 가정 · BE #144, --galaxy-demo)', () => {
+  type Result = {
+    kind: 'topic' | 'keyword'
+    id: string
+    name: string
+    origin: string
+    path: { id: string; name: string }[]
+  }
+  const search = async (q: string) => {
+    const r = await call('GET', `/graph/search?q=${encodeURIComponent(q)}`)
+    expect(r.status).toBe(200)
+    return (r.data as { results: Result[] }).results
+  }
+  const pathNames = (r: Result) => r.path.map((s) => s.name).join(' › ')
+
+  it('플래그가 없으면 경로가 없다 (지금 BE처럼 404)', async () => {
+    const r = await call('GET', '/graph/search?q=a')
+    expect(r.status).toBe(404)
+    expect(errorCode(r)).toBe('NOT_FOUND')
+  })
+
+  describe('데모 데이터', () => {
+    beforeEach(async () => {
+      await stop()
+      await start({ galaxyDemo: true })
+    })
+
+    it('같은 이름이 두 경로에 있으면 결과도 둘', async () => {
+      const results = await search('타임아웃')
+      expect(results.map((r) => [r.kind, pathNames(r)])).toEqual([
+        ['keyword', '네트워크'],
+        ['keyword', 'DB › 동시성'],
+      ])
+      expect(new Set(results.map((r) => r.id)).size).toBe(2)
+    })
+
+    it('2단계 이상 깊은 키워드도 최상위부터의 전체 경로, ◆(generated) 구분', async () => {
+      const [pacing] = await search('페이싱')
+      expect(pacing).toMatchObject({ kind: 'keyword', origin: 'generated' })
+      expect(pathNames(pacing)).toBe('네트워크 › 전송 계층 › 혼잡 제어')
+      // 경로의 주제 id로 그 단계를 받으면 그 키워드가 있다
+      const level = await call('GET', `/graph/topics/${pacing.path[2].id}`)
+      expect((level.data as { keywords: { id: string }[] }).keywords.map((k) => k.id)).toContain(
+        pacing.id,
+      )
+    })
+
+    it('미분류 키워드는 none 주제 아래, 주제 결과는 자기 자신을 빼고 주제가 먼저', async () => {
+      const [cache] = await search('캐시')
+      expect(cache.path).toEqual([{ id: 'none', name: '미분류' }])
+      const results = await search('계층')
+      expect(results[0]).toMatchObject({ kind: 'topic', name: '전송 계층' })
+      expect(pathNames(results[0])).toBe('네트워크')
+      const [top] = await search('네트워크')
+      expect(top).toMatchObject({ kind: 'topic', path: [] })
+    })
+
+    it('대소문자 무시, 빈 q는 400', async () => {
+      expect((await search('tcp')).map((r) => r.name)).toContain('TCP')
+      const r = await call('GET', '/graph/search?q=%20')
+      expect(r.status).toBe(400)
+      expect(errorCode(r)).toBe('VALIDATION_FAILED')
+    })
+  })
+})

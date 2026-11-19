@@ -39,7 +39,13 @@ const TOPICS = [
     name: 'DB',
     keywords: ['index', 'tx', 'wal'],
     children: [
-      { key: 'concurrency', name: '동시성', keywords: ['lock', 'isolation'], children: [] },
+      // '타임아웃'은 네트워크에도 있다 (검색: 같은 이름이 두 경로에)
+      {
+        key: 'concurrency',
+        name: '동시성',
+        keywords: ['lock', 'isolation', 'db-timeout'],
+        children: [],
+      },
     ],
   },
   {
@@ -93,6 +99,7 @@ const KEYWORDS = {
   },
   backoff: { label: '지수 백오프', concepts: 2, notes: ['retry-policy'] },
   ack: { label: 'ACK', concepts: 1, notes: ['tcp-congestion'] },
+  'db-timeout': { label: '타임아웃', concepts: 1, notes: ['db-tx'] },
   index: { label: '인덱스', concepts: 3, notes: ['db-index'] },
   tx: { label: '트랜잭션', concepts: 4, notes: ['db-tx'] },
   wal: { label: 'WAL', concepts: 1, notes: ['db-tx'] },
@@ -188,6 +195,7 @@ const EDGES = [
   ['index', 'tx'],
   ['tx', 'wal'],
   ['lock', 'isolation'],
+  ['lock', 'db-timeout'],
   // 알고리즘
   ['bfs', 'heap'],
   ['dp', 'sort'],
@@ -310,5 +318,53 @@ export function seedGalaxyDemo(store) {
     }
   }
 
-  return { get }
+  /** @type {Map<string, { id: string, name: string }[]>} 주제 key → 최상위부터 그 주제까지의 경로 (자기 포함) */
+  const topicPaths = new Map()
+  /** @type {{ key: string, name: string, parents: { id: string, name: string }[] }[]} */
+  const topicEntries = []
+  /** @type {{ key: string, parents: { id: string, name: string }[] }[]} */
+  const keywordEntries = UNASSIGNED_KEYWORDS.map((key) => ({
+    key,
+    // 미분류 키워드는 #143의 미분류처럼 'none' 주제 아래 (가정)
+    parents: [{ id: UNASSIGNED_ID, name: '미분류' }],
+  }))
+  /** @param {DemoTopic} t @param {{ id: string, name: string }[]} parents */
+  const walk = (t, parents) => {
+    const self = [...parents, { id: /** @type {string} */ (ids.get(t.key)), name: t.name }]
+    topicPaths.set(t.key, self)
+    topicEntries.push({ key: t.key, name: t.name, parents })
+    for (const k of t.keywords) keywordEntries.push({ key: k, parents: self })
+    t.children.forEach((c) => walk(c, self))
+  }
+  TOPICS.forEach((t) => walk(t, []))
+
+  /**
+   * Galaxy 검색 (계약 반영 전 가정, BE #144). 이름 일부 일치·대소문자 무시, 주제 먼저 → 키워드, 최대 limit개.
+   * path는 최상위부터 그 노드가 속한 주제까지 (주제 결과면 자기 자신은 빼고)
+   * @param {string} q @param {number} [limit]
+   */
+  function search(q, limit = 20) {
+    const needle = q.trim().toLowerCase()
+    const topics = topicEntries
+      .filter((t) => t.name.toLowerCase().includes(needle))
+      .map((t) => ({
+        kind: 'topic',
+        id: ids.get(t.key),
+        name: t.name,
+        origin: 'extracted',
+        path: t.parents,
+      }))
+    const keywords = keywordEntries
+      .filter((k) => KEYWORDS[k.key].label.toLowerCase().includes(needle))
+      .map((k) => ({
+        kind: 'keyword',
+        id: ids.get(k.key),
+        name: KEYWORDS[k.key].label,
+        origin: KEYWORDS[k.key].origin ?? 'extracted',
+        path: k.parents,
+      }))
+    return { results: [...topics, ...keywords].slice(0, limit) }
+  }
+
+  return { get, search }
 }

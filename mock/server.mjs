@@ -18,6 +18,7 @@
 //   챗봇 413(CHAT_INPUT_TOO_LARGE)은 카드와 대화가 60,000자를 넘을 때다.
 //   --galaxy-demo: Galaxy 그래프(GET /graph/topics, 계약 반영 전 가정 · BE #143)를 준다. 시작할 때 데모 주제·노트를 만든다.
 //   주제 계층(BE #141)은 저장소에 없어 하위 주제·키워드·연결은 fakeGalaxy.mjs의 고정 데이터다. 없으면 이 경로는 404(지금 BE와 같다).
+//   Galaxy 검색(GET /graph/search?q=, 계약 반영 전 가정 · BE #144)도 이 옵션일 때만 있다.
 //   --ai-off: 지금 BE(AI-off)처럼 GET /capabilities가 모두 false, 분석 요청은 503 AI_UNAVAILABLE, 그래프·추천 경로는 404.
 
 import { randomUUID } from 'node:crypto'
@@ -636,6 +637,14 @@ function route(store, auth, req, parts, params, body, aiOff, galaxy = null) {
     const level = galaxy?.get(sub ?? null)
     if (!level) throw notFound()
     return { status: 200, body: level }
+  }
+  // Galaxy 검색 (계약 반영 전 가정, BE #144). --galaxy-demo가 아니면 404(지금 BE와 같다)
+  if (resource === 'graph' && id === 'search' && !sub && method === 'GET') {
+    if (!galaxy) throw notFound()
+    const q = params.get('q') ?? ''
+    if (!q.trim()) throw new HttpError(400, 'VALIDATION_FAILED', '검색어가 비어 있습니다.')
+    const limit = Number(params.get('limit') ?? 20)
+    return { status: 200, body: galaxy.search(q, Number.isFinite(limit) && limit > 0 ? limit : 20) }
   }
   if (resource === 'recommendation-jobs' && id && !sub && method === 'GET')
     return { status: 200, body: store.getRecommendationJob(id) }

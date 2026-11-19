@@ -31,6 +31,11 @@ export function currentTopicId(path: GalaxyPath): string | null {
   return path.length === 0 ? null : path[path.length - 1].id
 }
 
+/** 단계를 가리키는 값 (경로 id를 이은 값, 최상위는 'root'). 캔버스가 바뀐 단계를 알아보는 데 쓴다 */
+export function levelKeyOf(path: GalaxyPath): string {
+  return path.map((s) => s.id).join('/') || 'root'
+}
+
 /** 하위 주제로 들어간다 */
 export function enter(path: GalaxyPath, topic: GalaxyStep): GalaxyPath {
   return [...path, { id: topic.id, name: topic.name }]
@@ -294,5 +299,99 @@ export function zoomStep(input: {
     return hit ? { kind: 'enter', topicId: hit } : null
   }
   if (zoom <= baseZoom / GALAXY_LEVEL_ZOOM && canGoUp) return { kind: 'up' }
+  return null
+}
+
+/** 검색 결과를 고르면 갈 단계 (W3-22g). 키워드면 그 키워드가 바로 속한 주제, 주제면 그 주제 안 */
+export function searchTargetPath(result: {
+  kind: 'topic' | 'keyword'
+  id: string
+  name: string
+  path: readonly GalaxyStep[]
+}): GalaxyPath {
+  const parents = result.path.map((s) => ({ id: s.id, name: s.name }))
+  return result.kind === 'topic' ? [...parents, { id: result.id, name: result.name }] : parents
+}
+
+/** 지금 단계에서 목표 단계로 가는 길 */
+export interface GalaxyRoute {
+  /** 위로 올라가 멈출 단계 (공통 경로). 지금 단계면 위로 가지 않는다 */
+  common: GalaxyPath
+  /** 위로 올라갈 단계 수 */
+  ups: number
+  /** common에서 한 단계씩 들어갈 단계들 (마지막이 목표) */
+  downs: GalaxyPath[]
+}
+
+/**
+ * 지금 경로에서 목표 경로로 가는 길 (11/19 결정). 앞에서부터 같은 칸(id)은 그대로 두고,
+ * 필요한 만큼 위로 올라간 뒤(한 번의 화면 전환) 한 단계씩 들어간다.
+ * 공통 경로의 이름은 목표 쪽(검색 결과, 더 새 값)을 쓴다.
+ */
+export function galaxyRoute(from: GalaxyPath, to: GalaxyPath): GalaxyRoute {
+  let shared = 0
+  while (shared < from.length && shared < to.length && from[shared].id === to[shared].id) shared++
+  const common = to.slice(0, shared)
+  const downs: GalaxyPath[] = []
+  for (let i = shared + 1; i <= to.length; i++) downs.push(to.slice(0, i))
+  return { common, ups: from.length - shared, downs }
+}
+
+/** 같은 단계인지 (id로만 본다) */
+export function samePath(a: GalaxyPath, b: GalaxyPath): boolean {
+  return a.length === b.length && a.every((s, i) => s.id === b[i].id)
+}
+
+/** 키워드에 도착했을 때 그 노드 쪽으로 확대하는 배율 (지금 배율의 이만큼 배) */
+export const GALAXY_ARRIVAL_ZOOM = 1.4
+/** 도착 확대는 단계를 바꾸는 배율(GALAXY_LEVEL_ZOOM)의 이만큼까지만 (그 뒤 사용자의 줌이 바로 단계를 바꾸지 않게) */
+const ARRIVAL_ZOOM_CEILING = 0.8
+
+/**
+ * 키워드 도착 확대 배율. 지금 배율의 GALAXY_ARRIVAL_ZOOM배로 하되, 단계를 화면에 맞춘 배율(baseZoom)의
+ * GALAXY_LEVEL_ZOOM × 0.8배를 넘지 않는다 (들어가는 기준보다 늘 작다). 이미 그보다 크면 지금 배율 그대로.
+ */
+export function arrivalZoom(zoom: number, baseZoom: number): number {
+  const ceiling = baseZoom * GALAXY_LEVEL_ZOOM * ARRIVAL_ZOOM_CEILING
+  return Math.max(zoom, Math.min(zoom * GALAXY_ARRIVAL_ZOOM, ceiling))
+}
+
+/** 검색 결과의 둘째 줄: "키워드 ◆ · 전체 › 네트워크" (W3-22g). 미분류 키워드는 "전체 › 미분류" */
+export function searchResultMeta(r: {
+  kind: 'topic' | 'keyword'
+  origin: 'extracted' | 'generated'
+  path: readonly GalaxyStep[]
+}): string {
+  const kind = r.kind === 'topic' ? '주제' : r.origin === 'generated' ? '키워드 ◆' : '키워드'
+  const names = r.path.map((s) => (s.id === UNASSIGNED_TOPIC_ID ? UNASSIGNED_NAME : s.name))
+  return `${kind} · ${['전체', ...names].join(' › ')}`
+}
+
+/** 검색창에서 누른 키로 할 일 */
+export type SearchKeyAction =
+  | { kind: 'open' }
+  | { kind: 'move'; active: number }
+  | { kind: 'choose'; index: number }
+  | { kind: 'close' }
+  | null
+
+/**
+ * 검색창 키보드 (W3-22g): ↓↑는 목록을 열거나 결과를 옮기고(끝에서 처음으로 돈다), Enter는 고른 결과로 가고, Esc는 목록을 닫는다.
+ * active는 지금 고른 결과 자리(없으면 −1), count는 결과 수. 할 일이 없으면 null (입력에 그대로 맡긴다)
+ */
+export function searchKeyAction(
+  key: string,
+  state: { open: boolean; active: number; count: number },
+): SearchKeyAction {
+  const { open, active, count } = state
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    if (!open) return { kind: 'open' }
+    if (count === 0) return null
+    const step = key === 'ArrowDown' ? 1 : -1
+    return { kind: 'move', active: (Math.max(active, 0) + step + count) % count }
+  }
+  if (key === 'Enter')
+    return open && active >= 0 && active < count ? { kind: 'choose', index: active } : null
+  if (key === 'Escape') return open ? { kind: 'close' } : null
   return null
 }
