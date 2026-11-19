@@ -96,3 +96,37 @@ describe('줌 한계는 맞춘 배율 기준 (리뷰 6)', () => {
     expect(zoomLimits(fit).min).toBeLessThan(fit / GALAXY_LEVEL_ZOOM)
   })
 })
+
+describe('검색 결과로 가는 동안(lock) 입력을 무시한다', () => {
+  it('잠긴 동안은 줌으로도 클릭으로도 단계를 바꾸지 않는다', () => {
+    const { gate, tick, enterAtZoom } = setup()
+    gate.drawn(1, true)
+    tick(GALAXY_LEVEL_QUIET_MS + 1)
+    gate.lock()
+    // 애니메이션(또는 사용자)의 확대가 들어가는 기준을 넘어도
+    expect(enterAtZoom(GALAXY_LEVEL_ZOOM * 2)).toBeNull()
+    expect(gate.startMoving()).toBe(false)
+    // 빈 곳 클릭도 막는다
+    expect(gate.isMoving()).toBe(true)
+  })
+
+  it('잠긴 동안의 줌은 기준 배율을 옮기지 않는다 (도착 확대가 기준을 넘지 않게)', () => {
+    const { gate } = setup()
+    gate.drawn(1, true)
+    gate.lock()
+    gate.onZoom(1.4, () => null)
+    expect(gate.baseZoom()).toBe(1)
+  })
+
+  it('풀린 뒤에도 조용한 시간 동안은 판단하지 않고, 그 뒤로는 다시 판단한다', () => {
+    const { gate, tick, enterAtZoom } = setup()
+    gate.drawn(1, true)
+    tick(GALAXY_LEVEL_QUIET_MS + 1)
+    gate.lock()
+    gate.unlock()
+    expect(enterAtZoom(1.4)).toBeNull()
+    expect(gate.isMoving()).toBe(false)
+    tick(GALAXY_LEVEL_QUIET_MS + 1)
+    expect(enterAtZoom(1.4 * GALAXY_LEVEL_ZOOM)).toEqual({ kind: 'enter', topicId: 't' })
+  })
+})

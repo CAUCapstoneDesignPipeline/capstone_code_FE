@@ -20,6 +20,7 @@ import {
   getRecommendationJob,
   getTopicGraph,
   isApiError,
+  searchGraph,
   listNotes,
   listTopics,
   moveNote,
@@ -72,6 +73,12 @@ export const keys = {
    * 다른 사용자로 로그인하면 키가 달라 이전 사용자의 경로를 보지 않는다. ['galaxy'] 밖에 두어 다시 받을 때 지워지지 않는다
    */
   galaxyPath: (userId: string) => ['galaxyPath', userId] as const,
+  /**
+   * Galaxy 검색 (BE #144, 계약 반영 전 가정). ['galaxy'] 밖에 두어 refreshGalaxy로 다시 받지 않는다:
+   * 결과 목록을 보는 동안 목록이 바뀌거나 고른 자리가 밀리지 않게. 검색어를 바꾸면 새로 받는다
+   */
+  graphSearchAll: ['graphSearch'] as const,
+  graphSearch: (q: string) => ['graphSearch', q] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
   /** 노트별로 추천 패널에 쌓인 카드 (보이는 카드 + 대기 카드)와 보고 있는 카드 */
@@ -115,6 +122,22 @@ export function useSearchNotes(q: string) {
     queryFn: ({ signal }) => listNotes({ q }, signal),
     enabled: q !== '',
     placeholderData: keepPreviousData,
+  })
+}
+
+/**
+ * Galaxy 검색 (주제·키워드). 검색어가 바뀌는 동안에는 이전 결과를 그대로 보여준다.
+ * 목록을 보는 동안 다시 받지 않는다 (창 포커스·refreshGalaxy로 목록이 바뀌지 않게, keys.graphSearch).
+ * 받은 결과는 목록을 닫을 때 지운다 (GalaxySearch)
+ */
+export function useGraphSearch(q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.graphSearch(q),
+    queryFn: ({ signal }) => searchGraph(q, signal),
+    enabled: enabled && q !== '',
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -248,6 +271,14 @@ export function onRecommendationJobPolled(
 ) {
   if (before?.status === 'pending' && after?.status === 'completed')
     void refreshGalaxy(qc, 'recommendationCompleted')
+}
+
+/** Galaxy 단계 데이터를 받아 둔다 (검색으로 가는 중). 캐시에 있으면 그대로 쓴다. 실패는 ApiError로 던진다 */
+export function prefetchTopicGraph(qc: QueryClient, topicId: string) {
+  return qc.ensureQueryData({
+    queryKey: keys.topicGraph(topicId),
+    queryFn: ({ signal }) => getTopicGraph(topicId, signal),
+  })
 }
 
 /**

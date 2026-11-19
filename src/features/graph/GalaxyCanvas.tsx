@@ -3,13 +3,27 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type
 import { useTheme, type Theme } from '../../lib/theme'
 import { TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import { circleImage, resolveColor, splitAlpha } from './cytoscapeShared'
-import { renderedToModel, zoomStep, type GalaxyElements, type Point } from './galaxy'
+import {
+  arrivalZoom,
+  GALAXY_LEVEL_ZOOM,
+  renderedToModel,
+  zoomStep,
+  type GalaxyElements,
+  type Point,
+} from './galaxy'
+import { GALAXY_SEARCH_STEP_MS } from './galaxyNavigate'
 import { GalaxyZoomGate, zoomLimits } from './galaxyZoom'
 import styles from './GraphView.module.css'
 
 export interface GalaxyCanvasHandle {
   /** 화면 가운데를 기준으로 확대(>1)·축소(<1). 줌으로 단계를 바꾸는 규칙을 그대로 따른다 */
   zoomBy: (factor: number) => void
+  /** 검색으로 가는 중: 그 주제 노드 쪽으로 확대 애니메이션 (GALAXY_SEARCH_STEP_MS). 노드가 없으면 바로 끝난다 */
+  zoomInto: (topicId: string, signal: AbortSignal) => Promise<void>
+  /** 검색으로 도착한 키워드 쪽으로 짧게 확대. 단계를 바꾸는 배율은 넘지 않는다 (arrivalZoom) */
+  focusKeyword: (keywordId: string, signal: AbortSignal) => Promise<void>
+  /** 그 단계(levelKey)가 그려질 때까지 기다린다. 이미 그려져 있으면 바로 */
+  whenDrawn: (levelKey: string, signal: AbortSignal) => Promise<void>
 }
 
 interface Props {
@@ -26,6 +40,8 @@ interface Props {
   selectedKeyword: string | null
   /** 빈 곳을 눌렀다. 위로 갈지(팝업을 닫을지)는 부른 쪽이 정한다 */
   onTapBackground: () => void
+  /** 검색 결과로 가는 중. 사용자의 줌·이동·클릭으로 단계를 바꾸지 않는다 */
+  locked: boolean
   ref?: Ref<GalaxyCanvasHandle>
 }
 
@@ -147,7 +163,7 @@ function galaxyStyle(theme: Theme): cytoscape.StylesheetJson {
  *   그 분의 1로 축소하면 위로 간다. 그 자리에 주제가 없으면 들어가지 않고 계속 확대한다 (zoomStep).
  */
 export function GalaxyCanvas(props: Props) {
-  const { levelKey, elements, selectedKeyword, ref } = props
+  const { levelKey, elements, selectedKeyword, locked, ref } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   const { theme } = useTheme()
@@ -158,6 +174,36 @@ export function GalaxyCanvas(props: Props) {
   /** 줌으로 단계를 바꿀지 판단할 때 (galaxyZoom.ts) */
   const [gate] = useState(() => new GalaxyZoomGate())
   const drawnLevel = useRef<string | null>(null)
+  /** whenDrawn을 기다리는 쪽 (단계 → 깨울 함수) */
+  const drawWaiters = useRef(new Map<string, Set<() => void>>())
+
+  /** 그 노드가 화면 가운데 오도록 zoom배로 애니메이션. 끊기면(signal) 멈추고 끝난다 */
+  function animateTo(nodeId: string, zoom: (current: number) => number, signal: AbortSignal) {
+    const cy = cyRef.current
+    const node = cy?.getElementById(nodeId)
+    if (!cy || !node || node.empty() || signal.aborted) return Promise.resolve()
+    const level = Math.min(cy.maxZoom(), zoom(cy.zoom()))
+    const p = node.position()
+    const pan = { x: cy.width() / 2 - p.x * level, y: cy.height() / 2 - p.y * level }
+    return new Promise<void>((resolve) => {
+      const stop = () => {
+        cy.stop(true, false)
+        resolve()
+      }
+      signal.addEventListener('abort', stop, { once: true })
+      cy.animate(
+        { zoom: level, pan },
+        {
+          duration: GALAXY_SEARCH_STEP_MS,
+          easing: 'ease-in-out-cubic',
+          complete: () => {
+            signal.removeEventListener('abort', stop)
+            resolve()
+          },
+        },
+      )
+    })
+  }
 
   useImperativeHandle(ref, () => ({
     zoomBy: (factor) => {
@@ -170,7 +216,34 @@ export function GalaxyCanvas(props: Props) {
         renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
       })
     },
+    // 잠근 채로 움직이므로(locked) 이 줌으로 단계가 바뀌지 않는다
+    zoomInto: (topicId, signal) => animateTo(topicId, (z) => z * GALAXY_LEVEL_ZOOM, signal),
+    focusKeyword: (keywordId, signal) =>
+      animateTo(keywordId, (z) => arrivalZoom(z, gate.baseZoom() ?? z), signal),
+    whenDrawn: (key, signal) => {
+      if (drawnLevel.current === key || signal.aborted) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        const waiters = drawWaiters.current.get(key) ?? new Set()
+        drawWaiters.current.set(key, waiters)
+        const done = () => {
+          waiters.delete(done)
+          signal.removeEventListener('abort', done)
+          resolve()
+        }
+        waiters.add(done)
+        signal.addEventListener('abort', done, { once: true })
+      })
+    },
   }))
+
+  // 검색 결과로 가는 동안은 사용자의 줌·이동을 막고, 줌·클릭으로 단계를 바꾸지 않는다
+  useEffect(() => {
+    const cy = cyRef.current
+    if (locked) gate.lock()
+    else gate.unlock()
+    cy?.userZoomingEnabled(!locked)
+    cy?.userPanningEnabled(!locked)
+  }, [locked, gate])
 
   useEffect(() => {
     const cy = cytoscape({
@@ -184,7 +257,9 @@ export function GalaxyCanvas(props: Props) {
     cy.on('tap', 'node.topic', (e) => {
       if (gate.startMoving()) latest.current.onEnterTopic(e.target.id())
     })
-    cy.on('tap', 'node.keyword', (e) => latest.current.onTapKeyword(e.target.id()))
+    cy.on('tap', 'node.keyword', (e) => {
+      if (!latest.current.locked) latest.current.onTapKeyword(e.target.id())
+    })
     cy.on('tap', (e) => {
       if (e.target === cy && !gate.isMoving()) latest.current.onTapBackground()
     })
@@ -305,6 +380,10 @@ export function GalaxyCanvas(props: Props) {
     cy.minZoom(limits.min)
     cy.maxZoom(limits.max)
     gate.drawn(fitZoom, newLevel)
+    // 이 단계를 기다리던 쪽(검색으로 가는 중)을 깨운다
+    const waiters = drawWaiters.current.get(levelKey)
+    drawWaiters.current.delete(levelKey)
+    waiters?.forEach((wake) => wake())
   }, [levelKey, elements, gate])
 
   useEffect(() => {

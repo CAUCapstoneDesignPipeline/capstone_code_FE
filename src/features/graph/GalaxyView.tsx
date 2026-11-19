@@ -1,9 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { TopicGraph } from '../../api'
+import type { GraphSearchResult, TopicGraph } from '../../api'
 import { Button } from '../../components/Button'
 import { useToast } from '../../components/toastContext'
-import { keys, useTopicGraph } from '../../data/queries'
+import { keys, prefetchTopicGraph, useTopicGraph } from '../../data/queries'
 import { useAuth } from '../auth/authContext'
 import type { TopicColorKey } from '../../lib/topicColors'
 import { GalaxyCanvas, GALAXY_BUTTON_ZOOM, type GalaxyCanvasHandle } from './GalaxyCanvas'
@@ -13,11 +13,15 @@ import {
   galaxyElements,
   goTo,
   isRecommendedKeyword,
+  levelKeyOf,
   levelSummary,
   refreshPathNames,
+  searchTargetPath,
   up,
   type GalaxyPath,
 } from './galaxy'
+import { prefersReducedMotion, runGalaxyRoute } from './galaxyNavigate'
+import { GalaxySearch } from './GalaxySearch'
 import { GALAXY_TOPIC_GONE_TOAST, pathAfterLevelError, useGalaxyPath } from './galaxyPath'
 import styles from './GraphView.module.css'
 import { graphErrorMessage } from './pageGraph'
@@ -37,6 +41,8 @@ interface Props {
  * (하위 주제 + 바로 속한 키워드), 빈 곳을 누르거나 줌 아웃하면 한 단계 위. 위의 경로를 누르면 그 단계로.
  * 키워드를 누르면 그 키워드가 나온 문서 목록(W3-20d)을 보이고, 문서를 누르면 노트를 연다.
  * 보던 단계는 사용자별로 기억한다(galaxyPath.ts). 보던 주제가 없어졌으면(404) 전체로 돌아가 알린다.
+ * 왼쪽 위 검색(W3-22g)으로 주제·키워드를 고르면 그 단계까지 한 단계씩 확대하며 간다(galaxyNavigate.ts).
+ * 가는 동안은 줌·클릭·경로·− +로 단계를 바꾸지 않는다.
  * 2D/3D 토글(상단 막대 오른쪽)은 다음 PR이다.
  */
 export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
@@ -54,6 +60,16 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
     setSelectedKeyword(null)
   }
   const canvasRef = useRef<GalaxyCanvasHandle>(null)
+  /** 검색 결과로 가는 중 */
+  const [navigating, setNavigating] = useState(false)
+  const navigation = useRef<AbortController | null>(null)
+  /** 검색으로 가기 시작할 때의 경로 (비동기 처리 안에서 읽는다) */
+  const pathRef = useRef(path)
+  useEffect(() => {
+    pathRef.current = path
+  })
+  // 화면을 떠나면 가던 것을 그만둔다
+  useEffect(() => () => navigation.current?.abort(), [])
 
   const topicId = currentTopicId(path)
   // 최상위는 GraphView가 받아 둔 것을 쓴다
@@ -63,7 +79,7 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
     () => (graph ? galaxyElements(graph, path, colorKeys) : null),
     [graph, path, colorKeys],
   )
-  const levelKey = path.map((s) => s.id).join('/') || 'root'
+  const levelKey = levelKeyOf(path)
   const keyword = elements?.keywords.find((k) => k.id === selectedKeyword) ?? null
   const keywordCount = elements?.keywords.length ?? 0
   // 미분류 노드(최상위)도 노드로 센다
@@ -84,6 +100,42 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
     storePath(next)
     toast('info', GALAXY_TOPIC_GONE_TOAST)
   }, [levelError, storePath, toast])
+
+  /** 검색 결과로 간다. 가는 중에 다른 결과를 고르면 앞의 것을 그만두고 지금 자리에서 다시 간다 */
+  async function goToResult(result: GraphSearchResult) {
+    navigation.current?.abort()
+    const controller = new AbortController()
+    navigation.current = controller
+    setSelectedKeyword(null)
+    setNavigating(true)
+    try {
+      const outcome = await runGalaxyRoute(
+        pathRef.current,
+        {
+          path: searchTargetPath(result),
+          keywordId: result.kind === 'keyword' ? result.id : null,
+        },
+        {
+          setPath,
+          prefetch: (id) => prefetchTopicGraph(qc, id),
+          zoomInto: (id, signal) => canvasRef.current?.zoomInto(id, signal) ?? Promise.resolve(),
+          whenDrawn: (p, signal) =>
+            canvasRef.current?.whenDrawn(levelKeyOf(p), signal) ?? Promise.resolve(),
+          focusKeyword: (id, signal) =>
+            canvasRef.current?.focusKeyword(id, signal) ?? Promise.resolve(),
+          openKeyword: setSelectedKeyword,
+          reducedMotion: prefersReducedMotion(),
+        },
+        controller.signal,
+      )
+      if (outcome === 'gone') toast('info', GALAXY_TOPIC_GONE_TOAST)
+    } finally {
+      if (navigation.current === controller) {
+        navigation.current = null
+        setNavigating(false)
+      }
+    }
+  }
 
   /** 이 단계의 주제로 들어간다 */
   function enterTopic(id: string) {
@@ -112,7 +164,12 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
       {path.length === 0 ? (
         <span aria-current="page">전체</span>
       ) : (
-        <button type="button" className={styles.crumb} onClick={() => setPath(goTo(path, -1))}>
+        <button
+          type="button"
+          className={styles.crumb}
+          disabled={navigating}
+          onClick={() => setPath(goTo(path, -1))}
+        >
           전체
         </button>
       )}
@@ -124,7 +181,12 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
           {i === path.length - 1 ? (
             <span aria-current="page">{step.name}</span>
           ) : (
-            <button type="button" className={styles.crumb} onClick={() => setPath(goTo(path, i))}>
+            <button
+              type="button"
+              className={styles.crumb}
+              disabled={navigating}
+              onClick={() => setPath(goTo(path, i))}
+            >
               {step.name}
             </button>
           )}
@@ -161,6 +223,7 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
           onUp={() => setPath(up(path))}
           onTapKeyword={setSelectedKeyword}
           onTapBackground={tapBackground}
+          locked={navigating}
         />
 
         {topicId !== null && level.isError ? (
@@ -189,12 +252,16 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
           </div>
         ) : null}
 
+        {/* W3-22g Graph/Search: 그래프 왼쪽 위 */}
+        <GalaxySearch onSelect={(r) => void goToResult(r)} />
+
         {/* W3-22d·e ZoomIndicator: − 축소 · 경로 · + 확대. 줌으로 단계를 바꾸는 규칙을 그대로 따른다 */}
         <div className={styles.zoomBar}>
           <button
             type="button"
             className={styles.zoomButton}
             aria-label="축소"
+            disabled={navigating}
             onClick={() => canvasRef.current?.zoomBy(1 / GALAXY_BUTTON_ZOOM)}
           >
             −
@@ -206,6 +273,7 @@ export function GalaxyView({ root, colorKeys, onOpenNote }: Props) {
             type="button"
             className={styles.zoomButton}
             aria-label="확대"
+            disabled={navigating}
             onClick={() => canvasRef.current?.zoomBy(GALAXY_BUTTON_ZOOM)}
           >
             +

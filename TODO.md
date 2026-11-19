@@ -101,7 +101,10 @@
 - [x] Galaxy를 다시 받는 때를 `GALAXY_REFRESH_REASONS`·`refreshGalaxy`(`src/data/queries.ts`) 한 곳에 모음: 추천 작업 완료, "이해함" 기록, 주제 생성·삭제·이름 변경, 노트 삭제, 노트의 주제 이동. 노트 본문 저장은 다시 받지 않음
 - [ ] 주제 이동(다른 주제 아래로)은 BE #141 전이라 API가 없어 `topicMoved` 자리만 있다. API가 생기면 그 mutation에서 `refreshGalaxy(qc, 'topicMoved')`
 - [ ] 줌 판단 상수 `GALAXY_LEVEL_QUIET_MS`(400)·`GALAXY_WHEEL_FRESH_MS`(300) 실측 후 조정 (`src/features/graph/galaxyZoom.ts`)
-- [ ] 노드를 키보드로 고를 수 없다 (경로·− + 버튼만 키보드로 된다). 페이지 그래프도 같다
+- [ ] 노드를 키보드로 고를 수 없다 (경로·− + 버튼만 키보드로 된다). 페이지 그래프도 같다. 검색(↑↓·Enter)으로는 갈 수 있다
+- [x] 검색 (W3-22g): 그래프 왼쪽 위, 주제·키워드만, 고르면 한 단계씩 확대하며 감 (`galaxyNavigate.ts`), mock
+- [ ] 검색 실제 BE 연결 — BE #144. **계약 반영 전 가정**: `src/api/graphSearch.ts`의 `GET /graph/search?q=&limit=`와 `kind`·`id`·`name`·`origin`·`path`. 주제 결과의 `origin`(늘 extracted)과 미분류 키워드의 `path: [{ id: 'none', name: '미분류' }]`는 #144 본문에 없어 FE가 정한 것이다. 지금 BE(404)에서는 검색창을 끄고 툴팁을 보인다
+- [ ] 검색 단계당 확대 시간 `GALAXY_SEARCH_STEP_MS`(350)·도착 확대 `GALAXY_ARRIVAL_ZOOM`(1.4) 실측 후 조정
 - 실제 BE(경로 없음, 404)에서는 지금처럼 페이지 그래프를 안내와 함께 보인다. #143이 나오면 저절로 Galaxy로 바뀐다
 
 ## C. 다른 쪽 결정 대기
