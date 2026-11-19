@@ -55,6 +55,7 @@
   - `--fail-analysis`: 분석이 모두 실패 (추천 작업도 `RECOMMENDATION_FAILED`)
   - `--external-knowledge`: 추천에 예시 외부 지식 (기본 `null`)
   - `--chat-off`: 추천 챗봇 503. 챗봇 질문에 `끊김`을 넣으면 답 중간에 `CHAT_INTERRUPTED`
+  - `--galaxy-demo`: Galaxy 그래프(`GET /graph/topics`, 계약 반영 전 가정 · BE #143)와 데모 주제·노트. 없으면 이 경로는 404라 그래프 화면이 페이지 그래프로 돌아간다(지금 BE와 같다)
   - `--fail-feedback`: 추천 카드의 답(feedback)이 모두 500 `INTERNAL` (노트에 끌어다 놓은 뒤 '이해함'을 못 보낸 경우)
   - `--fail-note-save`: 노트 저장(`PUT /notes/{id}`)이 모두 500 `INTERNAL` (카드를 넣은 뒤 저장이 실패한 경우)
   - `--delay <ms>`: 모든 응답을 늦춤 (저장 중·요청 겹침 확인)

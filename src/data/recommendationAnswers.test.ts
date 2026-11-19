@@ -8,7 +8,7 @@ import {
 } from '../api'
 import type { Recommendation } from '../api'
 import { markStale, type RecommendationAnswer } from '../lib/recommendations'
-import { keys, submitRecommendationAnswer } from './queries'
+import { keys, onRecommendationJobPolled, submitRecommendationAnswer } from './queries'
 
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api')>()),
@@ -82,6 +82,49 @@ describe('추천 답 보내기', () => {
     send.mockRejectedValueOnce(new ApiError('RECOMMENDATION_STALE', 'stale', 409))
     await submitRecommendationAnswer(qc, 'd', 'understood').catch(() => {})
     expect(answers()).toEqual({ d: 'confused' })
+  })
+})
+
+describe('Galaxy를 다시 받는 때 (PR #46 리뷰 1)', () => {
+  const galaxyLevel = keys.topicGraph(null)
+  const stale = (qc: QueryClient) => qc.getQueryState(galaxyLevel)?.isInvalidated
+  let qc: QueryClient
+  beforeEach(() => {
+    qc = new QueryClient()
+    qc.setQueryData(galaxyLevel, { topics: [], keywords: [], edges: [] })
+    send.mockReset()
+  })
+
+  it('노트 저장 등으로 페이지 그래프(["graph"])를 다시 받아도 Galaxy는 다시 받지 않는다', async () => {
+    await qc.invalidateQueries({ queryKey: keys.graph })
+    expect(stale(qc)).toBe(false)
+  })
+
+  it("'이해함'을 기록하면 다시 받는다. 다른 답·실패면 아니다", async () => {
+    send.mockResolvedValue(undefined)
+    await submitRecommendationAnswer(qc, 'a', 'known')
+    expect(stale(qc)).toBe(false)
+    send.mockRejectedValueOnce(new ApiError('NETWORK_ERROR', '연결 실패', 0))
+    await submitRecommendationAnswer(qc, 'b', 'understood').catch(() => {})
+    expect(stale(qc)).toBe(false)
+    await submitRecommendationAnswer(qc, 'c', 'understood')
+    expect(stale(qc)).toBe(true)
+  })
+
+  it('추천 작업이 진행 중에서 끝남(completed)으로 바뀌면 다시 받는다', () => {
+    const job = (status: 'pending' | 'completed') =>
+      ({ id: 'j', noteId: 'n', status, outcome: null, recommendations: [] }) as never
+    onRecommendationJobPolled(qc, job('pending'), job('pending'))
+    expect(stale(qc)).toBe(false)
+    onRecommendationJobPolled(qc, job('completed'), job('completed'))
+    expect(stale(qc)).toBe(false)
+    onRecommendationJobPolled(qc, job('pending'), job('completed'))
+    expect(stale(qc)).toBe(true)
+  })
+
+  it("최상위 키는 null로 두어 'root'라는 id의 주제와 겹치지 않는다", () => {
+    expect(keys.topicGraph(null)).not.toEqual(keys.topicGraph('root'))
+    expect(keys.topicGraph('x')[0]).not.toBe(keys.graph[0])
   })
 })
 

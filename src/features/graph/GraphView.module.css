@@ -147,3 +147,166 @@
   flex-wrap: wrap;
   gap: var(--space-12);
 }
+
+/* Galaxy가 아직 없는 서버에서 페이지 그래프 위에 보이는 안내 */
+.notice {
+  margin: 0;
+  padding: var(--space-8) var(--space-16);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+}
+
+/* Galaxy 상단 막대 (W3-22d·e): "Galaxy" · 경로(전체 › 네트워크) · 요약. 오른쪽은 2D/3D 토글 자리 */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+  white-space: nowrap;
+}
+
+.crumbItem {
+  display: inline-flex;
+  align-items: center;
+}
+
+.crumbSeparator {
+  padding: 0 var(--space-4);
+}
+
+.crumb {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.crumb:hover {
+  color: var(--color-ink);
+}
+
+.topBarEnd {
+  flex: 1;
+}
+
+/* 불러오는 중·빈 단계·오류: 그래프 위에 겹친다. 빈 곳 클릭(위 단계로)은 그래프가 받도록 글자만 막지 않는다 */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  padding: var(--space-32);
+  text-align: center;
+  pointer-events: none;
+}
+
+.overlayActions {
+  display: flex;
+  gap: var(--space-12);
+  pointer-events: auto;
+}
+
+/* W3-22d·e ZoomIndicator: 왼쪽 아래, surface-card 알약, 여백 6·12, 사이 10 */
+.zoomBar {
+  position: absolute;
+  bottom: var(--space-16);
+  left: var(--space-16);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px var(--space-12);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-card);
+  font: var(--text-ui-caption);
+  font-weight: 500;
+}
+
+.zoomButton {
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.zoomPath {
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+/* 키워드를 누르면 보이는 문서 목록 (W3-20d KeywordDocsPopup): 폭 340, 여백 16, 사이 12, 모서리 12 */
+.docsPopup {
+  position: absolute;
+  top: var(--space-16);
+  right: var(--space-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  width: min(340px, calc(100% - var(--space-32)));
+  max-height: calc(100% - var(--space-32));
+  overflow-y: auto;
+  padding: var(--space-16);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-surface-card);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.08);
+}
+
+.docsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
+.docsTitle {
+  margin: 0;
+  color: var(--color-ink);
+  font: var(--text-ui-body-sm-strong);
+  font-size: 16px;
+}
+
+.docsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* DocItem: canvas 바탕, 모서리 8, 여백 10·12 */
+.docItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 10px var(--space-12);
+  border-radius: 8px;
+  background: var(--color-canvas);
+}
+
+.docTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font: var(--text-ui-label-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommendedTag {
+  color: var(--color-recommended);
+}

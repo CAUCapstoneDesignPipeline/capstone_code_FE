@@ -91,6 +91,19 @@
 
 ---
 
+### B5. Galaxy 그래프 (FE #44)
+
+- [x] 1단계: 2D + 단계 이동, mock (`npm run mock -- --galaxy-demo`)
+- [ ] 2D/3D 토글 (상단 막대 오른쪽 자리를 비워 둠), 3D 라이브러리 검토
+- [ ] 폴더 사이드바 트리 (하위 폴더 생성·이동·펼치기) — BE #141 필요
+- [ ] 실제 BE 연결 — BE #143. **계약 반영 전 가정**: `src/api/topicGraph.ts`의 경로(`GET /graph/topics`, `GET /graph/topics/{topicId}`)와 필드 중 `childTopicCount`, `hasRecommended`(주제), `topicId`(키워드, 미분류면 null), 최상위의 `unassigned`(미분류 키워드 요약)와 `GET /graph/topics/none`(미분류 키워드)은 #143 본문에 없어 FE가 더한 것이다. docs 계약이 나오면 이 파일만 바꾼다
+- [ ] 줌으로 단계를 바꾸는 배율 `GALAXY_LEVEL_ZOOM`(1.8) 실측 후 조정 (`src/features/graph/galaxy.ts`)
+- [x] Galaxy를 다시 받는 때를 `GALAXY_REFRESH_REASONS`·`refreshGalaxy`(`src/data/queries.ts`) 한 곳에 모음: 추천 작업 완료, "이해함" 기록, 주제 생성·삭제·이름 변경, 노트 삭제, 노트의 주제 이동. 노트 본문 저장은 다시 받지 않음
+- [ ] 주제 이동(다른 주제 아래로)은 BE #141 전이라 API가 없어 `topicMoved` 자리만 있다. API가 생기면 그 mutation에서 `refreshGalaxy(qc, 'topicMoved')`
+- [ ] 줌 판단 상수 `GALAXY_LEVEL_QUIET_MS`(400)·`GALAXY_WHEEL_FRESH_MS`(300) 실측 후 조정 (`src/features/graph/galaxyZoom.ts`)
+- [ ] 노드를 키보드로 고를 수 없다 (경로·− + 버튼만 키보드로 된다). 페이지 그래프도 같다
+- 실제 BE(경로 없음, 404)에서는 지금처럼 페이지 그래프를 안내와 함께 보인다. #143이 나오면 저절로 Galaxy로 바뀐다
+
 ## C. 다른 쪽 결정 대기
 
 형식: 항목 — 담당 — 원자료

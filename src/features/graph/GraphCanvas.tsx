@@ -1,13 +1,11 @@
 import cytoscape, { type Core, type NodeSingular } from 'cytoscape'
-import fcose from 'cytoscape-fcose'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Graph } from '../../api'
 import { useTheme, type Theme } from '../../lib/theme'
+import { circleImage, resolveColor, splitAlpha, textWidth } from './cytoscapeShared'
 import { nodeColorKey, TOPIC_SLOTS, type TopicColorKey } from '../../lib/topicColors'
 import styles from './GraphView.module.css'
 import { edgeKey, edgeLabel, initialPositions, placeNear, sortedById, type Box } from './pageGraph'
-
-cytoscape.use(fcose)
 
 interface Props {
   graph: Graph
@@ -29,54 +27,6 @@ const EDGE_FONT_SIZE = 11
 /** 페이지 알약: 왼쪽 여백 12 + 점 8 + 간격 8 + 글자 + 오른쪽 여백 12 */
 const NODE_CHROME = 40
 const DOT = 8
-
-const resolved = new Map<string, string>()
-let probe: HTMLSpanElement | null = null
-
-/**
- * CSS 토큰을 Cytoscape가 읽는 rgb()/rgba() 값으로 바꾼다 (Cytoscape는 var()와 "rgb(r g b / a)"를 못 읽는다).
- * 토큰 값은 테마에 따라서만 바뀌므로 테마별로 한 번 읽은 값을 계속 쓴다. theme은 지금 <html data-theme>과 같아야 한다.
- */
-function resolveColor(token: string, theme: Theme): string {
-  const key = `${theme}:${token}`
-  const cached = resolved.get(key)
-  if (cached) return cached
-  if (!probe) {
-    probe = document.createElement('span')
-    probe.style.display = 'none'
-    document.body.append(probe)
-  }
-  probe.style.color = `var(--${token})`
-  const color = getComputedStyle(probe).color
-  resolved.set(key, color)
-  return color
-}
-
-/**
- * Cytoscape는 rgba()의 투명도를 색에 반영하지 않는다. 색과 투명도를 나눠 *-opacity 속성으로 준다.
- * "rgba(38, 37, 30, 0.2)" → { color: "rgb(38, 37, 30)", opacity: 0.2 }
- */
-function splitAlpha(color: string): { color: string; opacity: number } {
-  const m = color.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/)
-  return m
-    ? { color: `rgb(${m[1]}, ${m[2]}, ${m[3]})`, opacity: Number(m[4]) }
-    : { color, opacity: 1 }
-}
-
-let measureCtx: CanvasRenderingContext2D | null = null
-function textWidth(text: string, size: number): number {
-  measureCtx ??= document.createElement('canvas').getContext('2d')
-  if (!measureCtx) return text.length * size * 0.6
-  const font = getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim()
-  measureCtx.font = `400 ${size}px ${font || 'sans-serif'}`
-  return measureCtx.measureText(text).width
-}
-
-/** 주제 색 점 (W3-13: 점 색 = 주제 색). 테마가 바뀌면 다시 만든다. */
-function dotImage(color: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${DOT}" height="${DOT}"><circle cx="${DOT / 2}" cy="${DOT / 2}" r="${DOT / 2}" fill="${color}"/></svg>`
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
-}
 
 const COLOR_KEYS: TopicColorKey[] = [
   ...Array.from({ length: TOPIC_SLOTS }, (_, i) => `topic-${i + 1}` as const),
@@ -123,7 +73,7 @@ function graphStyle(theme: Theme): cytoscape.StylesheetJson {
     },
     ...COLOR_KEYS.map((key) => ({
       selector: `node[colorKey = "${key}"]`,
-      style: { 'background-image': dotImage(resolveColor(`color-${key}`, theme)) },
+      style: { 'background-image': circleImage(resolveColor(`color-${key}`, theme), DOT) },
     })),
     // 고른 선의 두 끝 페이지 (W3-13b)
     {

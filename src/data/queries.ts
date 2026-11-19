@@ -18,6 +18,7 @@ import {
   getNoteAnalysis,
   requestNoteAnalysis,
   getRecommendationJob,
+  getTopicGraph,
   isApiError,
   listNotes,
   listTopics,
@@ -59,6 +60,18 @@ export const keys = {
   note: (noteId: string) => ['note', noteId] as const,
   noteAnalysis: (noteId: string) => ['noteAnalysis', noteId] as const,
   graph: ['graph'] as const,
+  /**
+   * Galaxy 그래프 (주제 단계). 페이지 그래프(['graph'])와 따로 두어 노트를 저장할 때는 다시 받지 않는다.
+   * 다시 받는 때는 GALAXY_REFRESH_REASONS (refreshGalaxy)
+   */
+  galaxy: ['galaxy'] as const,
+  /** Galaxy의 한 단계. 최상위는 topicId null (문자열로 바꾸지 않아 'root'라는 id의 주제와 겹치지 않는다) */
+  topicGraph: (topicId: string | null) => ['galaxy', 'level', { topicId }] as const,
+  /**
+   * Galaxy에서 보던 단계 (사용자별). 노트를 열었다 돌아와도 이어 보게 캐시에 둔다. 로그아웃하면 캐시가 지워져 사라지고,
+   * 다른 사용자로 로그인하면 키가 달라 이전 사용자의 경로를 보지 않는다. ['galaxy'] 밖에 두어 다시 받을 때 지워지지 않는다
+   */
+  galaxyPath: (userId: string) => ['galaxyPath', userId] as const,
   /** 노트의 가장 최근 추천 작업 (이 화면에서 요청한 것). 없으면 null */
   recommendationJob: (noteId: string) => ['recommendationJob', noteId] as const,
   /** 노트별로 추천 패널에 쌓인 카드 (보이는 카드 + 대기 카드)와 보고 있는 카드 */
@@ -193,6 +206,62 @@ export function useGraph(enabled: boolean) {
   })
 }
 
+/**
+ * Galaxy 그래프를 다시 받는 때. 무효화는 이 목록과 refreshGalaxy 한 곳에서만 한다.
+ * 노트 본문 저장은 여기에 없다 (편집할 때마다 그래프가 다시 배치되지 않게).
+ * 다시 받아도 같은 단계면 단계는 그대로, 같은 노드면 자리도 그대로다 (GalaxyCanvas).
+ */
+export const GALAXY_REFRESH_REASONS = {
+  /** 추천 작업이 끝남 (pending → completed). onRecommendationJobPolled */
+  recommendationCompleted: '추천 작업 완료',
+  /** '이해함' 기록 성공 (추천 지식 ◆가 그래프에 들어간다). submitRecommendationAnswer */
+  understood: "'이해함' 기록",
+  /** 주제 만들기. afterTopicCreated */
+  topicCreated: '주제 생성',
+  /** 주제 이름 바꾸기. afterTopicRenamed */
+  topicRenamed: '주제 이름 변경',
+  /** 주제 지우기 (그 노트는 미분류로). afterTopicDeleted */
+  topicDeleted: '주제 삭제',
+  /**
+   * 주제를 다른 주제 아래로 옮기기. 주제 계층(BE #141) 전이라 API·화면이 없다. 자리만 둔다 (TODO.md B5)
+   * TODO(BE #141): 주제 이동 API가 생기면 그 mutation의 onSuccess에서 refreshGalaxy(qc, 'topicMoved')
+   */
+  topicMoved: '주제 이동 (BE #141 전, 자리만)',
+  /** 노트 지우기. afterNoteDeleted */
+  noteDeleted: '노트 삭제',
+  /** 노트를 다른 주제로 옮기기. afterNoteMoved */
+  noteMoved: '노트의 주제 이동',
+} as const
+
+export type GalaxyRefreshReason = keyof typeof GALAXY_REFRESH_REASONS
+
+/** Galaxy 그래프를 다시 받게 한다. 부르는 곳은 GALAXY_REFRESH_REASONS의 경우뿐이다 */
+export function refreshGalaxy(qc: QueryClient, _reason: GalaxyRefreshReason) {
+  return qc.invalidateQueries({ queryKey: keys.galaxy })
+}
+
+/** 추천 작업 polling 결과: 진행 중이던 작업이 끝났으면(completed) Galaxy를 다시 받는다 */
+export function onRecommendationJobPolled(
+  qc: QueryClient,
+  before: RecommendationJob | null | undefined,
+  after: RecommendationJob | null,
+) {
+  if (before?.status === 'pending' && after?.status === 'completed')
+    void refreshGalaxy(qc, 'recommendationCompleted')
+}
+
+/**
+ * Galaxy 그래프의 한 단계 (BE #143, 계약 반영 전 가정 — src/api/topicGraph.ts).
+ * 이전 단계로 돌아갈 때는 캐시를 쓴다. 다시 받는 때는 GALAXY_REFRESH_REASONS.
+ */
+export function useTopicGraph(topicId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.topicGraph(topicId),
+    queryFn: ({ signal }) => getTopicGraph(topicId, signal),
+    enabled,
+  })
+}
+
 /** 추천 작업 polling 간격 (FE 선호안: 작업 ID + polling) */
 export const RECOMMEND_POLL_MS = 2000
 
@@ -208,7 +277,9 @@ export function useRecommendations(noteId: string | null) {
       const job = qc.getQueryData<RecommendationJob | null>(keys.recommendationJob(noteId!))
       if (!job) return null
       try {
-        return await getRecommendationJob(job.id, signal)
+        const next = await getRecommendationJob(job.id, signal)
+        onRecommendationJobPolled(qc, job, next)
+        return next
       } catch (e) {
         if (isApiError(e, 'NOT_FOUND')) return null
         throw e
@@ -382,6 +453,8 @@ export async function submitRecommendationAnswer(
   try {
     await sendFeedbackWithRetry(recommendationId, action, options.retryDelaysMs ?? [])
     setSending(-1)
+    // '이해함'은 그래프에 반영된다 (추천 지식 ◆). Galaxy를 다시 받는다
+    if (action === 'understood') void refreshGalaxy(qc, 'understood')
   } catch (e) {
     // 답을 먼저 되돌리고 전송 중 표시를 지운다. 반대로 하면 그 사이 실패한 답이 확정된 답으로 보여
     // 추천을 합칠 때 카드가 빠질 수 있다.
@@ -434,33 +507,39 @@ export function useRecommendTrigger(): RecommendTrigger {
  */
 export function useApplySavedNote() {
   const qc = useQueryClient()
-  return useCallback(
-    (note: Note) => {
-      qc.setQueryData(keys.note(note.id), note)
-      qc.setQueriesData<NoteSummary[]>({ queryKey: keys.noteLists }, (list) =>
-        list?.map((n) =>
-          n.id === note.id
-            ? { ...n, title: note.title, version: note.version, updatedAt: note.updatedAt }
-            : n,
-        ),
-      )
-      // 그래프의 근거 노트 제목. 그래프 화면이 닫혀 있으면 표시만 해 두고 열 때 받는다.
-      void qc.invalidateQueries({ queryKey: keys.graph })
-      const capabilities = qc.getQueryData<Capabilities>(keys.capabilities)
-      const job = qc.getQueryData<AnalysisJob | null>(keys.noteAnalysis(note.id))
-      if (capabilities?.analysisEnabled && !isAnalysisActive(job))
-        void qc.invalidateQueries({ queryKey: keys.noteAnalysis(note.id) })
-    },
-    [qc],
+  return useCallback((note: Note) => afterNoteSaved(qc, note), [qc])
+}
+
+/** 노트 본문·제목 저장이 성공한 뒤 (useApplySavedNote). Galaxy는 다시 받지 않는다 */
+export function afterNoteSaved(qc: QueryClient, note: Note) {
+  qc.setQueryData(keys.note(note.id), note)
+  qc.setQueriesData<NoteSummary[]>({ queryKey: keys.noteLists }, (list) =>
+    list?.map((n) =>
+      n.id === note.id
+        ? { ...n, title: note.title, version: note.version, updatedAt: note.updatedAt }
+        : n,
+    ),
   )
+  // 그래프의 근거 노트 제목. 그래프 화면이 닫혀 있으면 표시만 해 두고 열 때 받는다.
+  void qc.invalidateQueries({ queryKey: keys.graph })
+  const capabilities = qc.getQueryData<Capabilities>(keys.capabilities)
+  const job = qc.getQueryData<AnalysisJob | null>(keys.noteAnalysis(note.id))
+  if (capabilities?.analysisEnabled && !isAnalysisActive(job))
+    void qc.invalidateQueries({ queryKey: keys.noteAnalysis(note.id) })
 }
 
 export function useCreateTopic() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: TopicCreate) => createTopic(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.topics }),
+    onSuccess: () => afterTopicCreated(qc),
   })
+}
+
+/** 주제를 만든 뒤 */
+export function afterTopicCreated(qc: QueryClient) {
+  void refreshGalaxy(qc, 'topicCreated')
+  return qc.invalidateQueries({ queryKey: keys.topics })
 }
 
 /** 겹치지 않는 기본 제목으로 노트를 만든다. 그 사이 다른 곳에서 같은 제목을 만들었으면 다음 번호로 다시 시도한다. */
@@ -531,8 +610,14 @@ export function useRenameTopic() {
   return useMutation({
     mutationFn: ({ topicId, name }: { topicId: string; name: string }) =>
       updateTopic(topicId, { name }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.topics }),
+    onSuccess: () => afterTopicRenamed(qc),
   })
+}
+
+/** 주제 이름을 바꾼 뒤 (Galaxy의 노드 이름·경로) */
+export function afterTopicRenamed(qc: QueryClient) {
+  void refreshGalaxy(qc, 'topicRenamed')
+  return qc.invalidateQueries({ queryKey: keys.topics })
 }
 
 export interface SwapTopicInput {
@@ -581,17 +666,21 @@ export function useDeleteTopic() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (topicId: string) => deleteTopic(topicId),
-    onSuccess: (_, topicId) => {
-      qc.setQueriesData<Note>({ queryKey: keys.notes }, (note) =>
-        note?.topicId === topicId ? { ...note, topicId: null } : note,
-      )
-      qc.removeQueries({ queryKey: keys.notesIn(topicId) })
-      void qc.invalidateQueries({ queryKey: keys.noteLists })
-      void qc.invalidateQueries({ queryKey: keys.topics })
-      // 근거 노트의 주제가 미분류로 바뀐다
-      void qc.invalidateQueries({ queryKey: keys.graph })
-    },
+    onSuccess: (_, topicId) => afterTopicDeleted(qc, topicId),
   })
+}
+
+/** 주제를 지운 뒤. 그 주제의 노트는 미분류가 된다 */
+export function afterTopicDeleted(qc: QueryClient, topicId: string) {
+  qc.setQueriesData<Note>({ queryKey: keys.notes }, (note) =>
+    note?.topicId === topicId ? { ...note, topicId: null } : note,
+  )
+  qc.removeQueries({ queryKey: keys.notesIn(topicId) })
+  void qc.invalidateQueries({ queryKey: keys.noteLists })
+  void qc.invalidateQueries({ queryKey: keys.topics })
+  // 근거 노트의 주제가 미분류로 바뀐다
+  void qc.invalidateQueries({ queryKey: keys.graph })
+  void refreshGalaxy(qc, 'topicDeleted')
 }
 
 export interface MoveNoteInput {
@@ -608,17 +697,21 @@ export function useMoveNote() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ noteId, topicId }: MoveNoteInput) => moveNote(noteId, topicId),
-    onSuccess: (moved) => {
-      qc.setQueryData<Note>(keys.note(moved.id), (note) =>
-        note ? { ...note, topicId: moved.topicId } : note,
-      )
-      // version은 그대로지만 근거의 주제가 바뀌어 BE가 다시 분석한다.
-      void qc.invalidateQueries({ queryKey: keys.noteAnalysis(moved.id) })
-      void qc.invalidateQueries({ queryKey: keys.graph })
-      void qc.invalidateQueries({ queryKey: keys.noteLists })
-      void qc.invalidateQueries({ queryKey: keys.topics })
-    },
+    onSuccess: (moved) => afterNoteMoved(qc, moved),
   })
+}
+
+/** 노트를 다른 주제로 옮긴 뒤 (그 노트의 키워드가 다른 주제로 간다) */
+export function afterNoteMoved(qc: QueryClient, moved: Note) {
+  qc.setQueryData<Note>(keys.note(moved.id), (note) =>
+    note ? { ...note, topicId: moved.topicId } : note,
+  )
+  // version은 그대로지만 근거의 주제가 바뀌어 BE가 다시 분석한다.
+  void qc.invalidateQueries({ queryKey: keys.noteAnalysis(moved.id) })
+  void qc.invalidateQueries({ queryKey: keys.graph })
+  void qc.invalidateQueries({ queryKey: keys.noteLists })
+  void qc.invalidateQueries({ queryKey: keys.topics })
+  void refreshGalaxy(qc, 'noteMoved')
 }
 
 export function useDeleteNote() {
@@ -629,14 +722,20 @@ export function useDeleteNote() {
     onSuccess: (_, noteId) => {
       // 지운 노트에 남은 추천 타이머가 요청하지 않게 한다
       recommendTrigger.forget(noteId)
-      qc.removeQueries({ queryKey: keys.note(noteId) })
-      qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
-      // 노트별 추천 카드는 세션 내내 메모리에 두므로, 지운 노트의 것은 함께 버린다
-      qc.removeQueries({ queryKey: keys.recommendationJob(noteId) })
-      qc.removeQueries({ queryKey: keys.recommendationDeck(noteId) })
-      void qc.invalidateQueries({ queryKey: keys.graph })
-      void qc.invalidateQueries({ queryKey: keys.noteLists })
-      void qc.invalidateQueries({ queryKey: keys.topics })
+      afterNoteDeleted(qc, noteId)
     },
   })
+}
+
+/** 노트를 지운 뒤 (그 노트에서만 나온 키워드가 없어진다) */
+export function afterNoteDeleted(qc: QueryClient, noteId: string) {
+  qc.removeQueries({ queryKey: keys.note(noteId) })
+  qc.removeQueries({ queryKey: keys.noteAnalysis(noteId) })
+  // 노트별 추천 카드는 세션 내내 메모리에 두므로, 지운 노트의 것은 함께 버린다
+  qc.removeQueries({ queryKey: keys.recommendationJob(noteId) })
+  qc.removeQueries({ queryKey: keys.recommendationDeck(noteId) })
+  void qc.invalidateQueries({ queryKey: keys.graph })
+  void qc.invalidateQueries({ queryKey: keys.noteLists })
+  void qc.invalidateQueries({ queryKey: keys.topics })
+  void refreshGalaxy(qc, 'noteDeleted')
 }

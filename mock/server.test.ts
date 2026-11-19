@@ -16,6 +16,7 @@ async function start(
     off?: boolean
     externalKnowledge?: boolean
     chatOff?: boolean
+    galaxyDemo?: boolean
   } = {},
 ) {
   server = createMockServer({ analysis: { debounceMs: 10_000, runMs: 20, ...analysis } })
@@ -709,5 +710,111 @@ describe('AI 기능 여부 (AI-off 계약)', () => {
     expect(
       errorCode(await call('POST', '/notes/00000000-0000-4000-8000-000000000999/analysis')),
     ).toBe('NOT_FOUND')
+  })
+})
+
+describe('Galaxy 그래프 (계약 반영 전 가정 · BE #143, --galaxy-demo)', () => {
+  type Level = {
+    topics: {
+      id: string
+      name: string
+      keywordCount: number
+      hasChildren: boolean
+      childTopicCount: number
+      hasRecommended: boolean
+    }[]
+    keywords: {
+      id: string
+      label: string
+      origin: string
+      topicId: string
+      documents: { noteId: string; title: string }[]
+    }[]
+    edges: { sourceId: string; targetId: string }[]
+  }
+  const level = async (topicId?: string) => {
+    const r = await call('GET', topicId ? `/graph/topics/${topicId}` : '/graph/topics')
+    expect(r.status).toBe(200)
+    return r.data as Level
+  }
+  const named = (l: Level, name: string) => l.topics.find((t) => t.name === name)!
+
+  it('플래그가 없으면 경로가 없다 (지금 BE처럼 404)', async () => {
+    const r = await call('GET', '/graph/topics')
+    expect(r.status).toBe(404)
+    expect(errorCode(r)).toBe('NOT_FOUND')
+  })
+
+  describe('데모 데이터', () => {
+    beforeEach(async () => {
+      await stop()
+      await start({ galaxyDemo: true })
+    })
+
+    it('최상위: 주제만 (키워드 없음). 최상위 주제는 사이드바 주제와 같은 id', async () => {
+      const root = await level()
+      expect(root.keywords).toEqual([])
+      expect(root.topics.map((t) => t.name)).toEqual([
+        '네트워크',
+        'DB',
+        '알고리즘',
+        'Linux',
+        '읽을거리',
+      ])
+      const sidebar = (await call('GET', '/topics')).data as { topics: { id: string }[] }
+      expect(sidebar.topics.map((t) => t.id)).toEqual(root.topics.map((t) => t.id))
+      // 키워드가 없는 주제, 안에 추천 지식이 있는 주제
+      expect(named(root, '읽을거리')).toMatchObject({ keywordCount: 0, hasChildren: false })
+      expect(named(root, '네트워크')).toMatchObject({ childTopicCount: 2, hasRecommended: true })
+      expect(named(root, 'DB').hasRecommended).toBe(false)
+    })
+
+    it('주제 안: 하위 주제 + 그 주제에 바로 속한 키워드만, 2단계 이상 들어간다', async () => {
+      const root = await level()
+      const net = await level(named(root, '네트워크').id)
+      expect(net.topics.map((t) => t.name)).toEqual(['전송 계층', '신뢰성'])
+      expect(net.keywords.every((k) => k.topicId === named(root, '네트워크').id)).toBe(true)
+      expect(net.keywords.map((k) => k.label)).not.toContain('TCP')
+      expect(net.keywords.find((k) => k.label === '멱등한 쓰기 설계')?.origin).toBe('generated')
+
+      const transport = await level(named(net, '전송 계층').id)
+      const congestion = await level(named(transport, '혼잡 제어').id)
+      expect(congestion.topics).toEqual([])
+      expect(congestion.keywords.map((k) => k.label)).toContain('혼잡 윈도우')
+    })
+
+    it('키워드의 문서는 열 수 있는 노트다', async () => {
+      const root = await level()
+      const net = await level(named(root, '네트워크').id)
+      const doc = net.keywords.find((k) => k.label === '재시도')!.documents[0]
+      const note = await call('GET', `/notes/${doc.noteId}`)
+      expect(note.status).toBe(200)
+      expect(note.data.title).toBe(doc.title)
+    })
+
+    it('선은 양 끝이 그 단계에 있을 때만', async () => {
+      const root = await level()
+      const ids = new Set(root.topics.map((t) => t.id))
+      expect(root.edges.length).toBeGreaterThan(0)
+      expect(root.edges.every((e) => ids.has(e.sourceId) && ids.has(e.targetId))).toBe(true)
+    })
+
+    it('미분류 노트의 키워드: 최상위에 요약, /graph/topics/none에 키워드(topicId null)', async () => {
+      const root = (await level()) as Level & { unassigned?: { keywordCount: number } }
+      expect(root.unassigned?.keywordCount).toBe(2)
+      const none = await level('none')
+      expect(none.topics).toEqual([])
+      expect(none.keywords.map((k) => [k.label, k.topicId])).toEqual([
+        ['캐시', null],
+        ['TTL', null],
+      ])
+      const note = await call('GET', `/notes/${none.keywords[0].documents[0].noteId}`)
+      expect(note.data).toMatchObject({ title: '캐시 메모', topicId: null })
+    })
+
+    it('없는 주제는 404', async () => {
+      const r = await call('GET', '/graph/topics/nope')
+      expect(r.status).toBe(404)
+    })
   })
 })
