@@ -318,3 +318,80 @@ describe('노트 삭제', () => {
     expect(save).not.toHaveBeenCalled()
   })
 })
+
+describe('saveNow (추천 카드를 넣은 뒤 바로 저장, Issue #43)', () => {
+  it('기다리지 않고 저장하고, 저장되면 ok와 새 version으로 끝난다', async () => {
+    const { saver, calls, ok } = setup()
+    saver.edit({ body: '넣은 블록' })
+    const result = saver.saveNow()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].input).toMatchObject({ body: '넣은 블록', version: 3 })
+    await ok()
+    await expect(result).resolves.toEqual({ ok: true, version: 4 })
+  })
+
+  it('앞선 저장이 보내는 중이면 그 뒤 최신 내용까지 저장된 다음에 끝난다', async () => {
+    const { saver, calls, ok } = setup()
+    saver.edit({ body: 'a' })
+    saver.flush()
+    saver.edit({ body: 'a + 넣은 블록' })
+    let settled = false
+    const result = saver.saveNow().then((r) => {
+      settled = true
+      return r
+    })
+    await ok(0)
+    expect(settled).toBe(false)
+    expect(calls).toHaveLength(2)
+    expect(calls[1].input).toMatchObject({ body: 'a + 넣은 블록', version: 4 })
+    await ok(1)
+    await expect(result).resolves.toEqual({ ok: true, version: 5 })
+  })
+
+  it('NOTE_CONFLICT면 conflict로 끝나고 기존 충돌 상태가 된다', async () => {
+    const { saver, fail } = setup()
+    saver.edit({ body: '넣은 블록' })
+    const result = saver.saveNow()
+    await fail(conflict({ ...base, body: '다른 곳', version: 4 }))
+    await expect(result).resolves.toEqual({ ok: false, status: 'conflict' })
+    expect(saver.getState().status).toBe('conflict')
+  })
+
+  it('저장 실패(연결 등)면 error로 끝난다', async () => {
+    const { saver, fail } = setup()
+    saver.edit({ body: '넣은 블록' })
+    const result = saver.saveNow()
+    await fail(new ApiError('NETWORK_ERROR', '연결하지 못했습니다.', 0))
+    await expect(result).resolves.toEqual({ ok: false, status: 'error' })
+  })
+
+  it('로그인이 만료되면 login으로 끝난다', async () => {
+    const { saver, fail } = setup()
+    saver.edit({ body: '넣은 블록' })
+    const result = saver.saveNow()
+    await fail(new ApiError('UNAUTHENTICATED', '로그인이 필요합니다.', 401))
+    await expect(result).resolves.toEqual({ ok: false, status: 'login' })
+  })
+
+  it('이미 멈춰 있으면(충돌) 보내지 않고 바로 끝나며, canSave()는 false다', async () => {
+    const { saver, save, fail } = setup()
+    saver.edit({ body: 'a' })
+    saver.flush()
+    await fail(conflict({ ...base, version: 4 }))
+    expect(saver.canSave()).toBe(false)
+    save.mockClear()
+    saver.edit({ body: 'a + 넣은 블록' })
+    await expect(saver.saveNow()).resolves.toEqual({ ok: false, status: 'conflict' })
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('고치지 않은 잘못된 제목이면 invalid로 바로 끝난다', async () => {
+    const { saver, save } = setup()
+    saver.edit({ title: '' })
+    saver.flush()
+    expect(saver.getState().status).toBe('invalid')
+    expect(saver.canSave()).toBe(false)
+    await expect(saver.saveNow()).resolves.toEqual({ ok: false, status: 'invalid' })
+    expect(save).not.toHaveBeenCalled()
+  })
+})

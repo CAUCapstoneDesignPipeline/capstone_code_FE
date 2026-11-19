@@ -363,3 +363,33 @@ describe('리뷰 반영', () => {
     expect(d.marks).toEqual([])
   })
 })
+
+describe('노트에 넣은 추천 지식 (Issue #43, W3-22c)', () => {
+  it('첫 줄이 라벨인 인용은 지식 블록으로, 빈 인용 줄은 간격으로 그린다', () => {
+    const doc = [
+      '> **새로 이해한 지식**',
+      '>',
+      '> **결론**',
+      '>',
+      '> A · 문장 (노트)',
+      '',
+      '끝',
+    ].join('\n')
+    const { lines } = decorate(doc, 7)
+    expect(lines[1]).toBe('cm-lp-knowledge cm-lp-knowledge-label cm-lp-knowledge-top')
+    expect(lines[2]).toBe('cm-lp-knowledge cm-lp-knowledge-gap')
+    expect(lines[3]).toBe('cm-lp-knowledge cm-lp-knowledge-conclusion')
+    expect(lines[4]).toBe('cm-lp-knowledge cm-lp-knowledge-gap')
+    expect(lines[5]).toBe('cm-lp-knowledge cm-lp-knowledge-bottom')
+  })
+
+  it('다른 인용은 그대로 인용 모양이다', () => {
+    const { lines } = decorate('> 그냥 인용\n>\n> 둘째', 3)
+    expect(lines[1]).toBe('cm-lp-quote')
+  })
+
+  it('이스케이프한 기호는 \\를 숨기고 글자로 보인다', () => {
+    const { hidden } = decorate('> A · \\*\\*굵게 아님\\*\\*\n\n끝', 3)
+    expect(hidden.filter((h) => h === '\\')).toHaveLength(4)
+  })
+})

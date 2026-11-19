@@ -242,7 +242,99 @@ export function cardAfterAnswer(
   return (list[i + 1] ?? list[i - 1])?.id ?? null
 }
 
+/** 카드를 빼고 다음 카드로 넘길 때 필요한 덱의 부분 */
+interface DeckView {
+  cards: readonly Recommendation[]
+  currentId: string | null
+}
+
+/**
+ * 카드 id에 답할 때 볼 카드 (W3-10, 11/04: 응답 후 다음 카드로). 부르는 순간의 덱으로 정한다.
+ * 그 카드를 보고 있지 않았으면(그 사이 다른 카드로 넘겼으면) 보던 카드를 그대로 본다.
+ * 보고 있었으면 남은 카드(답이 확정된 카드는 뺀다) 중 같은 자리의 다음 카드, 마지막이면 앞 카드.
+ */
+export function viewAfterAnswer(
+  deck: DeckView,
+  id: string,
+  answers: Readonly<Record<string, RecommendationAnswer>>,
+): string | null {
+  if (deck.currentId !== null && deck.currentId !== id) return deck.currentId
+  const remaining = deck.cards.filter((r) => r.id === id || !isDone(answers[r.id]))
+  return cardAfterAnswer(remaining, id)
+}
+
+/**
+ * 답이 확정된(또는 409로 닫는) 카드를 덱에서 빼고, 그 카드를 보고 있었으면 다음 카드로 넘긴다.
+ * 답 버튼과 노트에 끌어다 놓기가 함께 쓴다. 부르는 순간의 덱으로 정한다(setQueryData의 updater 안에서 부른다).
+ */
+export function closeCard<D extends DeckView>(
+  deck: D,
+  id: string,
+  answers: Readonly<Record<string, RecommendationAnswer>>,
+): D {
+  return {
+    ...deck,
+    cards: removeRecommendation(deck.cards, id),
+    currentId: viewAfterAnswer(deck, id, answers),
+  }
+}
+
 /** 답을 보내지 못했을 때 (빠졌던 카드는 원래 자리로 돌아온다) */
 export const ANSWER_FAILED_TOAST = '답을 보내지 못했습니다. 카드를 다시 넣었습니다.'
 /** '이해가 안 됨'을 보내지 못했을 때. 카드가 빠지지 않았고 챗봇은 그대로 연다 */
 export const CONFUSED_FAILED_TOAST = '답을 보내지 못했습니다.'
+
+// --- 카드를 노트에 끌어다 놓기 (Issue #43, Figma W3-22a~c) ---
+// Figma에 있는 문구: DRAG_HINT, INSERTED_TOAST. 나머지는 Figma에 없어 기존 말투("…하지 못했습니다")를 따랐다.
+
+/** W3-22a Recommend/DragHint */
+export const DRAG_HINT = '카드를 노트로 끌어 놓으면 이해함으로 기록'
+
+/** W3-22c: 노트에 넣고 저장한 뒤 '이해함'까지 남겼을 때 */
+export const INSERTED_TOAST = '노트에 넣고 이해함으로 기록했어요'
+
+/** 저장이 멈춰 있어(제목 문제·충돌·삭제·로그인 만료) 노트에 넣지 않았을 때 */
+export const INSERT_BLOCKED_TOAST = '노트 저장이 멈춰 있어 카드를 넣지 않았습니다.'
+
+/** 노트에 넣었지만 저장하지 못해 '이해함'을 보내지 않았을 때 (충돌이면 편집기에 충돌 안내가 함께 뜬다) */
+export const INSERT_SAVE_FAILED_TOAST = "노트를 저장하지 못해 '이해함'으로 남기지 않았습니다."
+
+/** 노트에는 넣었지만 '이해함'이 409 RECOMMENDATION_STALE로 막혀 카드를 닫을 때 */
+export const INSERTED_STALE_TOAST =
+  "노트에는 넣었지만 근거가 바뀐 추천이라 '이해함'으로 남기지 못했습니다."
+
+/** 노트에는 넣었지만 '이해함'을 끝내 보내지 못했을 때 카드 위에 보인다 */
+export const UNRECORDED_NOTICE = {
+  title: "노트에는 넣었지만 '이해함'은 기록하지 못했습니다",
+  description: '다시 시도하면 노트에 다시 넣지 않고 답만 보냅니다.',
+}
+
+/** 노트에 넣었지만 저장하지 못했을 때 카드 위에 보인다. 다시 시도는 저장을 확인한 뒤에 '이해함'을 보낸다 */
+export const UNSAVED_NOTICE = {
+  title: '노트에는 넣었지만 아직 저장되지 않았어요',
+  description: "다시 시도하면 노트를 저장한 뒤 '이해함'을 보냅니다. 노트에 다시 넣지는 않습니다.",
+}
+
+/** 다시 시도할 때 넣은 노트가 열려 있지 않으면 저장을 확인할 수 없다 */
+export const OPEN_INSERTED_NOTE_TOAST = '카드를 넣은 노트를 연 뒤 다시 시도하세요.'
+
+/** 다시 보내기 간격 (Issue #43: 같은 요청을 다시 보낸다. 같은 답은 BE가 204로 받는다) */
+export const INSERT_ANSWER_RETRY_MS = [1000, 2000] as const
+
+/** 키보드로 넣을 자리를 고를 때 알리는 문장 */
+export function insertPlaceMessage(index: number, count: number, before: string | null): string {
+  const where =
+    before === null ? '맨 앞' : `'${before.length > 30 ? `${before.slice(0, 30)}…` : before}' 다음`
+  return `넣을 자리 ${index + 1}/${count}: ${where}`
+}
+
+/** 키보드 사용법 (끌기 손잡이의 설명) */
+export const DRAG_KEYBOARD_HELP =
+  'Space나 Enter로 카드를 집고, 위·아래 화살표로 넣을 자리를 고른 뒤 Enter로 넣습니다. Esc로 취소합니다.'
+
+/** 카드는 그 추천 패널의 노트에만 넣는다. 다른 노트가 열려 있을 때 카드의 툴팁 */
+export function insertOnlyIntoMessage(noteTitle: string): string {
+  return noteTitle
+    ? `이 추천은 '${noteTitle}' 노트에만 넣을 수 있습니다.`
+    : '이 추천은 추천을 받은 노트에만 넣을 수 있습니다.'
+}

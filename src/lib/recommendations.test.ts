@@ -9,7 +9,10 @@ import {
   FRESHNESS_NOTICE,
   viewingIndex,
   cardAfterAnswer,
+  closeCard,
   currentIndex,
+  insertOnlyIntoMessage,
+  viewAfterAnswer,
   mergeRecommendations,
   newRecommendationsToast,
   remainingRecommendations,
@@ -401,5 +404,46 @@ describe('근거가 바뀐 카드 (stale · evidence_lost, 11/04 회의)', () =>
     expect(FRESHNESS_NOTICE.stale?.title).toBe('근거가 바뀌었습니다')
     expect(FRESHNESS_NOTICE.evidence_lost?.title).toBe('근거 문장이 삭제되었습니다')
     expect(FRESHNESS_NOTICE.current).toBeUndefined()
+  })
+})
+
+describe('카드를 빼고 다음 카드로 (답 버튼과 노트에 넣기가 함께 씀, Issue #43)', () => {
+  const deck = (cards: Recommendation[], currentId: string | null) => ({
+    cards,
+    currentId,
+    jobId: 'j',
+  })
+
+  it('보고 있던 카드를 닫으면 같은 자리의 다음 카드, 마지막이면 앞 카드를 본다', () => {
+    const d = deck([rec('a'), rec('b'), rec('c')], 'b')
+    expect(closeCard(d, 'b', {})).toEqual({ ...d, cards: [rec('a'), rec('c')], currentId: 'c' })
+    expect(closeCard(deck([rec('a'), rec('b')], 'b'), 'b', {}).currentId).toBe('a')
+    expect(closeCard(deck([rec('a')], 'a'), 'a', {}).currentId).toBeNull()
+  })
+
+  it('그 사이 다른 카드로 넘겼으면 보던 카드를 그대로 본다 (완료 시점의 덱으로 정한다)', () => {
+    // 카드 a를 노트에 넣고 저장을 기다리는 사이 c로 넘겼다
+    const d = deck([rec('a'), rec('b'), rec('c')], 'c')
+    expect(viewAfterAnswer(d, 'a', {})).toBe('c')
+    expect(closeCard(d, 'a', {})).toMatchObject({ cards: [rec('b'), rec('c')], currentId: 'c' })
+  })
+
+  it('다음 카드는 완료 시점의 카드로 고른다 (그 사이 합쳐진 카드·답한 카드 반영)', () => {
+    // 넣을 때는 [a, b]였지만, 저장이 끝날 때는 b에 답했고 새 카드 n이 합쳐져 있다
+    const d = deck([rec('a'), rec('b'), rec('n')], 'a')
+    expect(viewAfterAnswer(d, 'a', { b: 'known' })).toBe('n')
+  })
+
+  it('보고 있는 카드가 정해지지 않았으면(null) 닫는 카드를 보고 있던 것으로 본다', () => {
+    expect(viewAfterAnswer(deck([rec('a'), rec('b')], null), 'a', {})).toBe('b')
+  })
+})
+
+describe('다른 노트에 넣을 수 없을 때 툴팁', () => {
+  it('추천 패널의 노트 제목을 알린다', () => {
+    expect(insertOnlyIntoMessage('재시도 정책')).toBe(
+      "이 추천은 '재시도 정책' 노트에만 넣을 수 있습니다.",
+    )
+    expect(insertOnlyIntoMessage('')).toBe('이 추천은 추천을 받은 노트에만 넣을 수 있습니다.')
   })
 })

@@ -27,6 +27,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view'
 import type { SyntaxNode, Tree } from '@lezer/common'
+import { INSERTED_KNOWLEDGE_FIRST_LINE } from '../../lib/insertedKnowledge'
 import { MathWidget, mathSource } from './mathPreview'
 
 /** 열어도 되는 링크 주소 */
@@ -176,6 +177,23 @@ const bullet = Decoration.replace({ widget: new BulletWidget() })
 const checkbox = (checked: boolean) => Decoration.replace({ widget: new CheckboxWidget(checked) })
 const mark = (cls: string) => Decoration.mark({ class: cls })
 const line = (cls: string) => Decoration.line({ class: cls })
+
+/** 빈 인용 줄 (`>`만 있는 줄). 넣은 추천 지식 블록에서 줄을 나누는 데 쓴다 */
+const EMPTY_QUOTE_LINE = /^\s*>\s*$/
+
+/**
+ * 넣은 추천 지식 블록의 한 줄. i는 빈 인용 줄을 뺀 순번 (0: 라벨, 1: 결론, 그 뒤: A·B·외부 지식·URL).
+ * 빈 인용 줄(gap)은 줄 사이를 좁게 띄우기만 한다.
+ */
+function knowledgeLineClass(i: number, gap: boolean, isFirst: boolean, isLast: boolean): string {
+  const classes = ['cm-lp-knowledge']
+  if (gap) classes.push('cm-lp-knowledge-gap')
+  else if (i === 0) classes.push('cm-lp-knowledge-label')
+  else if (i === 1) classes.push('cm-lp-knowledge-conclusion')
+  if (isFirst) classes.push('cm-lp-knowledge-top')
+  if (isLast) classes.push('cm-lp-knowledge-bottom')
+  return classes.join(' ')
+}
 
 const INLINE_MARKS: Record<string, string> = {
   StrongEmphasis: 'cm-lp-strong',
@@ -357,13 +375,24 @@ export function buildDecorations(
         case 'QuoteMark':
           replaceBlockMark(node.from, node.to)
           return
-        case 'Blockquote':
+        case 'Blockquote': {
+          // 추천 카드를 넣은 블록(첫 줄이 "**새로 이해한 지식**")은 W3-22c 모양으로 (Issue #43)
+          const first = doc.lineAt(node.from)
+          const last = doc.lineAt(node.to)
+          const knowledge = INSERTED_KNOWLEDGE_FIRST_LINE.test(first.text)
+          let row = 0
           for (let pos = node.from; pos <= node.to;) {
             const l = doc.lineAt(pos)
-            decos.push(line('cm-lp-quote').range(l.from))
+            const gap = EMPTY_QUOTE_LINE.test(l.text)
+            const cls = knowledge
+              ? knowledgeLineClass(row, gap, l.number === first.number, l.number === last.number)
+              : 'cm-lp-quote'
+            decos.push(line(cls).range(l.from))
+            if (!gap) row++
             pos = l.to + 1
           }
           return
+        }
         case 'HorizontalRule': {
           // `---`은 구분선으로. 커서가 그 줄에 오면 원문
           const l = doc.lineAt(node.from)
