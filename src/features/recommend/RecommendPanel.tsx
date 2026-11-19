@@ -1,5 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState, type Ref } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+  type KeyboardEvent,
+  type Ref,
+} from 'react'
 import { flushSync } from 'react-dom'
 import {
   isRecommendationAnswered,
@@ -26,23 +36,46 @@ import {
   ALREADY_ANSWERED_TOAST,
   ANSWER_FAILED_TOAST,
   ANSWER_TOAST,
-  cardAfterAnswer,
+  closeCard,
   CONFUSED_FAILED_TOAST,
+  DRAG_HINT,
+  DRAG_KEYBOARD_HELP,
+  INSERT_ANSWER_RETRY_MS,
+  INSERT_BLOCKED_TOAST,
+  INSERT_SAVE_FAILED_TOAST,
+  INSERTED_STALE_TOAST,
+  INSERTED_TOAST,
+  insertOnlyIntoMessage,
+  insertPlaceMessage,
+  OPEN_INSERTED_NOTE_TOAST,
+  UNRECORDED_NOTICE,
+  UNSAVED_NOTICE,
   mergeRecommendations,
   isAnswerable,
   leaveRecommendation,
   markStale,
   mergeToast,
-  removeRecommendation,
   STALE_ANSWER_TOAST,
   FRESHNESS_NOTICE,
   splitRecommendations,
+  viewAfterAnswer,
   viewingIndex,
   type RecommendationAnswer,
 } from '../../lib/recommendations'
+import { insertedKnowledgeMarkdown } from '../../lib/insertedKnowledge'
+import { RECOMMENDATION_DRAG_TYPE } from '../editor/recommendDrop'
 import { StatusPill } from '../editor/StatusPill'
 import { ChatView } from './ChatView'
 import styles from './RecommendPanel.module.css'
+import { useInsertBridge, useInsertTarget } from './insertBridge'
+import {
+  canInsertInto,
+  InsertFlow,
+  type AnswerResult,
+  type InsertResult,
+  type PendingInsert,
+} from './insertFlow'
+import { livePicking, type Picking } from './keyboardPick'
 import { useChatSession } from './useChatSession'
 
 interface Props {
@@ -58,9 +91,11 @@ interface Props {
   collapseRef?: Ref<HTMLButtonElement>
 }
 
-/** 추천을 읽고 고르는 답 (Figma W3-02 Recommend/Actions) */
+/**
+ * 추천을 읽고 고르는 답 (Figma W3-22a Recommend/Actions).
+ * '이해함'은 버튼이 없다. 카드를 노트에 끌어다 놓으면(또는 키보드로 넣으면) 이해함이다 (Issue #43, 11/18 회의).
+ */
 const RESPONSES: { id: RecommendationAnswer; label: string; variant: 'primary' | 'secondary' }[] = [
-  { id: 'understood', label: '이해함', variant: 'primary' },
   { id: 'known', label: '알고 있던 내용', variant: 'secondary' },
   { id: 'confused', label: '이해가 안 됨', variant: 'secondary' },
 ]
@@ -71,6 +106,7 @@ const RESPONSES: { id: RecommendationAnswer; label: string; variant: 'primary' |
  * 카드는 노트별로 쌓인다 (11/04 회의). 다시 분석하는 동안에도 쌓인 카드를 그대로 두고 헤더 아래에 "분석 중"을 띄우며(W3-16),
  * 끝나면 새 추천을 합친다. 순서는 기본은 BE 순서, 단 지금 보고 있는 카드와 그 앞은 고정, 최대 5장 (mergeRecommendations).
  * '이해함'·'알고 있던 내용'으로 답하면 카드를 빼고 다음 카드로, 마지막이면 "추천을 모두 확인했습니다"(W3-10·11).
+ * '이해함'은 카드를 노트의 블록 사이에 놓아 남긴다(W3-22): 넣고 저장(PUT) → 성공하면 feedback(understood).
  * "이해가 안 됨"을 고르면 같은 패널에서 챗봇이 쉽게 풀어 준다(W3-03).
  */
 export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, collapseRef }: Props) {
@@ -78,7 +114,7 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
   const off = capabilities?.discoveriesEnabled === false
   const job = useRecommendations(off ? null : noteId)
   const noteTitle = useNote(noteId ?? '', noteId !== null).data?.title ?? ''
-  const { answers, sending, answer } = useRecommendationAnswers()
+  const { answers, sending, answer, readAnswers } = useRecommendationAnswers()
   const toast = useToast()
   const { deck, update, read } = useRecommendationDeck(off ? null : noteId)
   const completedJob = job.data?.status === 'completed' ? job.data : null
@@ -161,19 +197,19 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
 
   /** 답하면 이 카드는 빠지고 같은 자리에 다음 카드가 온다. '이해가 안 됨'은 카드를 남기고 챗봇으로 */
   function respond(id: RecommendationAnswer) {
-    // 막힌 카드(stale·evidence_lost)에는 답하지 않는다 (버튼도 막혀 있다)
-    if (!current || !isAnswerable(current)) return
+    // 막힌 카드(stale·evidence_lost)와 노트에 넣는 중인 카드에는 답하지 않는다 (버튼도 막혀 있다)
+    if (!current || !isAnswerable(current) || flow.isWorking(current.id)) return
     const message = ANSWER_TOAST[id]
+    const answeredId = current.id
     // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (W3-10)
     // 보이는 카드의 마지막이었으면 그 자리에 붙는 대기 카드를 본다
-    if (id !== 'confused') show(cardAfterAnswer([...list, ...waiting], current.id))
-    const answeredId = current.id
+    if (id !== 'confused') {
+      update((d) => ({ ...d, currentId: viewAfterAnswer(d, answeredId, readAnswers()) }))
+    }
     answer(answeredId, id).then(
       () => {
         // 확정된 답의 카드는 쌓인 카드에서 뺀다. 전송 중에는 남겨 두어(화면에선 숨김) 실패하면 제자리로 돌아온다
-        if (id !== 'confused') {
-          update((d) => ({ ...d, cards: removeRecommendation(d.cards, answeredId) }))
-        }
+        if (id !== 'confused') update((d) => closeCard(d, answeredId, readAnswers()))
         if (message) toast('info', message)
       },
       (e: unknown) => {
@@ -188,12 +224,7 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
         // 409 REVIEW_CONFLICT: 다른 창 등에서 이미 최종 답을 남긴 추천이다. 답한 카드로 보고 뺀다.
         // '이해가 안 됨'으로 챗봇에 넘어갔으면 추천으로 돌아와 다음 카드를 본다.
         if (isRecommendationAnswered(e)) {
-          update((d) => {
-            const cards = removeRecommendation(d.cards, answeredId)
-            const next =
-              d.currentId === answeredId ? cardAfterAnswer(d.cards, answeredId) : d.currentId
-            return { ...d, cards, currentId: next }
-          })
+          update((d) => closeCard(d, answeredId, readAnswers()))
           if (id === 'confused') setView('recommend')
           toast('info', ALREADY_ANSWERED_TOAST)
           return
@@ -205,6 +236,136 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
     if (id !== 'confused') return
     chat.open(answeredId)
     switchView('chat')
+  }
+
+  // --- 노트에 끌어다 놓기 (Issue #43) ---
+  const bridge = useInsertBridge()
+  const insertTarget = useInsertTarget(bridge)
+  /** 마우스로 끌고 있는 카드 (W3-22b: 패널의 카드를 흐리게) */
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  /** 키보드로 넣을 자리를 고르는 중. 보이는 카드나 열린 노트가 바뀌면 취소된 것으로 본다 (livePicking) */
+  const [pickingState, setPicking] = useState<Picking | null>(null)
+  const [announcement, setAnnouncement] = useState('')
+
+  /**
+   * 노트에 넣은 카드를 '이해함'으로 남긴다. 같은 요청을 몇 번 다시 보내고(INSERT_ANSWER_RETRY_MS),
+   * 그래도 못 보내면 카드를 되돌린다(failed). 409는 알리고 카드를 닫는다(closed).
+   */
+  function recordUnderstood(id: string): Promise<AnswerResult> {
+    // 카드가 빠지면 같은 자리에 오는 다음 카드를 본다 (11/04: 응답 후 다음 카드로).
+    // 저장을 기다리는 사이 다른 카드로 넘겼을 수 있으므로 지금(저장이 끝난 시점)의 덱으로 정한다
+    update((d) => ({ ...d, currentId: viewAfterAnswer(d, id, readAnswers()) }))
+    return answer(id, 'understood', { retryDelaysMs: INSERT_ANSWER_RETRY_MS }).then(
+      () => {
+        update((d) => closeCard(d, id, readAnswers()))
+        toast('info', INSERTED_TOAST)
+        return 'answered' as const
+      },
+      (e: unknown) => {
+        // 근거가 바뀐 추천(RECOMMENDATION_STALE)·이미 답한 추천(REVIEW_CONFLICT): 알리고 카드를 닫는다
+        if (isRecommendationStale(e) || isRecommendationAnswered(e)) {
+          update((d) => closeCard(d, id, readAnswers()))
+          toast('info', isRecommendationStale(e) ? INSERTED_STALE_TOAST : ALREADY_ANSWERED_TOAST)
+          return 'closed' as const
+        }
+        // 그 밖의 실패: 카드는 제자리로 돌아온다. 노트에는 들어갔으므로 다시 넣지 않고 답만 다시 보내게 한다
+        show(id)
+        toast('error', UNRECORDED_NOTICE.title)
+        return 'failed' as const
+      },
+    )
+  }
+  /** 넣기 → 저장 → '이해함' 순서와, 카드마다 어디서 멈췄는지 (insertFlow.ts) */
+  const [flow] = useState(() => new InsertFlow())
+  useLayoutEffect(() => {
+    flow.connect({ getTarget: () => bridge?.getTarget() ?? null, answer: recordUnderstood })
+  })
+  const pendingInserts = useSyncExternalStore(flow.subscribe, flow.getPending)
+
+  /** 넣기·다시 시도의 결과를 알린다 ('이해함'의 결과는 recordUnderstood가 알린다) */
+  function notify(result: InsertResult) {
+    if (result === 'blocked') toast('error', INSERT_BLOCKED_TOAST)
+    // 충돌이면 편집기가 기존 충돌 안내도 띄운다
+    else if (result === 'conflict') toast('error', INSERT_SAVE_FAILED_TOAST)
+    else if (result === 'unsaved') toast('error', UNSAVED_NOTICE.title)
+    else if (result === 'other-note') toast('error', OPEN_INSERTED_NOTE_TOAST)
+  }
+
+  /** 카드를 노트의 자리 pos에 넣고 저장한 뒤, 성공하면 '이해함'으로 남긴다. 이 패널의 노트에만 넣는다 */
+  async function insertCard(id: string, pos: number) {
+    const card = list.find((r) => r.id === id)
+    if (!card || !isAnswerable(card)) return
+    notify(await flow.insert(id, insertedKnowledgeMarkdown(card), pos, noteId))
+  }
+  /** 열린 노트가 이 패널의 노트인지 (카드는 그 노트에만 넣는다) */
+  const insertable = canInsertInto(insertTarget, noteId)
+
+  // 편집기에 카드를 놓으면 부른다. 최신 목록으로 처리하도록 렌더마다 바꿔 둔다
+  const insertCardRef = useRef(insertCard)
+  useLayoutEffect(() => {
+    insertCardRef.current = insertCard
+  })
+  useEffect(() => {
+    if (!bridge) return
+    bridge.setDropHandler((id, pos) => void insertCardRef.current(id, pos))
+    return () => bridge.setDropHandler(null)
+  }, [bridge])
+
+  const picking = livePicking(pickingState, current?.id ?? null, insertTarget, noteId)
+  // 보이는 카드나 열린 노트가 바뀌어 고르기가 취소되면: 고르기를 지우고(렌더 중 조정), 고르던 편집기의 표시선을 지운다
+  const [cancelledPicking, setCancelledPicking] = useState<Picking | null>(null)
+  if (pickingState !== null && picking === null) {
+    setPicking(null)
+    setCancelledPicking(pickingState)
+  }
+  useEffect(() => {
+    cancelledPicking?.target.showIndicator(null)
+  }, [cancelledPicking])
+
+  /** 키보드로 고르던 자리를 지운다 */
+  function stopPicking() {
+    if (!picking) return
+    setPicking(null)
+    picking.target.showIndicator(null)
+  }
+
+  /** 키보드로 넣을 자리를 i번째로 옮겨 보이고 알린다 */
+  function pickAt(id: string, i: number) {
+    if (!insertTarget || !insertable) return
+    const boundaries = insertTarget.boundaries()
+    if (boundaries.length === 0) return
+    const index = Math.max(0, Math.min(boundaries.length - 1, i))
+    const pos = boundaries[index]
+    setPicking({ id, index, target: insertTarget })
+    insertTarget.showIndicator(pos, true)
+    setAnnouncement(insertPlaceMessage(index, boundaries.length, insertTarget.describe(pos)))
+  }
+
+  /** W3-22 끌기 손잡이의 키보드: Space·Enter로 집고 ↑↓로 자리를 고른 뒤 Enter로 넣는다. Esc로 취소 */
+  function onHandleKeyDown(e: KeyboardEvent<HTMLButtonElement>, id: string) {
+    if (!insertTarget || !insertable) return
+    const boundaries = insertTarget.boundaries()
+    if (!picking || picking.id !== id) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault()
+        // 처음에는 노트 끝에 둔다
+        pickAt(id, boundaries.length - 1)
+      }
+      return
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      pickAt(id, picking.index + (e.key === 'ArrowUp' ? -1 : 1))
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      const pos = boundaries[picking.index]
+      stopPicking()
+      if (pos !== undefined) void insertCard(id, pos)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      stopPicking()
+      setAnnouncement('취소했습니다.')
+    }
   }
 
   // 챗봇은 보고 있는 카드의 대화가 있을 때만 보인다
@@ -279,6 +440,29 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
         <RecommendView
           recommendation={current}
           onRespond={respond}
+          insert={{
+            available: insertable && !pendingInserts.has(current.id),
+            // 다른 노트가 열려 있으면 그 노트에는 넣을 수 없다. 카드에 이유를 툴팁으로 보인다
+            unavailableReason:
+              insertTarget && !insertable ? insertOnlyIntoMessage(noteTitle) : null,
+            dragging: draggingId === current.id || picking?.id === current.id,
+            picking: picking?.id === current.id,
+            pending: pendingInserts.get(current.id)?.kind ?? null,
+            onDragStart: (e) => {
+              e.dataTransfer.setData(RECOMMENDATION_DRAG_TYPE, current.id)
+              e.dataTransfer.effectAllowed = 'copy'
+              setDragImage(e)
+              setDraggingId(current.id)
+              bridge?.setDragSource(noteId)
+            },
+            onDragEnd: () => {
+              setDraggingId(null)
+              bridge?.setDragSource(null)
+            },
+            onHandleKeyDown: (e) => onHandleKeyDown(e, current.id),
+            onHandleBlur: stopPicking,
+            onRetry: () => void flow.retry(current.id).then(notify),
+          }}
           shownEvidence={shownEvidence}
           onOpenEvidence={(side, evidence) => {
             setShownEvidence(`${current.id}:${side}`)
@@ -294,6 +478,10 @@ export function RecommendPanel({ noteId, hidden, onOpenEvidence, onCollapse, col
       ) : (
         <Empty off={off} />
       )}
+      {/* 키보드로 넣을 자리를 고를 때 화면 읽기 프로그램에 알린다 */}
+      <p className={styles.srOnly} role="status" aria-live="polite">
+        {announcement}
+      </p>
     </aside>
   )
 }
@@ -369,15 +557,49 @@ function AllAnswered() {
   )
 }
 
+/** 카드를 노트에 넣기 (W3-22). 끌기와 키보드 */
+interface InsertControls {
+  /** 이 패널의 노트가 열려 있고, 넣는 중이거나 이미 넣은 카드가 아니다 */
+  available: boolean
+  /** 넣을 수 없는 이유 (다른 노트가 열려 있음). 카드에 툴팁으로 보인다 */
+  unavailableReason: string | null
+  /** 끌거나 키보드로 집고 있다 (W3-22b: 패널의 카드를 흐리게) */
+  dragging: boolean
+  /** 키보드로 자리를 고르는 중 */
+  picking: boolean
+  /**
+   * 넣기가 끝나지 않았다: 진행 중(working, 답 버튼도 막는다), 저장이 안 됨(unsaved), '이해함'을 보내지 못함(unanswered)
+   */
+  pending: PendingInsert['kind'] | null
+  onDragStart: (e: DragEvent<HTMLDivElement>) => void
+  onDragEnd: () => void
+  onHandleKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
+  onHandleBlur: () => void
+  onRetry: () => void
+}
+
+/** 끌 때 보이는 카드 (W3-22b DragGhost): 카드를 복제해 테두리·그림자를 입힌다 */
+function setDragImage(e: DragEvent<HTMLDivElement>) {
+  const ghost = e.currentTarget.cloneNode(true) as HTMLElement
+  ghost.classList.add(styles.dragGhost)
+  ghost.style.width = `${e.currentTarget.offsetWidth}px`
+  document.body.append(ghost)
+  e.dataTransfer.setDragImage(ghost, 16, 16)
+  // 끌기 그림을 만든 뒤에는 필요 없다
+  setTimeout(() => ghost.remove(), 0)
+}
+
 /** Figma W3-02 Recommend/Body + Actions: 근거 A·B와 외부 지식을 이어 결론을 보이고 답을 받는다 */
 function RecommendView({
   recommendation,
   onRespond,
+  insert,
   shownEvidence,
   onOpenEvidence,
 }: {
   recommendation: Recommendation
   onRespond: (id: RecommendationAnswer) => void
+  insert: InsertControls
   shownEvidence: string | null
   onOpenEvidence: (side: 'a' | 'b', evidence: RecommendationEvidence) => void
 }) {
@@ -385,10 +607,63 @@ function RecommendView({
   // 근거가 바뀌었거나(stale) 지워진(evidence_lost) 카드: 카드 위에 알리고 답 버튼을 모두 막는다 (11/04 회의)
   const notice = FRESHNESS_NOTICE[recommendation.freshness]
   const locked = !isAnswerable(recommendation)
+  const draggable = !locked && insert.available
+  const helpId = useId()
+  // 노트에 넣었지만 끝나지 않은 카드: 카드 위에 알리고 "다시 시도"만 할 수 있다
+  const stuck = insert.pending === 'unsaved' || insert.pending === 'unanswered'
+  // 넣기·저장·'이해함'이 진행 중이면 다른 답 버튼도 막는다 (known이 먼저 기록되지 않게)
+  const working = insert.pending === 'working'
+  const bodyClass = [
+    styles.body,
+    !locked && !stuck ? styles.card : '',
+    insert.dragging ? styles.dragging : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
   return (
     <>
-      <div className={styles.body}>
+      <div
+        className={bodyClass}
+        title={insert.unavailableReason ?? undefined}
+        draggable={draggable}
+        onDragStart={draggable ? insert.onDragStart : undefined}
+        onDragEnd={insert.onDragEnd}
+      >
         {notice && <Banner kind="alert" title={notice.title} description={notice.description} />}
+        {!locked && stuck && (
+          <Banner
+            kind="alert"
+            title={(insert.pending === 'unsaved' ? UNSAVED_NOTICE : UNRECORDED_NOTICE).title}
+            description={
+              (insert.pending === 'unsaved' ? UNSAVED_NOTICE : UNRECORDED_NOTICE).description
+            }
+            action={
+              <Button variant="secondary" onClick={insert.onRetry}>
+                다시 시도
+              </Button>
+            }
+          />
+        )}
+        {!locked && !stuck && (
+          <>
+            {/* W3-22a Recommend/DragHint. 키보드로는 여기서 집어 넣는다 */}
+            <button
+              type="button"
+              className={styles.dragHint}
+              disabled={!insert.available}
+              aria-pressed={insert.picking}
+              aria-describedby={helpId}
+              onKeyDown={insert.onHandleKeyDown}
+              onBlur={insert.onHandleBlur}
+            >
+              <Icon name="drag" className={styles.dragIcon} />
+              {DRAG_HINT}
+            </button>
+            <span id={helpId} className={styles.srOnly}>
+              {insert.unavailableReason ?? DRAG_KEYBOARD_HELP}
+            </span>
+          </>
+        )}
         <section className={styles.evidenceList} aria-label="근거">
           <NoteEvidence
             label="A"
@@ -430,7 +705,7 @@ function RecommendView({
               key={r.id}
               variant={r.variant}
               className={styles.action}
-              disabled={locked}
+              disabled={locked || working}
               onClick={() => onRespond(r.id)}
             >
               {r.label}

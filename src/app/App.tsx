@@ -13,6 +13,7 @@ import {
 } from '../data/queries'
 import type { LeaveGuard } from '../features/editor/NoteEditor'
 import { NotePane, type EvidenceRequest } from '../features/note/NotePane'
+import { InsertBridge, InsertBridgeContext } from '../features/recommend/insertBridge'
 import { RecommendPanel } from '../features/recommend/RecommendPanel'
 import { Sidebar } from '../features/sidebar/Sidebar'
 import { splitRecommendations } from '../lib/recommendations'
@@ -51,6 +52,8 @@ export function App() {
   // AI 기능 여부를 처음에 받아 둔다. 노트를 열 때 패널이 이것을 기다리지 않게 한다.
   useCapabilities()
   const toast = useToast()
+  // 추천 카드를 노트에 끌어다 놓기: 패널과 열린 편집기를 잇는다 (Issue #43)
+  const [insertBridge] = useState(() => new InsertBridge())
   const leaveGuard = useRef<LeaveGuard | null>(null)
   const registerLeaveGuard = useCallback((guard: LeaveGuard | null) => {
     leaveGuard.current = guard
@@ -118,116 +121,118 @@ export function App() {
   }
 
   return (
-    <div
-      className={[
-        styles.app,
-        sidebarCollapsed && styles.sidebarCollapsed,
-        panelHidden && styles.panelHidden,
-        panelCollapsed && !graphOpen && styles.panelExpandable,
-      ]
-        .filter(Boolean)
-        .join(' ')}
-    >
-      {/* 접어도 내리지 않고 숨긴다. 검색어·펼친 주제가 그대로 남는다. */}
-      <aside className={styles.sidebar} hidden={sidebarCollapsed}>
-        <Sidebar
-          selectedNoteId={selectedNoteId}
-          graphOpen={graphOpen}
-          onOpenGraph={() => go({ kind: 'graph' })}
-          onSelectNote={selectNote}
-          addingTopic={addingTopic}
-          onAddingTopicChange={setAddingTopic}
-          onCreateNote={createNoteIn}
-          creatingNote={createNote.isPending}
-          onCollapse={() => setSidebarCollapsed(true)}
-          collapseRef={collapseSidebarRef}
-        />
-      </aside>
-      <main className={styles.main}>
-        {sidebarCollapsed && (
-          <PanelToggleButton
-            ref={expandSidebarRef}
-            icon="panel-left-open"
-            label="사이드바 펼치기"
-            className={`${styles.expandButton} ${styles.expandSidebar}`}
-            onClick={() => setSidebarCollapsed(false)}
+    <InsertBridgeContext.Provider value={insertBridge}>
+      <div
+        className={[
+          styles.app,
+          sidebarCollapsed && styles.sidebarCollapsed,
+          panelHidden && styles.panelHidden,
+          panelCollapsed && !graphOpen && styles.panelExpandable,
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {/* 접어도 내리지 않고 숨긴다. 검색어·펼친 주제가 그대로 남는다. */}
+        <aside className={styles.sidebar} hidden={sidebarCollapsed}>
+          <Sidebar
+            selectedNoteId={selectedNoteId}
+            graphOpen={graphOpen}
+            onOpenGraph={() => go({ kind: 'graph' })}
+            onSelectNote={selectNote}
+            addingTopic={addingTopic}
+            onAddingTopicChange={setAddingTopic}
+            onCreateNote={createNoteIn}
+            creatingNote={createNote.isPending}
+            onCollapse={() => setSidebarCollapsed(true)}
+            collapseRef={collapseSidebarRef}
           />
-        )}
-        {panelCollapsed && !graphOpen && (
-          <PanelToggleButton
-            ref={expandPanelRef}
-            icon="panel-right-open"
-            label={
-              newRecommendations > 0
-                ? `패널 펼치기 · 새 추천 ${newRecommendations}개`
-                : '패널 펼치기'
-            }
-            className={`${styles.expandButton} ${styles.expandPanel}`}
-            onClick={() => setPanelCollapsed(false)}
+        </aside>
+        <main className={styles.main}>
+          {sidebarCollapsed && (
+            <PanelToggleButton
+              ref={expandSidebarRef}
+              icon="panel-left-open"
+              label="사이드바 펼치기"
+              className={`${styles.expandButton} ${styles.expandSidebar}`}
+              onClick={() => setSidebarCollapsed(false)}
+            />
+          )}
+          {panelCollapsed && !graphOpen && (
+            <PanelToggleButton
+              ref={expandPanelRef}
+              icon="panel-right-open"
+              label={
+                newRecommendations > 0
+                  ? `패널 펼치기 · 새 추천 ${newRecommendations}개`
+                  : '패널 펼치기'
+              }
+              className={`${styles.expandButton} ${styles.expandPanel}`}
+              onClick={() => setPanelCollapsed(false)}
+            />
+          )}
+          {panelCollapsed && !graphOpen && newRecommendations > 0 && (
+            <span className={styles.expandBadge} aria-hidden>
+              {newRecommendations}
+            </span>
+          )}
+          {graphOpen ? (
+            // 그래프 화면 파일을 못 받으면(오프라인, 새 배포로 옛 파일이 사라짐) 앱 전체 대신 이 자리만 알린다.
+            <ErrorBoundary
+              fallback={
+                <div className={styles.notice} role="alert">
+                  <p>그래프 화면을 불러오지 못했습니다. 인터넷 연결을 확인하고 새로 고침하세요.</p>
+                  <Button variant="secondary" onClick={() => window.location.reload()}>
+                    새로 고침
+                  </Button>
+                </div>
+              }
+            >
+              <Suspense fallback={<p className={styles.notice}>불러오는 중…</p>}>
+                <GraphView onOpenNote={selectNote} />
+              </Suspense>
+            </ErrorBoundary>
+          ) : (
+            <NotePane
+              noteId={selectedNoteId}
+              evidenceRequest={
+                evidenceRequest?.evidence.noteId === selectedNoteId ? evidenceRequest : null
+              }
+              registerLeaveGuard={registerLeaveGuard}
+              onCreateNote={() => createNoteIn(null)}
+              onCreateTopic={() => setAddingTopic(true)}
+              onNoteGone={clearSelection}
+            />
+          )}
+        </main>
+        {/* 노트를 열지 않아도 보인다. 그래프 화면에서는 숨긴다 (W3-13). 숨겨도 내리지 않아 챗봇 대화가 남는다. */}
+        <div className={styles.panel} hidden={panelHidden}>
+          <RecommendPanel
+            noteId={graphOpen ? null : panelNoteId}
+            hidden={panelHidden}
+            onOpenEvidence={openEvidence}
+            onCollapse={() => setPanelCollapsed(true)}
+            collapseRef={collapsePanelRef}
           />
-        )}
-        {panelCollapsed && !graphOpen && newRecommendations > 0 && (
-          <span className={styles.expandBadge} aria-hidden>
-            {newRecommendations}
-          </span>
-        )}
-        {graphOpen ? (
-          // 그래프 화면 파일을 못 받으면(오프라인, 새 배포로 옛 파일이 사라짐) 앱 전체 대신 이 자리만 알린다.
-          <ErrorBoundary
-            fallback={
-              <div className={styles.notice} role="alert">
-                <p>그래프 화면을 불러오지 못했습니다. 인터넷 연결을 확인하고 새로 고침하세요.</p>
-                <Button variant="secondary" onClick={() => window.location.reload()}>
-                  새로 고침
-                </Button>
-              </div>
-            }
-          >
-            <Suspense fallback={<p className={styles.notice}>불러오는 중…</p>}>
-              <GraphView onOpenNote={selectNote} />
-            </Suspense>
-          </ErrorBoundary>
-        ) : (
-          <NotePane
-            noteId={selectedNoteId}
-            evidenceRequest={
-              evidenceRequest?.evidence.noteId === selectedNoteId ? evidenceRequest : null
-            }
-            registerLeaveGuard={registerLeaveGuard}
-            onCreateNote={() => createNoteIn(null)}
-            onCreateTopic={() => setAddingTopic(true)}
-            onNoteGone={clearSelection}
-          />
-        )}
-      </main>
-      {/* 노트를 열지 않아도 보인다. 그래프 화면에서는 숨긴다 (W3-13). 숨겨도 내리지 않아 챗봇 대화가 남는다. */}
-      <div className={styles.panel} hidden={panelHidden}>
-        <RecommendPanel
-          noteId={graphOpen ? null : panelNoteId}
-          hidden={panelHidden}
-          onOpenEvidence={openEvidence}
-          onCollapse={() => setPanelCollapsed(true)}
-          collapseRef={collapsePanelRef}
-        />
-      </div>
+        </div>
 
-      {leaving && (
-        <ConfirmDialog
-          title="저장되지 않은 내용이 있습니다"
-          description={`${leaving.reason} ${leaving.to.kind === 'graph' ? '그래프로' : '다른 노트로'} 옮기면 이 노트에서 고친 내용이 사라집니다. 필요한 내용은 복사해 두세요.`}
-          confirmLabel="버리고 이동"
-          cancelLabel="계속 편집"
-          onCancel={() => {
-            // 근거로 이동하려다 취소했으면 그 근거도 잊는다 (나중에 그 노트를 열 때 강조하지 않게)
-            setEvidenceRequest(null)
-            setLeaving(null)
-          }}
-          onConfirm={() => {
-            show(leaving.to)
-            setLeaving(null)
-          }}
-        />
-      )}
-    </div>
+        {leaving && (
+          <ConfirmDialog
+            title="저장되지 않은 내용이 있습니다"
+            description={`${leaving.reason} ${leaving.to.kind === 'graph' ? '그래프로' : '다른 노트로'} 옮기면 이 노트에서 고친 내용이 사라집니다. 필요한 내용은 복사해 두세요.`}
+            confirmLabel="버리고 이동"
+            cancelLabel="계속 편집"
+            onCancel={() => {
+              // 근거로 이동하려다 취소했으면 그 근거도 잊는다 (나중에 그 노트를 열 때 강조하지 않게)
+              setEvidenceRequest(null)
+              setLeaving(null)
+            }}
+            onConfirm={() => {
+              show(leaving.to)
+              setLeaving(null)
+            }}
+          />
+        )}
+      </div>
+    </InsertBridgeContext.Provider>
   )
 }

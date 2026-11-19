@@ -275,3 +275,87 @@
   background: var(--color-surface-selected);
   box-shadow: inset 0 -2px 0 var(--color-ink);
 }
+
+/*
+ * 추천 카드를 놓을 자리 (W3-22b DropIndicator): 점 8 · 선 2 · "여기에 넣기" 11 Medium, accent-link.
+ * 본문 위에 겹쳐 그려 본문을 밀지 않는다. 자리의 세로 위치가 선의 가운데다.
+ */
+.editor :global(.cm-insert-indicator-layer) {
+  pointer-events: none;
+}
+
+.editor :global(.cm-insert-indicator) {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  transform: translateY(-50%);
+  color: var(--color-accent-link);
+}
+
+.editor :global(.cm-insert-indicator-dot) {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.editor :global(.cm-insert-indicator-line) {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.editor :global(.cm-insert-indicator-label) {
+  flex: none;
+  font: var(--text-ui-caption);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/*
+ * 노트에 넣은 추천 지식 (W3-22c MD/InsertedKnowledge): surface-muted, 왼쪽 3px recommended, 모서리 6, 여백 12·16, 줄 사이 6.
+ * 인용 블록의 줄마다 입히므로 위·아래 줄에만 모서리와 위아래 여백을 준다. 줄 사이는 빈 인용 줄(>)이 띄운다.
+ */
+.editor :global(.cm-lp-knowledge) {
+  /* 줄 사이 6은 빈 인용 줄(.cm-lp-knowledge-gap)이 띄운다 */
+  padding: 0 var(--space-16);
+  border-left: 3px solid var(--color-recommended);
+  background: var(--color-surface-muted);
+  color: var(--color-ink);
+  font: var(--text-ui-label);
+}
+
+.editor :global(.cm-lp-knowledge-top) {
+  padding-top: var(--space-12);
+  border-top-right-radius: 6px;
+}
+
+.editor :global(.cm-lp-knowledge-bottom) {
+  padding-bottom: var(--space-12);
+  border-bottom-right-radius: 6px;
+}
+
+/* 라벨 "새로 이해한 지식": 11 Medium recommended */
+.editor :global(.cm-lp-knowledge-label) {
+  color: var(--color-recommended);
+  font-size: 11px;
+}
+
+.editor :global(.cm-lp-knowledge-label strong),
+.editor :global(.cm-lp-knowledge-label .cm-lp-strong) {
+  font-weight: 500;
+}
+
+/* 결론: 14 Bold */
+.editor :global(.cm-lp-knowledge-conclusion) {
+  font: var(--text-ui-body-sm);
+}
+
+/* 줄 사이의 빈 인용 줄(`>`): W3-22c의 줄 간격(6)만큼만 띄운다 */
+.editor :global(.cm-lp-knowledge-gap) {
+  font-size: 0;
+  line-height: 6px;
+}

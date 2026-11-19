@@ -48,6 +48,21 @@ export interface NoteSaverOptions {
   delayMs?: number
 }
 
+/**
+ * saveNow()의 결과. ok가 아니면 status는 저장이 멈춘 이유다.
+ * login은 로그인이 만료돼 다시 로그인할 때까지 저장을 보내지 않는 상태 (status는 pending으로 보인다).
+ */
+export type SaveNowResult =
+  | { ok: true; version: number }
+  | { ok: false; status: 'invalid' | 'error' | 'conflict' | 'deleted' | 'login' | 'discarded' }
+
+type SaveFailure = Extract<SaveNowResult, { ok: false }>['status']
+
+interface SaveWaiter {
+  target: number
+  resolve: (result: SaveNowResult) => void
+}
+
 const sameDraft = (a: Draft, b: Draft) => a.title === b.title && a.body === b.body
 
 /** 서버가 정규화(NFC, 제목 앞뒤 공백 제거)해 저장한 내용과 같은지 */
@@ -76,6 +91,12 @@ export class NoteSaver {
   private discarded = false
   /** 로그인이 만료됐다. 다시 로그인해 resume()을 부를 때까지 저장을 보내지 않는다. */
   private waitingForLogin = false
+  /** 입력(edit)마다 하나씩 오른다. 저장이 어느 입력까지 담았는지 센다 */
+  private draftSeq = 0
+  /** 서버에 저장된 것으로 아는 마지막 입력의 번호 */
+  private savedSeq = 0
+  /** saveNow()로 기다리는 쪽. target 번호까지의 입력이 저장되면 ok로 끝난다 */
+  private waiters: SaveWaiter[] = []
 
   constructor(note: Note, options: NoteSaverOptions) {
     this.noteId = note.id
@@ -102,6 +123,7 @@ export class NoteSaver {
   /** 입력이 바뀔 때마다 부른다 */
   edit(change: Partial<Draft>) {
     this.draft = { ...this.draft, ...change }
+    this.draftSeq++
     if (this.isStopped()) return
     if (this.state.status === 'invalid' && this.draft.title === this.rejectedTitle) return
     this.rejectedTitle = null
@@ -122,12 +144,30 @@ export class NoteSaver {
     void this.run()
   }
 
+  /**
+   * 지금까지의 입력을 바로 저장하고, 그 내용이 서버에 저장되면 ok로 끝난다 (추천 카드를 끌어다 놓은 뒤, Issue #43).
+   * 저장이 멈추면(제목 문제·실패·충돌·삭제·로그인 만료) 그 이유로 끝난다. 이미 멈춰 있으면 보내지 않고 바로 끝난다.
+   * 실패(error)는 다음 입력이나 flush()에 다시 시도하는 상태지만, 기다리는 쪽에는 실패로 알린다.
+   */
+  saveNow(): Promise<SaveNowResult> {
+    const stopped = this.stoppedReason()
+    if (stopped) return Promise.resolve({ ok: false, status: stopped })
+    const result = new Promise<SaveNowResult>((resolve) =>
+      this.waiters.push({ target: this.draftSeq, resolve }),
+    )
+    this.flush()
+    // flush()가 보내지 않고 끝났을 수 있다 (바뀐 내용 없음, 고치지 않은 잘못된 제목)
+    this.settleWaiters()
+    return result
+  }
+
   /** 충돌 뒤 "다른 곳의 내용 불러오기": 서버 내용으로 바꾸고 자동 저장을 다시 켠다. 편집기에 채울 내용을 돌려준다. */
   loadServerVersion(note: Note): Draft {
     this.clearTimer()
     this.version = note.version
     this.draft = { title: note.title, body: note.body }
     this.saved = this.draft
+    this.savedSeq = this.draftSeq
     this.rejectedTitle = null
     this.setState({ status: 'saved', message: null, conflictNote: null })
     return this.draft
@@ -144,6 +184,12 @@ export class NoteSaver {
   discard() {
     this.discarded = true
     this.clearTimer()
+    this.settleWaiters()
+  }
+
+  /** 지금 저장을 보낼 수 있는지 (멈춘 상태·로그인 만료·지운 노트가 아님) */
+  canSave(): boolean {
+    return this.stoppedReason() === null
   }
 
   /** 서버에 아직 보내지 않은 내용이 있는지 (창을 닫기 전 경고용) */
@@ -167,6 +213,29 @@ export class NoteSaver {
 
   // --- 내부 ---
 
+  /** 저장을 보낼 수 없는 이유. 보낼 수 있으면 null */
+  private stoppedReason(): SaveFailure | null {
+    if (this.discarded) return 'discarded'
+    if (this.waitingForLogin) return 'login'
+    const { status } = this.state
+    if (status === 'conflict' || status === 'deleted') return status
+    if (status === 'invalid' && this.draft.title === this.rejectedTitle) return 'invalid'
+    return null
+  }
+
+  /** saveNow()로 기다리는 쪽을 끝낸다: 담긴 입력이 저장됐으면 ok, 저장이 멈췄거나 실패했으면 그 이유 */
+  private settleWaiters() {
+    if (this.waiters.length === 0) return
+    const stopped = this.stoppedReason() ?? (this.state.status === 'error' ? 'error' : null)
+    const waiting: SaveWaiter[] = []
+    for (const w of this.waiters) {
+      if (w.target <= this.savedSeq) w.resolve({ ok: true, version: this.version })
+      else if (stopped) w.resolve({ ok: false, status: stopped })
+      else waiting.push(w)
+    }
+    this.waiters = waiting
+  }
+
   private isStopped() {
     return (
       this.discarded ||
@@ -183,6 +252,7 @@ export class NoteSaver {
 
   private setState(patch: Partial<SaverState>) {
     this.state = { status: this.state.status, message: null, conflictNote: null, ...patch }
+    this.settleWaiters()
     this.listeners.forEach((l) => l())
   }
 
@@ -194,7 +264,9 @@ export class NoteSaver {
     if (this.isStopped()) return
 
     const snapshot = this.draft
+    const snapshotSeq = this.draftSeq
     if (sameDraft(snapshot, this.saved)) {
+      this.savedSeq = snapshotSeq
       this.setState({ status: 'saved' })
       return
     }
@@ -214,6 +286,7 @@ export class NoteSaver {
       this.version = note.version
       // 서버가 NFC 정규화·공백 제거를 하므로 돌려받은 값이 아니라 보낸 값을 기준으로 비교한다.
       this.saved = snapshot
+      this.savedSeq = snapshotSeq
       this.unconfirmed = null
       this.inFlight = false
       this.options.onSaved?.(note)

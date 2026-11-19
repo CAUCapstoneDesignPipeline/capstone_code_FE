@@ -16,11 +16,13 @@ import { FieldError } from '../../components/FieldError'
 import { useToast } from '../../components/toastContext'
 import { useApplySavedNote, useDeleteNote, useNote, useRecommendTrigger } from '../../data/queries'
 import { isAnalysisDebugEnabled } from '../../lib/debug'
+import { useInsertBridge, type InsertTarget } from '../recommend/insertBridge'
 import { AnalysisDebugButton } from './AnalysisDebugButton'
 import { AnalysisStatusIndicator } from './AnalysisStatusIndicator'
 import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
 import styles from './NoteEditor.module.css'
 import { NoteSaver, type Draft, type SaveStatus } from './noteSaver'
+import { routeBodyChange } from './recommendDrop'
 import { SaveStatusIndicator } from './SaveStatusIndicator'
 import { TopicDropdown } from './TopicDropdown'
 
@@ -86,6 +88,34 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
   const moreRef = useRef<HTMLButtonElement>(null)
   const remove = useDeleteNote()
   const toast = useToast()
+
+  // 추천 카드를 끌어다 놓을 곳으로 등록한다 (Issue #43). 넣은 블록은 바로 저장한다.
+  // 넣기는 입력이 아니므로 추천(분석) 트리거에 알리지 않는다 (onChange의 inserted).
+  const bridge = useInsertBridge()
+  useEffect(() => {
+    if (!bridge) return
+    const target: InsertTarget = {
+      noteId: note.id,
+      boundaries: () => bodyRef.current?.boundaries() ?? [],
+      describe: (pos) => bodyRef.current?.describeBoundary(pos) ?? null,
+      showIndicator: (pos, scroll) => bodyRef.current?.showInsertIndicator(pos, scroll),
+      insert: async (pos, markdown) => {
+        const body = bodyRef.current
+        // 저장이 멈춰 있으면 넣어도 저장되지 않는다. 넣지 않는다
+        if (!body || !saver.canSave()) return { ok: false, reason: 'stuck' }
+        body.insertBlock(pos, markdown)
+        const result = await saver.saveNow()
+        if (result.ok) return { ok: true }
+        return { ok: false, reason: 'failed', conflict: result.status === 'conflict' }
+      },
+      save: async () => {
+        const result = await saver.saveNow()
+        return result.ok ? { ok: true } : { ok: false, conflict: result.status === 'conflict' }
+      },
+    }
+    bridge.setTarget(target)
+    return () => bridge.setTarget(null, target)
+  }, [bridge, note.id, saver])
 
   // 노트를 떠날 때 남은 입력을 바로 저장한다.
   useEffect(() => () => saver.flush(), [saver])
@@ -257,7 +287,14 @@ export function NoteEditor({ note, registerLeaveGuard, onDeleted, analysis, ref 
             key={bodyDoc.key}
             ref={bodyRef}
             initialValue={bodyDoc.text}
-            onChange={(text) => edit({ body: text })}
+            onChange={(text, inserted) =>
+              routeBodyChange(text, inserted, {
+                input: (body) => edit({ body }),
+                save: (body) => saver.edit({ body }),
+              })
+            }
+            onRecommendationDrop={(id, pos) => bridge?.drop(id, pos)}
+            acceptsRecommendationDrop={() => bridge?.acceptsDrop(note.id) ?? false}
             placeholder="내용을 입력하세요"
             ariaLabel="본문"
             autoFocus={!isNew}

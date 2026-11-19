@@ -213,3 +213,69 @@
   color: var(--color-ink-muted);
   font: var(--text-ui-caption);
 }
+
+/* W3-22a Recommend/Body: 끌 수 있는 카드는 점선 테두리, 여백 10, 모서리 8 (8·10은 토큰이 없어 Figma 값 그대로) */
+.card {
+  padding: 10px;
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: 8px;
+  cursor: grab;
+}
+
+/* W3-22b: 끄는 동안 패널의 카드는 흐리게 */
+.dragging {
+  opacity: 0.35;
+}
+
+/* W3-22b DragGhost: 끄는 카드. 화면 밖에 잠깐 만들어 끌기 그림으로 쓴다 */
+.dragGhost {
+  position: fixed;
+  top: -10000px;
+  left: -10000px;
+  border: 1.5px solid var(--color-accent-link);
+  background: var(--color-surface-card);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  opacity: 0.95;
+}
+
+/* W3-22a Recommend/DragHint: surface-muted, 여백 6·8, 사이 6, 모서리 6, 11px 흐린 글자. 키보드로 넣는 손잡이 */
+.dragHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px var(--space-8);
+  border: 0;
+  border-radius: 6px;
+  background: var(--color-surface-muted);
+  color: var(--color-ink-muted);
+  font: var(--text-ui-caption);
+  font-size: 11px;
+  text-align: left;
+  cursor: grab;
+}
+
+.dragHint:disabled {
+  cursor: default;
+}
+
+.dragHint[aria-pressed='true'] {
+  outline: 1.5px solid var(--color-accent-link);
+}
+
+.dragHint .dragIcon {
+  width: 14px;
+  height: 14px;
+  mask-size: 14px 14px;
+}
+
+/* 화면에는 보이지 않고 화면 읽기 프로그램만 읽는다 */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
