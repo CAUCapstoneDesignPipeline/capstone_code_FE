@@ -4,6 +4,7 @@
 //   그동안 줌이 바뀌면 기준 배율도 따라 옮겨, 조용한 시간이 끝난 뒤에는 거기서부터 다시 센다
 // - 휠의 마우스 위치는 GALAXY_WHEEL_FRESH_MS 안의 것만 쓴다. 오래됐으면(− + 버튼·핀치 등) 화면 가운데 기준
 // - 단계를 바꾸라고 한 번 알리면 새 단계를 그릴 때까지 다시 알리지 않는다
+// - 검색 결과로 가는 동안(lock)은 줌·클릭으로 단계를 바꾸지 않는다. 풀린 뒤에도 조용한 시간을 둔다
 import { GALAXY_LEVEL_ZOOM, type Point, type ZoomStep } from './galaxy'
 
 /** 단계가 바뀐 뒤 줌 이벤트를 단계 판단에 쓰지 않는 시간 (ms). 실측 후 조정 */
@@ -36,6 +37,8 @@ export class GalaxyZoomGate {
   /** 단계를 바꾸라고 알렸다. 새 단계를 그릴 때까지 다시 알리지 않는다 */
   private moving = false
   private wheel: { point: Point; at: number } | null = null
+  /** 검색 결과로 가는 중 (galaxyNavigate.ts). 애니메이션의 줌으로도, 사용자의 줌·클릭으로도 단계를 바꾸지 않는다 */
+  private locked = false
 
   constructor(now: () => number = () => performance.now()) {
     this.now = now
@@ -83,7 +86,7 @@ export class GalaxyZoomGate {
    * 조용한 시간 동안은 판단하지 않고 기준을 지금 배율로 옮긴다.
    */
   onZoom(zoom: number, decide: (baseZoom: number) => ZoomStep): ZoomStep {
-    if (this.base === null || this.moving) return null
+    if (this.base === null || this.moving || this.locked) return null
     if (this.now() < this.quietUntil) {
       this.base = zoom
       return null
@@ -95,13 +98,33 @@ export class GalaxyZoomGate {
 
   /** 클릭으로 단계를 바꾸려 한다. 이미 바꾸는 중이면 false */
   startMoving(): boolean {
-    if (this.moving) return false
+    if (this.moving || this.locked) return false
     this.moving = true
     return true
   }
 
   /** 단계를 바꾸는 중인지 (빈 곳 클릭 등을 막는다) */
   isMoving(): boolean {
-    return this.moving
+    return this.moving || this.locked
+  }
+
+  /** 검색 결과로 가기 시작. 끝날 때(unlock)까지 줌·클릭으로 단계를 바꾸지 않는다 */
+  lock() {
+    this.locked = true
+  }
+
+  /**
+   * 검색 결과로 가기가 끝났다. 남은 줌 이벤트(애니메이션 끝·관성)로 단계가 바뀌지 않게 조용한 시간을 둔다.
+   * 기준 배율은 그 단계를 맞춘 배율 그대로라 도착 확대(arrivalZoom)가 들어가는 기준을 넘지 않는다
+   */
+  unlock() {
+    if (!this.locked) return
+    this.locked = false
+    this.quietUntil = this.now() + GALAXY_LEVEL_QUIET_MS
+  }
+
+  /** 지금 단계를 화면에 맞춘 배율 (도착 확대의 상한을 정할 때). 그리기 전이면 null */
+  baseZoom(): number | null {
+    return this.base
   }
 }
